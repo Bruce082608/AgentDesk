@@ -1,10 +1,35 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AgentEvent, AttachedFile, ChatMessage, GitSummary, PlanItem, ProviderBalanceResult, ProviderConfig, WorkspaceTreeItem } from "./global";
+import hljs from "highlight.js/lib/core";
+import bash from "highlight.js/lib/languages/bash";
+import css from "highlight.js/lib/languages/css";
+import diff from "highlight.js/lib/languages/diff";
+import javascript from "highlight.js/lib/languages/javascript";
+import json from "highlight.js/lib/languages/json";
+import markdown from "highlight.js/lib/languages/markdown";
+import powershell from "highlight.js/lib/languages/powershell";
+import python from "highlight.js/lib/languages/python";
+import typescript from "highlight.js/lib/languages/typescript";
+import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
+import "highlight.js/styles/github-dark.css";
+import type { AgentEvent, AttachedFile, ChatMessage, GitSummary, PermissionMode, PlanItem, ProviderBalanceResult, ProviderConfig, WorkspaceTreeItem } from "./global";
 import "./styles.css";
 
 const appName = "Bruce的秘密基地";
 const brandIconUrl = new URL("./assets/bruce-secret-base.jpg", import.meta.url).href;
+
+hljs.registerLanguage("bash", bash);
+hljs.registerLanguage("css", css);
+hljs.registerLanguage("diff", diff);
+hljs.registerLanguage("javascript", javascript);
+hljs.registerLanguage("json", json);
+hljs.registerLanguage("markdown", markdown);
+hljs.registerLanguage("powershell", powershell);
+hljs.registerLanguage("python", python);
+hljs.registerLanguage("typescript", typescript);
+hljs.registerLanguage("xml", xml);
+hljs.registerLanguage("yaml", yaml);
 
 type EventLogItem = {
   id: string;
@@ -31,6 +56,13 @@ type CommandItem = {
   error?: string;
 };
 
+type UserQuestionItem = {
+  id: string;
+  question: string;
+  context?: string;
+  status: "pending" | "dismissed";
+};
+
 type SearchMatch = {
   file: string;
   line: number;
@@ -53,9 +85,10 @@ type ChatSession = {
   updatedAt: number;
 };
 
-type SidebarSection = "files" | "advanced" | "help";
+type SidebarSection = "files" | "advanced";
 type ThemeMode = "light" | "dark";
 type Language = "zh" | "en";
+type ReasoningView = "preview" | "full" | "collapsed";
 
 const CHAT_SESSIONS_KEY = "agent-chat-sessions";
 const THEME_KEY = "agent-ui-theme";
@@ -80,15 +113,29 @@ const translations = {
     workspace: "Workspace",
     chooseFolder: "选择目录",
     notSelected: "未选择",
-    refreshFiles: "刷新文件",
-    advancedMenu: "进阶菜单",
     files: "文件",
     advanced: "进阶",
-    help: "帮助",
+    copy: "复制",
+    copied: "已复制",
+    regenerate: "重新生成",
+    rename: "重命名",
+    deleteSession: "删除",
+    renameSessionPrompt: "输入新的会话名称",
+    deleteSessionConfirm: "确定删除这个会话吗？",
+    reasoning: "思考过程",
+    expandReasoning: "完全展开",
+    collapseReasoning: "完全折叠",
+    previewReasoning: "显示三行",
+    answerQuestion: "回答",
+    dismiss: "忽略",
+    contextUsage: "上下文",
+    offlineTitle: "网络不可用",
+    offlineBody: "当前处于离线状态，请恢复网络后再发送请求。",
     searchPlaceholder: "搜索文件内容",
     searching: "搜索中",
     search: "搜索",
     noFiles: "暂无文件树",
+    emptyDir: "空",
     git: "Git",
     viewGitDiff: "查看 git diff",
     refreshGit: "刷新 Git",
@@ -122,21 +169,6 @@ const translations = {
     temperature: "Temperature",
     providerHintDeepSeek: "DeepSeek 参数从配置文件读取，API key 可用环境变量或本机临时保存。",
     providerHintCompatible: "适合任何 OpenAI Chat Completions 兼容网关。",
-    helpTitle: "Help",
-    helpChatsTitle: "对话与历史",
-    helpChatsBody: `点击“新建”会开启一个新的 agent 会话；左侧 Chats 列表会保留最近 ${MAX_SAVED_SESSIONS} 个对话。选择历史对话会恢复消息和当时的 workspace。`,
-    helpWorkspaceTitle: "Workspace 与文件",
-    helpWorkspaceBody: "先选择一个项目目录。Files 页面会显示文件树，可以点文件预览，再把文件加入上下文。搜索框会优先使用 rg 搜索内容。",
-    helpProviderTitle: "模型与 API",
-    helpProviderBody: "进入“进阶”页面，在 Provider 中选择 DeepSeek 或 OpenAI-compatible。切换 provider 会自动填入默认 Base URL、模型名、上下文预算和输出 token。API Key 会用 Electron safeStorage 加密保存，也可以用环境变量提供。",
-    helpGitTitle: "Git diff 与变更",
-    helpGitBody: "Git 功能在“进阶”页面。它会显示当前分支、变更文件和提交信息草稿。点击“查看 git diff”会把未暂存 diff 输出到右侧 Activity，点击变更文件可以直接预览。",
-    helpPatchTitle: "Patch 审批",
-    helpPatchBody: "agent 修改文件时会先提交 unified diff，不会立刻写入磁盘。你可以在右侧 Pending Changes 中查看 patch，选择应用或放弃。应用后会自动刷新文件树和 Git 状态。",
-    helpCommandTitle: "命令与高危操作",
-    helpCommandBody: "只读命令会自动执行；安装依赖、联网、删除文件、重置 Git 等操作会进入 Command Approvals。选择“执行并允许后续”后，本次应用运行期间后续命令会自动执行，也可以随时恢复确认。",
-    helpLongTaskTitle: "长时间任务",
-    helpLongTaskBody: "agent 会持续进行多轮工具调用，并在顶部显示运行状态。运行中可以点击“停止”取消当前请求。右侧 Activity 会记录工具调用、模型用量、错误和命令结果。",
     agentSession: "Agent Session",
     running: "运行中",
     ready: "就绪",
@@ -156,6 +188,11 @@ const translations = {
     commandApprovals: "Command Approvals",
     restoreConfirm: "恢复确认",
     autoApprovalBanner: "后续命令请求已自动允许，直到应用重启或手动恢复确认。",
+    permissionMode: "权限模式",
+    defaultPermission: "默认权限",
+    fullAccessPermission: "完全访问权限",
+    defaultPermissionHint: "默认权限：只读命令自动执行，写入、删除、安装、联网和高危操作会请求确认。",
+    fullAccessPermissionHint: "完全访问权限：agent 的命令和 patch 将自动执行/应用，适合你信任当前任务时使用。",
     apply: "应用",
     discard: "放弃",
     execute: "执行",
@@ -184,15 +221,29 @@ const translations = {
     workspace: "Workspace",
     chooseFolder: "Choose Folder",
     notSelected: "Not selected",
-    refreshFiles: "Refresh Files",
-    advancedMenu: "Advanced",
     files: "Files",
     advanced: "Advanced",
-    help: "Help",
+    copy: "Copy",
+    copied: "Copied",
+    regenerate: "Regenerate",
+    rename: "Rename",
+    deleteSession: "Delete",
+    renameSessionPrompt: "Enter a new chat name",
+    deleteSessionConfirm: "Delete this chat?",
+    reasoning: "Thinking",
+    expandReasoning: "Expand fully",
+    collapseReasoning: "Collapse",
+    previewReasoning: "Show 3 lines",
+    answerQuestion: "Answer",
+    dismiss: "Dismiss",
+    contextUsage: "Context",
+    offlineTitle: "Offline",
+    offlineBody: "You appear to be offline. Reconnect before sending a request.",
     searchPlaceholder: "Search file contents",
     searching: "Searching",
     search: "Search",
     noFiles: "No file tree yet",
+    emptyDir: "empty",
     git: "Git",
     viewGitDiff: "View git diff",
     refreshGit: "Refresh Git",
@@ -226,21 +277,6 @@ const translations = {
     temperature: "Temperature",
     providerHintDeepSeek: "DeepSeek settings are loaded from config. API keys can come from env vars or encrypted local storage.",
     providerHintCompatible: "Works with any OpenAI Chat Completions compatible gateway.",
-    helpTitle: "Help",
-    helpChatsTitle: "Chats and History",
-    helpChatsBody: `Click New to start a fresh agent chat. The Chats list keeps the latest ${MAX_SAVED_SESSIONS} conversations. Selecting a history item restores its messages and workspace.`,
-    helpWorkspaceTitle: "Workspace and Files",
-    helpWorkspaceBody: "Choose a project folder first. The Files page shows a file tree, supports previewing files, and lets you attach files as context. Search uses rg first when available.",
-    helpProviderTitle: "Models and API",
-    helpProviderBody: "Open Advanced and use Provider to switch between DeepSeek and OpenAI-compatible APIs. Switching provider fills default Base URL, model, context budget, and output tokens. API keys are encrypted with Electron safeStorage, or can be provided through environment variables.",
-    helpGitTitle: "Git Diff and Changes",
-    helpGitBody: "Git lives under Advanced. It shows the current branch, changed files, and a commit-message draft. View git diff writes the unstaged diff to Activity, and changed files can be opened for preview.",
-    helpPatchTitle: "Patch Approval",
-    helpPatchBody: "When the agent edits files, it proposes a unified diff first and does not write immediately. Review it in Pending Changes, then apply or discard it. Applying refreshes the file tree and Git state.",
-    helpCommandTitle: "Commands and High-risk Actions",
-    helpCommandBody: "Read-only commands run automatically. Installing dependencies, network access, deleting files, Git resets, and similar actions appear in Command Approvals. Execute and allow future approvals lets later commands run automatically for this app session.",
-    helpLongTaskTitle: "Long-running Work",
-    helpLongTaskBody: "The agent can keep calling tools across many rounds and shows status at the top. Use Stop to cancel the active request. Activity records tool calls, model usage, errors, and command output.",
     agentSession: "Agent Session",
     running: "Running",
     ready: "Ready",
@@ -260,6 +296,11 @@ const translations = {
     commandApprovals: "Command Approvals",
     restoreConfirm: "Restore confirm",
     autoApprovalBanner: "Future command requests are automatically allowed until the app restarts or confirmation is restored.",
+    permissionMode: "Permission mode",
+    defaultPermission: "Default",
+    fullAccessPermission: "Full access",
+    defaultPermissionHint: "Default: read-only commands run automatically; writes, deletes, installs, network, and high-risk actions ask for confirmation.",
+    fullAccessPermissionHint: "Full access: agent commands and patches run/apply automatically. Use when you trust the current task.",
     apply: "Apply",
     discard: "Discard",
     execute: "Run",
@@ -321,6 +362,11 @@ function loadChatSessions(): ChatSession[] {
         workspace: String(session.workspace || ""),
         messages: Array.isArray(session.messages)
           ? session.messages.filter((message: ChatMessage) => message?.role === "user" || message?.role === "assistant")
+              .map((message: ChatMessage) => ({
+                role: message.role,
+                content: String(message.content || ""),
+                reasoning: typeof message.reasoning === "string" ? message.reasoning : undefined
+              }))
           : [],
         createdAt: Number(session.createdAt) || Date.now(),
         updatedAt: Number(session.updatedAt) || Date.now()
@@ -357,7 +403,7 @@ function readStoredNumber(key: string, fallback: number, min: number, max: numbe
   return Math.min(Math.max(parsed, min), max);
 }
 
-function MarkdownContent({ content }: { content: string }) {
+function MarkdownContent({ content, copyLabel = translations.zh.copy, copiedLabel = translations.zh.copied }: { content: string; copyLabel?: string; copiedLabel?: string }) {
   const blocks: React.ReactNode[] = [];
   const lines = String(content ?? "").split(/\r?\n/);
   let paragraph: string[] = [];
@@ -383,10 +429,7 @@ function MarkdownContent({ content }: { content: string }) {
 
   const flushCode = () => {
     blocks.push(
-      <pre className="markdown-code" key={`code-${blocks.length}`}>
-        {codeLanguage && <span className="markdown-code-language">{codeLanguage}</span>}
-        <code>{codeLines.join("\n")}</code>
-      </pre>
+      <CodeBlock code={codeLines.join("\n")} language={codeLanguage} copyLabel={copyLabel} copiedLabel={copiedLabel} key={`code-${blocks.length}`} />
     );
     codeLines = [];
     codeLanguage = "";
@@ -502,6 +545,93 @@ function safeHref(value: string) {
   }
 }
 
+function isTreeItemVisible(item: WorkspaceTreeItem, expandedDirs: Set<string>) {
+  const parts = item.path.split("/");
+  parts.pop();
+  let current = "";
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : part;
+    if (!expandedDirs.has(current)) return false;
+  }
+  return true;
+}
+
+function getInitialExpandedDirs(items: WorkspaceTreeItem[]) {
+  const expanded = new Set<string>();
+  for (const item of items) {
+    if (item.type === "directory" && item.depth === 0) expanded.add(item.path);
+  }
+  return expanded;
+}
+
+function hasTreeChildren(items: WorkspaceTreeItem[], directoryPath: string) {
+  const prefix = `${directoryPath}/`;
+  return items.some((item) => item.path.startsWith(prefix));
+}
+
+function CodeBlock({ code, language, copyLabel, copiedLabel }: { code: string; language: string; copyLabel: string; copiedLabel: string }) {
+  const [copied, setCopied] = useState(false);
+  const highlighted = useMemo(() => {
+    const normalized = normalizeCodeLanguage(language);
+    try {
+      if (normalized && hljs.getLanguage(normalized)) {
+        return hljs.highlight(code, { language: normalized, ignoreIllegals: true }).value;
+      }
+      return hljs.highlightAuto(code).value;
+    } catch {
+      return escapeHtml(code);
+    }
+  }, [code, language]);
+
+  async function copyCode() {
+    await copyText(code);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <div className="markdown-code-wrap">
+      <div className="markdown-code-toolbar">
+        {language && <span className="markdown-code-language">{language}</span>}
+        <button type="button" className="code-copy" onClick={copyCode}>{copied ? copiedLabel : copyLabel}</button>
+      </div>
+      <pre className="markdown-code">
+        <code dangerouslySetInnerHTML={{ __html: highlighted }} />
+      </pre>
+    </div>
+  );
+}
+
+function normalizeCodeLanguage(language: string) {
+  const value = String(language || "").trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    js: "javascript",
+    jsx: "javascript",
+    ts: "typescript",
+    tsx: "typescript",
+    sh: "bash",
+    shell: "bash",
+    zsh: "bash",
+    ps1: "powershell",
+    py: "python",
+    md: "markdown",
+    yml: "yaml"
+  };
+  return aliases[value] || value;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function copyText(value: string) {
+  await navigator.clipboard.writeText(value);
+}
+
 function App() {
   const [workspace, setWorkspace] = useState("");
   const [input, setInput] = useState("");
@@ -527,10 +657,15 @@ function App() {
     readStoredNumber(COMPOSER_HEIGHT_KEY, 78, MIN_COMPOSER_HEIGHT, MAX_COMPOSER_HEIGHT)
   );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [renamingSessionId, setRenamingSessionId] = useState("");
+  const [renamingTitle, setRenamingTitle] = useState("");
+  const [reasoningViews, setReasoningViews] = useState<Record<string, ReasoningView>>({});
   const [events, setEvents] = useState<EventLogItem[]>([]);
   const [patches, setPatches] = useState<PatchItem[]>([]);
   const [commands, setCommands] = useState<CommandItem[]>([]);
+  const [questions, setQuestions] = useState<UserQuestionItem[]>([]);
   const [tree, setTree] = useState<WorkspaceTreeItem[]>([]);
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set());
   const [fileSearch, setFileSearch] = useState("");
   const [searchResults, setSearchResults] = useState<SearchMatch[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -550,11 +685,16 @@ function App() {
     requests: 0
   });
   const [commandAutoApproval, setCommandAutoApproval] = useState(false);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>("default");
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [contextTokenCount, setContextTokenCount] = useState(0);
   const [configPath, setConfigPath] = useState("");
   const [configLoaded, setConfigLoaded] = useState(false);
   const activeRequest = useRef<string | null>(null);
   const streamingMessageActive = useRef(false);
+  const reasoningMessageActive = useRef(false);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const followOutputRef = useRef(true);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const t = translations[language];
@@ -580,6 +720,33 @@ function App() {
   useEffect(() => {
     localStorage.setItem(COMPOSER_HEIGHT_KEY, String(composerHeight));
   }, [composerHeight]);
+
+  useEffect(() => {
+    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    return () => {
+      window.removeEventListener("online", updateOnlineStatus);
+      window.removeEventListener("offline", updateOnlineStatus);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      window.agentWindow.countTokens({ messages, input, attachments: attachedFiles })
+        .then((result) => {
+          if (!cancelled) setContextTokenCount(result.tokens);
+        })
+        .catch(() => {
+          if (!cancelled) setContextTokenCount(0);
+        });
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [messages, input, attachedFiles]);
 
   useEffect(() => {
     const savedSessions = loadChatSessions();
@@ -653,12 +820,35 @@ function App() {
     const list = messageListRef.current;
     if (!list) return;
     list.scrollTop = list.scrollHeight;
-  }, [messages, events, busy]);
+  }, [messages, events, patches, commands, questions, busy]);
 
   const providerHint = useMemo(() => {
     if (config.provider === "deepseek") return t.providerHintDeepSeek;
     return t.providerHintCompatible;
   }, [config.provider, t]);
+
+  const contextPercent = Math.min(100, Math.round((contextTokenCount / Math.max(config.contextTokens, 1)) * 100));
+  const contextUsageLabel = `${contextPercent}%`;
+
+  const visibleTree = useMemo(
+    () => tree.filter((item) => isTreeItemVisible(item, expandedDirs)),
+    [tree, expandedDirs]
+  );
+
+  const activePatches = useMemo(
+    () => patches.filter((patch) => patch.status === "pending" || patch.status === "failed"),
+    [patches]
+  );
+
+  const activeCommands = useMemo(
+    () => commands.filter((command) => command.status === "pending" || command.status === "failed"),
+    [commands]
+  );
+
+  const activeQuestions = useMemo(
+    () => questions.filter((question) => question.status === "pending"),
+    [questions]
+  );
 
   function handleAgentEvent(event: AgentEvent) {
     if (event.type === "done") {
@@ -666,17 +856,32 @@ function App() {
       setBusy(false);
       activeRequest.current = null;
       streamingMessageActive.current = false;
+      reasoningMessageActive.current = false;
       return;
     }
 
     if (event.type === "stream_delta") {
       setMessages((current) => {
-        if (!streamingMessageActive.current || current[current.length - 1]?.role !== "assistant") {
+        if ((!streamingMessageActive.current && !reasoningMessageActive.current) || current[current.length - 1]?.role !== "assistant") {
           streamingMessageActive.current = true;
           return [...current, { role: "assistant", content: event.text }];
         }
         const next = [...current];
         next[next.length - 1] = { ...next[next.length - 1], content: next[next.length - 1].content + event.text };
+        return next;
+      });
+      return;
+    }
+
+    if (event.type === "reasoning_delta") {
+      setMessages((current) => {
+        if ((!streamingMessageActive.current && !reasoningMessageActive.current) || current[current.length - 1]?.role !== "assistant") {
+          reasoningMessageActive.current = true;
+          return [...current, { role: "assistant", content: "", reasoning: event.text }];
+        }
+        const next = [...current];
+        const last = next[next.length - 1];
+        next[next.length - 1] = { ...last, reasoning: `${last.reasoning || ""}${event.text}` };
         return next;
       });
       return;
@@ -688,10 +893,23 @@ function App() {
     }
 
     if (event.type === "model") {
-      if (event.message.trim() && !streamingMessageActive.current) {
-        setMessages((current) => [...current, { role: "assistant", content: event.message }]);
+      if (streamingMessageActive.current || reasoningMessageActive.current) {
+        setMessages((current) => {
+          if (current[current.length - 1]?.role !== "assistant") return current;
+          const next = [...current];
+          const last = next[next.length - 1];
+          next[next.length - 1] = {
+            ...last,
+            content: last.content || event.message || "",
+            reasoning: event.reasoning || last.reasoning
+          };
+          return next;
+        });
+      } else if (event.message.trim() || event.reasoning?.trim()) {
+        setMessages((current) => [...current, { role: "assistant", content: event.message, reasoning: event.reasoning || undefined }]);
       }
       streamingMessageActive.current = false;
+      reasoningMessageActive.current = false;
       recordTokenUsage(event.usage);
       setEvents((current) => [
         ...current,
@@ -746,6 +964,13 @@ function App() {
       return;
     }
 
+    if (event.type === "patch_applied") {
+      appendEvent("patch", "Patch 已自动应用", `${event.summary || event.patchId}${event.strategy ? ` (${event.strategy})` : ""}`);
+      refreshWorkspace();
+      refreshGit();
+      return;
+    }
+
     if (event.type === "command_pending") {
       setCommands((current) => [
         { id: event.commandId, command: event.command, reason: event.reason, highRisk: Boolean(event.highRisk), status: "pending" },
@@ -755,12 +980,22 @@ function App() {
       return;
     }
 
+    if (event.type === "ask_user_pending") {
+      setQuestions((current) => [
+        { id: crypto.randomUUID(), question: event.question, context: event.context, status: "pending" },
+        ...current
+      ]);
+      appendEvent("tool", "Agent 请求用户输入", event.question);
+      return;
+    }
+
     if (event.type === "error") {
       appendEvent("error", "Agent 错误", event.message);
       setMessages((current) => [...current, { role: "assistant", content: `请求失败：${event.message}` }]);
       setBusy(false);
       activeRequest.current = null;
       streamingMessageActive.current = false;
+      reasoningMessageActive.current = false;
     }
 
     if (event.type === "cancelled") {
@@ -769,6 +1004,7 @@ function App() {
       setBusy(false);
       activeRequest.current = null;
       streamingMessageActive.current = false;
+      reasoningMessageActive.current = false;
     }
   }
 
@@ -817,12 +1053,15 @@ function App() {
     setEvents([]);
     setPatches([]);
     setCommands([]);
+    setQuestions([]);
     setPlanItems([]);
     setAttachedFiles([]);
     setPreviewFile(null);
     setSearchResults([]);
     setFileSearch("");
+    setReasoningViews({});
     streamingMessageActive.current = false;
+    reasoningMessageActive.current = false;
   }
 
   function startNewSession() {
@@ -855,6 +1094,56 @@ function App() {
     }
   }
 
+  function startRenameSession(sessionId: string) {
+    if (busy) return;
+    const session = sessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    setRenamingSessionId(sessionId);
+    setRenamingTitle(session.title);
+  }
+
+  function commitRenameSession(sessionId: string) {
+    const nextTitle = renamingTitle.trim();
+    if (!nextTitle) return;
+    setSessions((current) => {
+      const next = current.map((item) => item.id === sessionId ? { ...item, title: nextTitle, updatedAt: Date.now() } : item);
+      saveChatSessions(next);
+      return next;
+    });
+    setRenamingSessionId("");
+    setRenamingTitle("");
+  }
+
+  function cancelRenameSession() {
+    setRenamingSessionId("");
+    setRenamingTitle("");
+  }
+
+  function deleteSession(sessionId: string) {
+    if (busy) return;
+    if (!window.confirm(t.deleteSessionConfirm)) return;
+    setSessions((current) => {
+      const next = current.filter((item) => item.id !== sessionId);
+      const fallback = next[0] ?? createBlankSession(workspace);
+      const normalized = next.length > 0 ? next : [fallback];
+      saveChatSessions(normalized);
+      if (sessionId === activeSessionId) {
+        setActiveSessionId(fallback.id);
+        setMessages(fallback.messages);
+        setWorkspace(fallback.workspace);
+        resetTransientState();
+        if (fallback.workspace) {
+          refreshWorkspace(fallback.workspace);
+          refreshGit(fallback.workspace);
+        } else {
+          setTree([]);
+          setGitSummary(null);
+        }
+      }
+      return normalized;
+    });
+  }
+
   function clearCurrentSession() {
     if (busy) return;
     setMessages([]);
@@ -879,9 +1168,19 @@ function App() {
     try {
       const result = await window.agentWindow.getWorkspaceTree(target);
       setTree(result.items);
+      setExpandedDirs(getInitialExpandedDirs(result.items));
     } catch (error) {
       appendEvent("error", "文件树读取失败", error instanceof Error ? error.message : String(error));
     }
+  }
+
+  function toggleDirectory(path: string) {
+    setExpandedDirs((current) => {
+      const next = new Set(current);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
   }
 
   async function refreshGit(target = workspace) {
@@ -947,28 +1246,86 @@ function App() {
     const trimmed = input.trim();
     if (!trimmed || busy) return;
 
+    await startAgentRequest({
+      inputText: trimmed,
+      priorMessages: messages,
+      nextMessages: [...messages, { role: "user", content: trimmed }],
+      clearInput: true
+    });
+  }
+
+  async function startAgentRequest({
+    inputText,
+    priorMessages,
+    nextMessages,
+    clearInput
+  }: {
+    inputText: string;
+    priorMessages: ChatMessage[];
+    nextMessages: ChatMessage[];
+    clearInput?: boolean;
+  }) {
     if (!workspace && attachedFiles.length === 0) {
       appendEvent("error", "缺少 workspace", "请先选择一个工作区目录。");
+      return;
+    }
+    if (!navigator.onLine) {
+      setIsOnline(false);
+      appendEvent("error", t.offlineTitle, t.offlineBody);
       return;
     }
 
     const requestId = crypto.randomUUID();
     activeRequest.current = requestId;
     streamingMessageActive.current = false;
+    reasoningMessageActive.current = false;
     followOutputRef.current = true;
     setBusy(true);
-    setInput("");
+    if (clearInput) setInput("");
     setPlanItems([{ step: t.waitingPlan, status: "in_progress" }]);
-    setMessages((current) => [...current, { role: "user", content: trimmed }]);
+    setMessages(nextMessages);
 
     await window.agentWindow.sendMessage({
       requestId,
       workspace: workspace || ".",
-      input: trimmed,
+      input: inputText,
       providerConfig: config,
-      messages,
+      messages: priorMessages,
       attachments: attachedFiles
     });
+  }
+
+  async function copyMessage(message: ChatMessage) {
+    await copyText(message.content || message.reasoning || "");
+    appendEvent("status", t.copied, message.role === "user" ? t.you : t.agent);
+  }
+
+  async function regenerateMessage(index: number) {
+    if (busy) return;
+    const userIndex = messages.slice(0, index + 1).map((message) => message.role).lastIndexOf("user");
+    if (userIndex < 0) return;
+    const prompt = messages[userIndex].content.trim();
+    if (!prompt) return;
+    await startAgentRequest({
+      inputText: prompt,
+      priorMessages: messages.slice(0, userIndex),
+      nextMessages: messages.slice(0, userIndex + 1)
+    });
+  }
+
+  function answerQuestion(questionId: string) {
+    const question = questions.find((item) => item.id === questionId);
+    if (!question) return;
+    composerInputRef.current?.focus();
+    setQuestions((current) => current.map((item) => item.id === questionId ? { ...item, status: "dismissed" } : item));
+  }
+
+  function dismissQuestion(questionId: string) {
+    setQuestions((current) => current.map((item) => item.id === questionId ? { ...item, status: "dismissed" } : item));
+  }
+
+  function updateReasoningView(key: string, view: ReasoningView) {
+    setReasoningViews((current) => ({ ...current, [key]: view }));
   }
 
   async function cancelActiveRequest() {
@@ -993,6 +1350,11 @@ function App() {
 
   async function testApi() {
     if (testingApi || busy) return;
+    if (!navigator.onLine) {
+      setIsOnline(false);
+      appendEvent("error", t.offlineTitle, t.offlineBody);
+      return;
+    }
     setTestingApi(true);
     appendEvent("status", "API 检测", "正在发送最小 health check 请求...");
     try {
@@ -1022,6 +1384,11 @@ function App() {
 
   async function queryBalance() {
     if (checkingBalance || busy) return;
+    if (!navigator.onLine) {
+      setIsOnline(false);
+      appendEvent("error", t.offlineTitle, t.offlineBody);
+      return;
+    }
     setCheckingBalance(true);
     setBalanceResult(null);
     appendEvent("status", "API 余额查询", "正在请求 DeepSeek 官方余额接口...");
@@ -1043,7 +1410,7 @@ function App() {
     const result = await window.agentWindow.applyPatch(patchId);
     if (result.ok) {
       setPatches((current) => current.map((patch) => patch.id === patchId ? { ...patch, status: "applied" } : patch));
-      appendEvent("patch", "Patch 已应用", result.result.summary);
+      appendEvent("patch", "Patch 已应用", `${result.result.summary}${result.result.strategy ? ` (${result.result.strategy})` : ""}`);
       await refreshWorkspace();
       await refreshGit();
     } else {
@@ -1064,6 +1431,7 @@ function App() {
       setCommands((current) => current.map((command) => command.id === commandId ? { ...command, status: "approved", result: result.result.result } : command));
       appendEvent("tool", `命令已执行：${result.result.command}`, result.result.result);
       setCommandAutoApproval(result.result.autoApproveFutureCommands);
+      setPermissionMode(result.result.permissionMode === "full" ? "full" : "default");
       if (result.result.autoApproveFutureCommands) {
         appendEvent("status", "后续命令已允许", "本次应用运行期间，agent 后续命令请求将自动执行。");
       }
@@ -1081,7 +1449,19 @@ function App() {
   async function resetCommandAutoApproval() {
     const result = await window.agentWindow.setCommandAutoApproval(false);
     setCommandAutoApproval(result.autoApproveFutureCommands);
+    setPermissionMode(result.permissionMode === "full" ? "full" : "default");
     appendEvent("status", "后续命令确认已恢复", "agent 后续高危或副作用命令会再次请求确认。");
+  }
+
+  async function updatePermissionMode(nextMode: PermissionMode) {
+    const result = await window.agentWindow.setCommandAutoApproval(nextMode === "full");
+    setPermissionMode(result.permissionMode === "full" ? "full" : "default");
+    setCommandAutoApproval(result.autoApproveFutureCommands);
+    appendEvent(
+      "status",
+      nextMode === "full" ? "已启用完全访问权限" : "已启用默认权限",
+      nextMode === "full" ? t.fullAccessPermissionHint : t.defaultPermissionHint
+    );
   }
 
   function updateProvider(provider: ProviderConfig["provider"]) {
@@ -1164,15 +1544,43 @@ function App() {
           </div>
           <div className="session-list">
             {sessions.map((session) => (
-              <button
-                className={`session-item ${session.id === activeSessionId ? "active" : ""}`}
-                key={session.id}
-                onClick={() => selectSession(session.id)}
-                disabled={busy}
-              >
-                <strong>{session.title}</strong>
-                <span>{session.messages.length} {t.messagesUnit} · {formatSessionTime(session.updatedAt, language)}</span>
-              </button>
+              <div className={`session-row ${session.id === activeSessionId ? "active" : ""}`} key={session.id}>
+                {renamingSessionId === session.id ? (
+                  <input
+                    className="session-edit-input"
+                    value={renamingTitle}
+                    autoFocus
+                    aria-label={t.renameSessionPrompt}
+                    onChange={(event) => setRenamingTitle(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") commitRenameSession(session.id);
+                      if (event.key === "Escape") cancelRenameSession();
+                    }}
+                  />
+                ) : (
+                  <button
+                    className="session-item"
+                    onClick={() => selectSession(session.id)}
+                    disabled={busy}
+                  >
+                    <strong>{session.title}</strong>
+                    <span>{session.messages.length} {t.messagesUnit} · {formatSessionTime(session.updatedAt, language)}</span>
+                  </button>
+                )}
+                <div className="session-actions">
+                  {renamingSessionId === session.id ? (
+                    <>
+                      <button type="button" disabled={!renamingTitle.trim()} onClick={() => commitRenameSession(session.id)} title={t.rename} aria-label={t.rename}>✓</button>
+                      <button type="button" onClick={cancelRenameSession} title={t.discard} aria-label={t.discard}>×</button>
+                    </>
+                  ) : (
+                    <>
+                      <button type="button" disabled={busy} onClick={() => startRenameSession(session.id)} title={t.rename} aria-label={t.rename}>✎</button>
+                      <button type="button" disabled={busy || sessions.length <= 1} onClick={() => deleteSession(session.id)} title={t.deleteSession} aria-label={t.deleteSession}>×</button>
+                    </>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
         </section>
@@ -1181,16 +1589,11 @@ function App() {
           <div className="panel-title">{t.workspace}</div>
           <button className="primary" onClick={chooseWorkspace}>{t.chooseFolder}</button>
           <div className="path-box">{workspace || t.notSelected}</div>
-          <div className="row-actions">
-            <button className="secondary" onClick={() => refreshWorkspace()} disabled={!workspace}>{t.refreshFiles}</button>
-            <button className="secondary" onClick={() => setSidebarSection("advanced")}>{t.advancedMenu}</button>
-          </div>
         </section>
 
         <nav className="section-tabs" aria-label={t.sidebarNav}>
           <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")}>{t.files}</button>
           <button className={sidebarSection === "advanced" ? "active" : ""} onClick={() => setSidebarSection("advanced")}>{t.advanced}</button>
-          <button className={sidebarSection === "help" ? "active" : ""} onClick={() => setSidebarSection("help")}>{t.help}</button>
         </nav>
 
         {sidebarSection === "files" && (
@@ -1222,15 +1625,16 @@ function App() {
             )}
             <div className="file-tree">
               {tree.length === 0 && <span className="muted">{t.noFiles}</span>}
-              {tree.map((item) => (
+              {visibleTree.map((item) => (
                 <button
-                  className={`file-node ${item.type}`}
+                  className={`file-node ${item.type} ${item.type === "directory" && expandedDirs.has(item.path) ? "expanded" : ""}`}
                   key={item.path}
                   style={{ paddingLeft: `${8 + item.depth * 12}px` }}
-                  disabled={item.type === "directory"}
-                  onClick={() => openFile(item.path)}
+                  onClick={() => item.type === "directory" ? toggleDirectory(item.path) : openFile(item.path)}
                 >
-                  <span>{item.type === "directory" ? "▸" : "·"}</span>{item.name}
+                  <span>{item.type === "directory" ? (expandedDirs.has(item.path) ? "▾" : "▸") : "·"}</span>
+                  {item.name}
+                  {item.type === "directory" && !hasTreeChildren(tree, item.path) && <small>{t.emptyDir}</small>}
                 </button>
               ))}
             </div>
@@ -1385,39 +1789,6 @@ function App() {
           </>
         )}
 
-        {sidebarSection === "help" && (
-          <section className="panel help-panel">
-            <div className="panel-title">{t.helpTitle}</div>
-            <details open>
-              <summary>{t.helpChatsTitle}</summary>
-              <p>{t.helpChatsBody}</p>
-            </details>
-            <details>
-              <summary>{t.helpWorkspaceTitle}</summary>
-              <p>{t.helpWorkspaceBody}</p>
-            </details>
-            <details>
-              <summary>{t.helpProviderTitle}</summary>
-              <p>{t.helpProviderBody}</p>
-            </details>
-            <details>
-              <summary>{t.helpGitTitle}</summary>
-              <p>{t.helpGitBody}</p>
-            </details>
-            <details>
-              <summary>{t.helpPatchTitle}</summary>
-              <p>{t.helpPatchBody}</p>
-            </details>
-            <details>
-              <summary>{t.helpCommandTitle}</summary>
-              <p>{t.helpCommandBody}</p>
-            </details>
-            <details>
-              <summary>{t.helpLongTaskTitle}</summary>
-              <p>{t.helpLongTaskBody}</p>
-            </details>
-          </section>
-        )}
       </aside>
 
       <div
@@ -1489,14 +1860,120 @@ function App() {
               <p>{t.emptyBody}</p>
             </div>
           )}
-          {messages.map((message, index) => (
-            <article className={`message ${message.role}`} key={`${message.role}-${index}`}>
-              <div className="role">{message.role === "user" ? t.you : t.agent}</div>
-              <div className="message-body">
-                <MarkdownContent content={message.content} />
+          {messages.map((message, index) => {
+            const reasoningKey = `${message.role}-${index}`;
+            const reasoningView = reasoningViews[reasoningKey] || "preview";
+            return (
+              <article className={`message ${message.role}`} key={`${message.role}-${index}`}>
+                <div className="message-meta">
+                  <div className="role">{message.role === "user" ? t.you : t.agent}</div>
+                  <div className="message-actions">
+                    <button type="button" onClick={() => copyMessage(message)} title={t.copy} aria-label={t.copy}>⧉</button>
+                    {message.role === "assistant" && (
+                      <button type="button" onClick={() => regenerateMessage(index)} disabled={busy} title={t.regenerate} aria-label={t.regenerate}>↻</button>
+                    )}
+                  </div>
+                </div>
+                <div className="message-body">
+                  {message.reasoning && (
+                    <section className={`reasoning-block ${reasoningView}`}>
+                      <div className="reasoning-header">
+                        <button
+                          type="button"
+                          className="reasoning-title"
+                          onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "preview" : "collapsed")}
+                        >
+                          {t.reasoning}
+                        </button>
+                        <div className="reasoning-actions">
+                          {reasoningView === "full" ? (
+                            <button type="button" onClick={() => updateReasoningView(reasoningKey, "preview")} title={t.previewReasoning} aria-label={t.previewReasoning}>≡</button>
+                          ) : (
+                            <button type="button" onClick={() => updateReasoningView(reasoningKey, "full")} title={t.expandReasoning} aria-label={t.expandReasoning}>↕</button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "preview" : "collapsed")}
+                            title={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
+                            aria-label={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
+                          >
+                            {reasoningView === "collapsed" ? "≡" : "×"}
+                          </button>
+                        </div>
+                      </div>
+                      {reasoningView !== "collapsed" && <pre>{message.reasoning}</pre>}
+                    </section>
+                  )}
+                  {message.content ? <MarkdownContent content={message.content} copyLabel={t.copy} copiedLabel={t.copied} /> : null}
+                </div>
+              </article>
+            );
+          })}
+          {(activePatches.length > 0 || activeCommands.length > 0 || activeQuestions.length > 0) && (
+            <section className="conversation-approvals" aria-live="polite">
+              <div className="role">{t.needsApproval}</div>
+              <div className="approval-thread">
+                {activeQuestions.length > 0 && (
+                  <section className="patch-stack">
+                    <div className="panel-title">{language === "zh" ? "Agent 提问" : "Agent Questions"}</div>
+                    {activeQuestions.map((question) => (
+                      <div className="question-card" key={question.id}>
+                        {question.context && <div className="question-context">{question.context}</div>}
+                        <div className="question-text">{question.question}</div>
+                        <div className="patch-actions">
+                          <button className="primary small" onClick={() => answerQuestion(question.id)}>{t.answerQuestion}</button>
+                          <button className="secondary small" onClick={() => dismissQuestion(question.id)}>{t.dismiss}</button>
+                        </div>
+                      </div>
+                    ))}
+                  </section>
+                )}
+                {activePatches.length > 0 && (
+                  <section className="patch-stack">
+                    <div className="panel-title">{t.pendingChanges}</div>
+                    {activePatches.map((patch) => (
+                      <details className={`patch-card ${patch.status}`} key={patch.id} open={patch.status === "pending" || patch.status === "failed"}>
+                        <summary>
+                          <span>{patch.summary}</span>
+                          <small>{patch.status}</small>
+                        </summary>
+                        <pre>{patch.patch}</pre>
+                        {patch.error && <div className="patch-error">{patch.error}</div>}
+                        <div className="patch-actions">
+                          <button className="primary small" disabled={patch.status !== "pending"} onClick={() => applyPatch(patch.id)}>{t.apply}</button>
+                          <button className="secondary small" disabled={patch.status !== "pending"} onClick={() => discardPatch(patch.id)}>{t.discard}</button>
+                        </div>
+                      </details>
+                    ))}
+                  </section>
+                )}
+                {activeCommands.length > 0 && (
+                  <section className="patch-stack">
+                    <div className="panel-title command-title">
+                      <span>{t.commandApprovals}</span>
+                      {commandAutoApproval && <button className="secondary tiny" onClick={resetCommandAutoApproval}>{t.restoreConfirm}</button>}
+                    </div>
+                    {commandAutoApproval && <div className="approval-banner">{t.autoApprovalBanner}</div>}
+                    {activeCommands.map((command) => (
+                      <details className={`patch-card command-card ${command.highRisk ? "high-risk" : ""} ${command.status}`} key={command.id} open={command.status === "pending" || command.status === "failed"}>
+                        <summary>
+                          <span>{command.command}</span>
+                          <small>{command.highRisk ? `high / ${command.status}` : command.status}</small>
+                        </summary>
+                        <div className="patch-error">{command.error || command.reason}</div>
+                        {command.result && <pre>{command.result}</pre>}
+                        <div className="patch-actions">
+                          <button className="primary small" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id)}>{t.execute}</button>
+                          <button className="primary small allow-future" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id, true)}>{t.executeAllowFuture}</button>
+                          <button className="secondary small" disabled={command.status !== "pending"} onClick={() => discardCommand(command.id)}>{t.discard}</button>
+                        </div>
+                      </details>
+                    ))}
+                  </section>
+                )}
               </div>
-            </article>
-          ))}
+            </section>
+          )}
           {busy && <div className="thinking">{t.thinking}</div>}
           <div ref={bottomRef} />
         </div>
@@ -1509,16 +1986,35 @@ function App() {
             aria-label={language === "zh" ? "调整底部对话框高度" : "Resize composer height"}
             onPointerDown={startComposerResize}
           />
-          <button className="upload-button" type="button" disabled={busy} onClick={uploadAttachmentFiles}>{t.uploadFiles}</button>
-          <textarea
-            value={input}
-            placeholder={t.composerPlaceholder}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) send();
-            }}
-          />
-          <button className="send" disabled={busy || !input.trim()} onClick={send}>{t.send}</button>
+          <div className="composer-surface">
+            <textarea
+              ref={composerInputRef}
+              value={input}
+              placeholder={t.composerPlaceholder}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) send();
+              }}
+            />
+            <div className="composer-controls">
+              <label className="permission-inline" title={permissionMode === "full" ? t.fullAccessPermissionHint : t.defaultPermissionHint}>
+                <span>{t.permissionMode}</span>
+                <select value={permissionMode} onChange={(event) => updatePermissionMode(event.target.value as PermissionMode)}>
+                  <option value="default">{t.defaultPermission}</option>
+                  <option value="full">{t.fullAccessPermission}</option>
+                </select>
+              </label>
+              <div className="composer-actions">
+                {!isOnline && <span className="offline-pill">{t.offlineTitle}</span>}
+                <span className={`context-meter ${contextPercent >= 90 ? "danger" : contextPercent >= 70 ? "warn" : ""}`} title={`${t.contextUsage}: ${contextTokenCount.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} / ${config.contextTokens.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} tokens`}>
+                  {contextUsageLabel}
+                </span>
+                <button className="composer-icon" type="button" disabled={busy} onClick={uploadAttachmentFiles} title={t.uploadFiles} aria-label={t.uploadFiles}>+</button>
+                {busy && <button className="composer-icon danger" type="button" onClick={cancelActiveRequest} title={t.stop} aria-label={t.stop}>■</button>}
+                <button className="send composer-send" type="button" disabled={busy || !input.trim()} onClick={send} title={t.send} aria-label={t.send}>↑</button>
+              </div>
+            </div>
+          </div>
         </footer>
       </main>
 
@@ -1532,56 +2028,8 @@ function App() {
 
       <aside className="activity">
         <div className="activity-header">{t.activity}</div>
-        {(patches.length > 0 || commands.length > 0) && (
-          <div className="approval-dock">
-            <div className="approval-dock-title">{t.needsApproval}</div>
-            {patches.length > 0 && (
-            <section className="patch-stack">
-              <div className="panel-title">{t.pendingChanges}</div>
-              {patches.map((patch) => (
-                <details className={`patch-card ${patch.status}`} key={patch.id} open={patch.status === "pending" || patch.status === "failed"}>
-                  <summary>
-                    <span>{patch.summary}</span>
-                    <small>{patch.status}</small>
-                  </summary>
-                  <pre>{patch.patch}</pre>
-                  {patch.error && <div className="patch-error">{patch.error}</div>}
-                  <div className="patch-actions">
-                    <button className="primary small" disabled={patch.status !== "pending"} onClick={() => applyPatch(patch.id)}>{t.apply}</button>
-                    <button className="secondary small" disabled={patch.status !== "pending"} onClick={() => discardPatch(patch.id)}>{t.discard}</button>
-                  </div>
-                </details>
-              ))}
-            </section>
-            )}
-            {commands.length > 0 && (
-            <section className="patch-stack">
-              <div className="panel-title command-title">
-                <span>{t.commandApprovals}</span>
-                {commandAutoApproval && <button className="secondary tiny" onClick={resetCommandAutoApproval}>{t.restoreConfirm}</button>}
-              </div>
-              {commandAutoApproval && <div className="approval-banner">{t.autoApprovalBanner}</div>}
-              {commands.map((command) => (
-                <details className={`patch-card command-card ${command.highRisk ? "high-risk" : ""} ${command.status}`} key={command.id} open={command.status === "pending" || command.status === "failed"}>
-                  <summary>
-                    <span>{command.command}</span>
-                    <small>{command.highRisk ? `high / ${command.status}` : command.status}</small>
-                  </summary>
-                  <div className="patch-error">{command.error || command.reason}</div>
-                  {command.result && <pre>{command.result}</pre>}
-                  <div className="patch-actions">
-                    <button className="primary small" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id)}>{t.execute}</button>
-                    <button className="primary small allow-future" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id, true)}>{t.executeAllowFuture}</button>
-                    <button className="secondary small" disabled={command.status !== "pending"} onClick={() => discardCommand(command.id)}>{t.discard}</button>
-                  </div>
-                </details>
-              ))}
-            </section>
-            )}
-          </div>
-        )}
         <div className="event-list">
-          {events.length === 0 && patches.length === 0 && commands.length === 0 && <div className="muted">{t.activityEmpty}</div>}
+          {events.length === 0 && <div className="muted">{t.activityEmpty}</div>}
           {events.map((event) => (
             <details className={`event ${event.kind}`} key={event.id} open={event.kind === "error"}>
               <summary>{event.title}</summary>

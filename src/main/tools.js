@@ -10,7 +10,7 @@ const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".v
 const MAX_FILE_BYTES = 120_000;
 const pendingPatches = new Map();
 const pendingCommands = new Map();
-let autoApproveFutureCommands = false;
+let permissionMode = "default";
 
 export const toolDefinitions = [
   {
@@ -68,8 +68,54 @@ export const toolDefinitions = [
   {
     type: "function",
     function: {
+      name: "write_file",
+      description: "Create or overwrite a UTF-8 text file in the workspace. In default permission mode this produces a reviewable patch; in full access mode it writes immediately.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Workspace-relative file path to create or overwrite." },
+          content: { type: "string", description: "Complete file content." },
+          summary: { type: "string", description: "Short summary shown to the user if approval is needed." }
+        },
+        required: ["path", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_file",
+      description: "Delete a file from the workspace. In default permission mode this produces a reviewable deletion patch; in full access mode it deletes immediately.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Workspace-relative file path to delete." },
+          summary: { type: "string", description: "Short summary shown to the user if approval is needed." }
+        },
+        required: ["path"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "ask_user",
+      description: "Ask the user a concise clarifying question when required information is missing or a decision is needed.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: { type: "string", description: "The question to show to the user." },
+          context: { type: "string", description: "Optional short context explaining why the answer is needed." }
+        },
+        required: ["question"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "apply_patch",
-      description: "Propose a unified diff patch for user review. The patch is not applied until the user approves it in the UI.",
+      description: "Propose a unified diff patch. In default permission mode the user reviews it in the UI; in full access mode it is applied automatically.",
       parameters: {
         type: "object",
         properties: {
@@ -139,6 +185,12 @@ export async function executeToolCall(toolCall, workspace) {
       return listFiles(workspace, args.directory || "", args.max_files || 120);
     case "read_file":
       return readFile(workspace, args.path);
+    case "write_file":
+      return writeFile(workspace, args.path, args.content, args.summary);
+    case "delete_file":
+      return deleteFile(workspace, args.path, args.summary);
+    case "ask_user":
+      return askUser(args.question, args.context);
     case "apply_patch":
       return proposePatch(workspace, args.patch, args.summary);
     case "search_files":
@@ -237,6 +289,62 @@ async function readFile(workspace, filePath) {
   return await fs.readFile(absolute, "utf8");
 }
 
+async function writeFile(workspace, filePath, content, summary = "") {
+  const normalizedPath = normalizeWorkspacePath(filePath);
+  const absolute = resolveInsideWorkspace(workspace, normalizedPath);
+  const nextContent = String(content ?? "");
+  if (Buffer.byteLength(nextContent, "utf8") > MAX_FILE_BYTES * 2) {
+    throw new Error(`${normalizedPath} 内容太大，write_file 限制为 ${MAX_FILE_BYTES * 2} bytes。`);
+  }
+
+  if (permissionMode === "full") {
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    await fs.writeFile(absolute, nextContent, "utf8");
+    return JSON.stringify({ ok: true, written: true, path: normalizedPath, bytes: Buffer.byteLength(nextContent, "utf8") }, null, 2);
+  }
+
+  const previousContent = await fs.readFile(absolute, "utf8").catch((error) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+  const patch = buildWholeFilePatch(normalizedPath, previousContent, nextContent);
+  const result = JSON.parse(await proposePatch(workspace, patch, summary || `${previousContent === null ? "Create" : "Update"} ${normalizedPath}`));
+  return JSON.stringify({ ...result, patch }, null, 2);
+}
+
+async function deleteFile(workspace, filePath, summary = "") {
+  const normalizedPath = normalizeWorkspacePath(filePath);
+  const absolute = resolveInsideWorkspace(workspace, normalizedPath);
+  const stat = await fs.stat(absolute);
+  if (!stat.isFile()) throw new Error(`${normalizedPath} 不是文件。`);
+
+  if (permissionMode === "full") {
+    await fs.rm(absolute, { force: true });
+    return JSON.stringify({ ok: true, deleted: true, path: normalizedPath }, null, 2);
+  }
+
+  const previousContent = await fs.readFile(absolute, "utf8");
+  const patch = buildWholeFilePatch(normalizedPath, previousContent, null);
+  const result = JSON.parse(await proposePatch(workspace, patch, summary || `Delete ${normalizedPath}`));
+  return JSON.stringify({ ...result, patch }, null, 2);
+}
+
+function askUser(question, context = "") {
+  const text = String(question ?? "").trim();
+  if (!text) throw new Error("question 不能为空。");
+  return JSON.stringify(
+    {
+      ok: true,
+      pending: true,
+      question: text,
+      context: String(context ?? "").trim(),
+      message: "Question shown to the user. Stop and wait for the user's next message before continuing."
+    },
+    null,
+    2
+  );
+}
+
 async function searchFiles(workspace, query, maxResults) {
   const needle = String(query ?? "");
   if (!needle) throw new Error("query 不能为空。");
@@ -271,11 +379,30 @@ async function proposePatch(workspace, patch, summary = "") {
   const patchText = ensureTrailingNewline(stripMarkdownFence(String(patch ?? "")));
   if (!patchText.trim()) throw new Error("patch 不能为空。");
   validatePatchPaths(workspace, patchText);
+  const resolvedWorkspace = path.resolve(workspace);
+
+  if (permissionMode === "full") {
+    const result = await applyPatchText({
+      id: randomUUID(),
+      workspace: resolvedWorkspace,
+      patch: patchText,
+      summary: String(summary || "Proposed patch")
+    });
+    return JSON.stringify({
+      ok: true,
+      pending: false,
+      applied: true,
+      patchId: result.patchId,
+      summary: result.summary,
+      strategy: result.strategy,
+      message: "Patch applied automatically because full access mode is enabled."
+    });
+  }
 
   const patchId = randomUUID();
   pendingPatches.set(patchId, {
     id: patchId,
-    workspace: path.resolve(workspace),
+    workspace: resolvedWorkspace,
     patch: patchText,
     summary: String(summary || "Proposed patch"),
     createdAt: Date.now()
@@ -308,18 +435,9 @@ export async function applyPendingPatch(patchId) {
   const pending = pendingPatches.get(patchId);
   if (!pending) throw new Error("待应用 patch 不存在或已处理。");
 
-  validatePatchPaths(pending.workspace, pending.patch);
-  const tempPath = path.join(os.tmpdir(), `agent-window-${patchId}.diff`);
-
-  try {
-    await fs.writeFile(tempPath, pending.patch, "utf8");
-    await runGitApply(pending.workspace, ["apply", "--check", "--whitespace=nowarn", tempPath]);
-    await runGitApply(pending.workspace, ["apply", "--whitespace=nowarn", tempPath]);
-    pendingPatches.delete(patchId);
-    return { ok: true, patchId, summary: pending.summary };
-  } finally {
-    await fs.rm(tempPath, { force: true }).catch(() => {});
-  }
+  const result = await applyPatchText(pending);
+  pendingPatches.delete(patchId);
+  return result;
 }
 
 export function discardPendingPatch(patchId) {
@@ -331,7 +449,7 @@ async function runCommand(workspace, command, timeoutMs) {
   const commandText = String(command ?? "").trim();
   if (!commandText) throw new Error("command 不能为空。");
   const highRisk = isDangerousCommand(commandText);
-  if (!autoApproveFutureCommands && (highRisk || !isAutoAllowedCommand(commandText))) {
+  if (permissionMode !== "full" && (highRisk || !isAutoAllowedCommand(commandText))) {
     const commandId = randomUUID();
     pendingCommands.set(commandId, {
       id: commandId,
@@ -384,7 +502,7 @@ export async function approvePendingCommand(commandId, options = {}) {
   const pending = pendingCommands.get(commandId);
   if (!pending) throw new Error("待确认命令不存在或已处理。");
   pendingCommands.delete(commandId);
-  if (options.allowFuture) autoApproveFutureCommands = true;
+  if (options.allowFuture) permissionMode = "full";
   const result = await executeCommand(pending.workspace, pending.command, pending.timeoutMs);
   return {
     ok: true,
@@ -392,7 +510,8 @@ export async function approvePendingCommand(commandId, options = {}) {
     command: pending.command,
     result,
     highRisk: Boolean(pending.highRisk),
-    autoApproveFutureCommands
+    autoApproveFutureCommands: permissionMode === "full",
+    permissionMode
   };
 }
 
@@ -402,8 +521,27 @@ export function discardPendingCommand(commandId) {
 }
 
 export function setCommandAutoApproval(enabled) {
-  autoApproveFutureCommands = Boolean(enabled);
-  return { ok: true, autoApproveFutureCommands };
+  permissionMode = enabled ? "full" : "default";
+  return { ok: true, autoApproveFutureCommands: permissionMode === "full", permissionMode };
+}
+
+async function applyPatchText(pending) {
+  validatePatchPaths(pending.workspace, pending.patch);
+  const tempPath = path.join(os.tmpdir(), `agent-window-${pending.id}.diff`);
+
+  try {
+    await fs.writeFile(tempPath, pending.patch, "utf8");
+    await runGitApply(pending.workspace, ["apply", "--check", "--recount", "--whitespace=nowarn", tempPath]);
+    await runGitApply(pending.workspace, ["apply", "--recount", "--whitespace=nowarn", tempPath]);
+    return {
+      ok: true,
+      patchId: pending.id,
+      summary: pending.summary,
+      strategy: "git apply --recount"
+    };
+  } finally {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+  }
 }
 
 function resolveInsideWorkspace(workspace, targetPath) {
@@ -415,6 +553,46 @@ function resolveInsideWorkspace(workspace, targetPath) {
     throw new Error(`路径越界：${targetPath}`);
   }
   return absoluteTarget;
+}
+
+function normalizeWorkspacePath(filePath) {
+  const normalized = String(filePath ?? "").replaceAll("\\", "/").trim();
+  if (!normalized) throw new Error("path 不能为空。");
+  if (normalized.startsWith("/") || normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
+    throw new Error(`路径不安全：${filePath}`);
+  }
+  return normalized;
+}
+
+function buildWholeFilePatch(filePath, previousContent, nextContent) {
+  const oldLines = previousContent === null ? [] : splitDiffLines(previousContent);
+  const newLines = nextContent === null ? [] : splitDiffLines(nextContent);
+  const oldPath = previousContent === null ? "/dev/null" : `a/${filePath}`;
+  const newPath = nextContent === null ? "/dev/null" : `b/${filePath}`;
+  const lines = [`diff --git a/${filePath} b/${filePath}`];
+
+  if (previousContent === null) lines.push("new file mode 100644");
+  if (nextContent === null) lines.push("deleted file mode 100644");
+  lines.push(`--- ${oldPath}`);
+  lines.push(`+++ ${newPath}`);
+
+  if (oldLines.length > 0 || newLines.length > 0) {
+    lines.push(`@@ -${formatDiffRange(oldLines.length)} +${formatDiffRange(newLines.length)} @@`);
+    for (const line of oldLines) lines.push(`-${line}`);
+    for (const line of newLines) lines.push(`+${line}`);
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+function splitDiffLines(content) {
+  if (content === "") return [];
+  const normalized = ensureTrailingNewline(String(content));
+  return normalized.slice(0, -1).split("\n");
+}
+
+function formatDiffRange(count) {
+  return count > 0 ? `1,${count}` : "0,0";
 }
 
 function validatePatchPaths(workspace, patchText) {

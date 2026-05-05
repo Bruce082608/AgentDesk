@@ -16,11 +16,12 @@ declare global {
       cancelMessage: (requestId: string) => Promise<{ ok: boolean }>;
       testProvider: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderTestResult } | { ok: false; error: string }>;
       getBalance: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderBalanceResult } | { ok: false; error: string }>;
-      applyPatch: (patchId: string) => Promise<{ ok: true; result: { ok: boolean; patchId: string; summary: string } } | { ok: false; error: string }>;
+      countTokens: (payload: { messages: ChatMessage[]; input: string; attachments: AttachedFile[] }) => Promise<{ tokens: number }>;
+      applyPatch: (patchId: string) => Promise<{ ok: true; result: { ok: boolean; patchId: string; summary: string; strategy?: string; warning?: string } } | { ok: false; error: string }>;
       discardPatch: (patchId: string) => Promise<{ ok: boolean; patchId: string }>;
-      approveCommand: (payload: { commandId: string; allowFuture?: boolean }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; highRisk: boolean; autoApproveFutureCommands: boolean } } | { ok: false; error: string }>;
+      approveCommand: (payload: { commandId: string; allowFuture?: boolean }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; highRisk: boolean; autoApproveFutureCommands: boolean; permissionMode?: PermissionMode } } | { ok: false; error: string }>;
       discardCommand: (commandId: string) => Promise<{ ok: boolean; commandId: string }>;
-      setCommandAutoApproval: (enabled: boolean) => Promise<{ ok: boolean; autoApproveFutureCommands: boolean }>;
+      setCommandAutoApproval: (enabled: boolean) => Promise<{ ok: boolean; autoApproveFutureCommands: boolean; permissionMode?: PermissionMode }>;
       onAgentEvent: (callback: (event: AgentEvent) => void) => () => void;
     };
   }
@@ -29,6 +30,7 @@ declare global {
 export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
+  reasoning?: string;
 };
 
 export type ProviderConfig = {
@@ -100,6 +102,8 @@ export type PlanItem = {
   status: "pending" | "in_progress" | "completed";
 };
 
+export type PermissionMode = "default" | "full";
+
 export type AgentEvent =
   | { requestId: string; type: "status"; message: string }
   | { requestId: string; type: "stream_delta"; text: string }
@@ -110,7 +114,9 @@ export type AgentEvent =
   | { requestId: string; type: "tool_result"; name: string; result: string }
   | { requestId: string; type: "tool_error"; name: string; message: string }
   | { requestId: string; type: "patch_proposed"; patchId: string; summary: string; patch: string }
+  | { requestId: string; type: "patch_applied"; patchId: string; summary: string; strategy?: string }
   | { requestId: string; type: "command_pending"; commandId: string; command: string; reason: string; highRisk?: boolean }
+  | { requestId: string; type: "ask_user_pending"; question: string; context?: string }
   | { requestId: string; type: "error"; message: string }
   | { requestId: string; type: "cancelled"; message: string }
   | { requestId: string; type: "done" };

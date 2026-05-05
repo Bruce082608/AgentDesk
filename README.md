@@ -33,3 +33,20 @@ npm run dev
 Non-secret provider settings live in `agent-config.json`.
 
 API keys are intentionally not written to that file. Use the UI or environment variables for secrets.
+
+## Packaging
+
+Build distributable desktop packages with electron-builder:
+
+```powershell
+npm run dist:win
+npm run dist:mac
+```
+
+The generated installers and archives are written to `release/`.
+
+- macOS targets: `dmg` and `zip` for `x64` and `arm64`
+- Windows targets: `nsis`, `portable`, and `zip` for `x64`
+
+`npm run pack` creates an unpacked app directory for quick packaging checks.
+`npm run dist` requests macOS, Windows, and Linux targets from electron-builder; some cross-platform targets may require platform-specific tooling such as Wine on macOS/Linux for Windows installers.

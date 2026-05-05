@@ -1,5 +1,6 @@
 import { streamWithTools } from "./providers.js";
 import { executeToolCall, toolDefinitions } from "./tools.js";
+import { countChatMessageTokens } from "../shared/tokenCounter.js";
 
 const DEFAULT_MAX_AGENT_STEPS = 64;
 
@@ -21,14 +22,23 @@ export async function runAgentTurn(payload, emit) {
       role: "system",
       content: [
         "You are a local coding agent running inside a desktop demo app.",
-        "You can inspect and edit files only through the provided tools.",
+        "You can inspect and edit files through the provided tools.",
+        "You may create, overwrite, or delete files with write_file/delete_file when that is clearer than a patch.",
+        "If you need a missing decision or clarification from the user, call ask_user with one concise question, then stop and wait for the user's next message.",
+        "CRITICAL - Patch Accuracy Rules:",
+        "• Before generating a patch, always use read_file to get the LATEST content of the target file.",
+        "• If you already read the file earlier in this conversation but a patch was applied since then, re-read the file.",
+        "• Every line of context in your diff (lines starting with a space) MUST exactly match the file content.",
+        "• The hunk header (@@ -a,b +c,d @@) line numbers must be correct relative to the current file.",
+        "• Generate the patch using diff --git format with proper a/ and b/ path prefixes.",
         "Keep changes small and explain what you changed.",
         "Before doing substantive work, call update_plan with 2-5 concrete steps. Keep it updated as work progresses.",
         "When editing files, call apply_patch with a unified diff. The user must approve the patch before it is applied.",
         "When you need project context, list files before reading.",
         "When the user needs current or online information, use web_search and cite the returned URLs in your answer.",
         "Use PowerShell commands on Windows, and POSIX shell commands on macOS/Linux.",
-        "High-risk operations such as deleting files are allowed only through tools and will require user approval before execution."
+        "High-risk operations such as deleting files are allowed only through tools and will require user approval before execution.",
+        "Error recovery: when a tool fails, explicitly reflect on the likely cause, choose a different recovery action, and avoid repeating the same failing call with identical arguments."
       ].join("\n")
     }
   ];
@@ -46,6 +56,7 @@ export async function runAgentTurn(payload, emit) {
   messages.push(...selectRecentMessages(priorMessages, contextTokens), { role: "user", content: userInput });
 
   emit({ type: "status", message: `发送给模型，上下文预算 ${contextTokens.toLocaleString("en-US")} tokens...` });
+  const toolFailures = new Map();
 
   for (let step = 0; step < maxAgentSteps; step += 1) {
     throwIfAborted(signal);
@@ -105,12 +116,39 @@ export async function runAgentTurn(payload, emit) {
         }
         if (name === "apply_patch") {
           const parsed = JSON.parse(result);
-          emit({
-            type: "patch_proposed",
-            patchId: parsed.patchId,
-            summary: parsed.summary,
-            patch: parseToolArguments(rawArgs).patch ?? ""
-          });
+          if (parsed.applied) {
+            emit({
+              type: "patch_applied",
+              patchId: parsed.patchId,
+              summary: parsed.summary,
+              strategy: parsed.strategy
+            });
+          } else {
+            emit({
+              type: "patch_proposed",
+              patchId: parsed.patchId,
+              summary: parsed.summary,
+              patch: parseToolArguments(rawArgs).patch ?? ""
+            });
+          }
+        }
+        if (name === "write_file" || name === "delete_file") {
+          const parsed = JSON.parse(result);
+          if (parsed.pending) {
+            emit({
+              type: "patch_proposed",
+              patchId: parsed.patchId,
+              summary: parsed.summary,
+              patch: parsed.patch || ""
+            });
+          } else if (parsed.written || parsed.deleted) {
+            emit({
+              type: "patch_applied",
+              patchId: parsed.path,
+              summary: parsed.written ? `Wrote ${parsed.path}` : `Deleted ${parsed.path}`,
+              strategy: name
+            });
+          }
         }
         if (name === "run_command") {
           const parsed = JSON.parse(result);
@@ -126,6 +164,16 @@ export async function runAgentTurn(payload, emit) {
             });
           }
         }
+        if (name === "ask_user") {
+          const parsed = JSON.parse(result);
+          if (parsed.pending) {
+            emit({
+              type: "ask_user_pending",
+              question: parsed.question,
+              context: parsed.context || ""
+            });
+          }
+        }
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -133,11 +181,28 @@ export async function runAgentTurn(payload, emit) {
         });
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
+        const failureKey = `${name}:${rawArgs}`;
+        const failureCount = (toolFailures.get(failureKey) || 0) + 1;
+        toolFailures.set(failureKey, failureCount);
         emit({ type: "tool_error", name, message: messageText });
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
           content: `Tool failed: ${messageText}`
+        });
+        messages.push({
+          role: "system",
+          content: [
+            "Tool error recovery instruction:",
+            `The tool ${name} failed with: ${messageText}`,
+            `This exact call has failed ${failureCount} time(s).`,
+            "Before calling another tool, reason about the likely cause and choose a safer alternate action.",
+            failureCount >= 2 ? "Do not retry the same tool with identical arguments again; inspect state or ask_user for clarification." : "Retry only if you can change the arguments or verify the missing precondition first."
+          ].join("\n")
+        });
+        emit({
+          type: "status",
+          message: `工具 ${name} 失败，已加入错误恢复提示：先分析原因，再换一种操作路径。`
         });
       }
     }
@@ -166,19 +231,18 @@ function parseToolArguments(rawArgs) {
 }
 
 function selectRecentMessages(messages, contextTokens) {
-  // This is an app-side approximation. DeepSeek V4 has 1M context, but the API
-  // does not expose a request parameter that changes the model context window.
-  const maxChars = Math.max(16000, contextTokens * 4);
+  const maxTokens = Math.max(4096, contextTokens);
   const selected = [];
-  let totalChars = 0;
+  let totalTokens = 0;
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    const content = String(message?.content ?? "");
-    const nextTotal = totalChars + content.length;
-    if (nextTotal > maxChars && selected.length > 0) break;
-    selected.unshift({ role: message.role, content });
-    totalChars = nextTotal;
+    const normalized = { role: message.role, content: String(message?.content ?? "") };
+    const messageTokens = countChatMessageTokens(normalized);
+    const nextTotal = totalTokens + messageTokens;
+    if (nextTotal > maxTokens && selected.length > 0) break;
+    selected.unshift(normalized);
+    totalTokens = nextTotal;
   }
 
   return selected;

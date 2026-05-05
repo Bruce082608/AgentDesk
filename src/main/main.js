@@ -7,6 +7,7 @@ import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
+import { countAgentRequestTokens } from "../shared/tokenCounter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -153,6 +154,16 @@ ipcMain.handle("provider:balance", async (_event, config) => {
       error: error instanceof Error ? error.message : String(error)
     };
   }
+});
+
+ipcMain.handle("tokens:count", async (_event, payload) => {
+  return {
+    tokens: countAgentRequestTokens({
+      messages: Array.isArray(payload?.messages) ? payload.messages : [],
+      input: payload?.input || "",
+      attachments: Array.isArray(payload?.attachments) ? payload.attachments : []
+    })
+  };
 });
 
 ipcMain.handle("patch:apply", async (_event, patchId) => {

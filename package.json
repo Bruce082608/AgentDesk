@@ -1,27 +1,102 @@
 {
   "name": "deepseek-agent-window-demo",
   "version": "0.1.0",
+  "description": "A local DeepSeek coding agent desktop window built with Electron and React.",
+  "author": "Bruce",
   "private": true,
   "type": "module",
   "main": "src/main/main.js",
   "scripts": {
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
     "build": "vite build",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder -mwl",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run build"
   },
   "dependencies": {
+    "gpt-tokenizer": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
     "concurrently": "^9.2.0",
     "electron": "^41.5.0",
+    "electron-builder": "^26.8.1",
+    "highlight.js": "^11.11.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "typescript": "^5.9.0",
     "vite": "^7.1.0",
     "wait-on": "^8.0.0"
   },
-  "devDependencies": {
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3"
+  "build": {
+    "appId": "com.bruce.deepseek-agent-window-demo",
+    "productName": "DeepSeek Agent Window",
+    "copyright": "Copyright © 2026 Bruce",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "src/main/**/*",
+      "src/shared/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "publish": null
   }
 }

@@ -130,13 +130,13 @@ export async function getProviderBalance(config = {}) {
   const { signal, cleanup, isExternallyAborted } = createRequestSignal(30000);
   try {
     const balanceBaseUrl = provider.baseUrl.replace(/\/v1$/i, "");
-    const response = await fetch(`${balanceBaseUrl}/user/balance`, {
+    const response = await fetchWithRetry(`${balanceBaseUrl}/user/balance`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${provider.apiKey}`
       },
       signal
-    });
+    }, { retries: 2 });
     const text = await response.text();
     let data;
     try {
@@ -165,7 +165,7 @@ async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000, si
   const body = buildRequestBody(provider, bodyOverrides);
 
   try {
-    const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+    const response = await fetchWithRetry(`${provider.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -173,7 +173,7 @@ async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000, si
       },
       body: JSON.stringify(body),
       signal: requestSignal
-    });
+    }, { retries: 2 });
 
     const text = await response.text();
     let data;
@@ -205,7 +205,7 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
   const body = buildRequestBody(provider, bodyOverrides);
 
   try {
-    const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+    const response = await fetchWithRetry(`${provider.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -213,7 +213,7 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
       },
       body: JSON.stringify(body),
       signal: requestSignal
-    });
+    }, { retries: 1, retryMethods: new Set(["POST"]) });
 
     if (!response.ok) {
       const text = await response.text();
@@ -323,6 +323,48 @@ function createRequestSignal(timeoutMs, externalSignal) {
       externalSignal?.removeEventListener("abort", abortFromExternal);
     }
   };
+}
+
+async function fetchWithRetry(url, options = {}, retryOptions = {}) {
+  const retries = Math.max(0, Number(retryOptions.retries) || 0);
+  const retryMethods = retryOptions.retryMethods ?? new Set(["GET", "HEAD", "OPTIONS", "POST"]);
+  const method = String(options.method || "GET").toUpperCase();
+  let lastError;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      if (!shouldRetryResponse(response, method, retryMethods) || attempt === retries) return response;
+      await response.body?.cancel?.().catch?.(() => {});
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      lastError = error;
+      if (!shouldRetryError(error) || attempt === retries) throw error;
+    }
+
+    await sleep(backoffDelay(attempt));
+  }
+
+  throw lastError || new Error("fetch failed");
+}
+
+function shouldRetryResponse(response, method, retryMethods) {
+  return retryMethods.has(method) && [408, 425, 429, 500, 502, 503, 504].includes(response.status);
+}
+
+function shouldRetryError(error) {
+  return error?.name !== "AbortError";
+}
+
+function backoffDelay(attempt) {
+  const base = 350 * 2 ** attempt;
+  const jitter = Math.floor(Math.random() * 160);
+  return base + jitter;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildRequestBody(provider, bodyOverrides) {
