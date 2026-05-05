@@ -4,13 +4,14 @@ import { fileURLToPath } from "node:url";
 import { runAgentTurn } from "./agent.js";
 import { testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
-import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch } from "./tools.js";
-import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile } from "./workspace.js";
+import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval } from "./tools.js";
+import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
 
 let mainWindow;
+const activeRequests = new Map();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -73,6 +74,10 @@ ipcMain.handle("file:read", async (_event, payload) => {
   return await readWorkspaceFile(payload.workspace, payload.path);
 });
 
+ipcMain.handle("file:search", async (_event, payload) => {
+  return await searchWorkspaceFiles(payload.workspace, payload.query, payload.maxResults);
+});
+
 ipcMain.handle("git:summary", async (_event, workspace) => {
   return await getGitSummary(workspace);
 });
@@ -83,21 +88,36 @@ ipcMain.handle("git:diff", async (_event, workspace) => {
 
 ipcMain.handle("agent:send", async (event, payload) => {
   const requestId = payload.requestId;
+  const controller = new AbortController();
+  activeRequests.set(requestId, controller);
   const emit = (message) => {
     event.sender.send("agent:event", { requestId, ...message });
   };
 
   try {
-    await runAgentTurn(payload, emit);
+    await runAgentTurn({ ...payload, signal: controller.signal }, emit);
     emit({ type: "done" });
     return { ok: true };
   } catch (error) {
+    if (controller.signal.aborted) {
+      emit({ type: "cancelled", message: "请求已取消。" });
+      return { ok: false, cancelled: true };
+    }
     emit({
       type: "error",
       message: error instanceof Error ? error.message : String(error)
     });
     return { ok: false };
+  } finally {
+    activeRequests.delete(requestId);
   }
+});
+
+ipcMain.handle("agent:cancel", async (_event, requestId) => {
+  const controller = activeRequests.get(requestId);
+  if (!controller) return { ok: false };
+  controller.abort();
+  return { ok: true };
 });
 
 ipcMain.handle("provider:test", async (_event, config) => {
@@ -128,9 +148,10 @@ ipcMain.handle("patch:discard", async (_event, patchId) => {
   return discardPendingPatch(patchId);
 });
 
-ipcMain.handle("command:approve", async (_event, commandId) => {
+ipcMain.handle("command:approve", async (_event, payload) => {
   try {
-    const result = await approvePendingCommand(commandId);
+    const commandId = typeof payload === "string" ? payload : payload?.commandId;
+    const result = await approvePendingCommand(commandId, { allowFuture: Boolean(payload?.allowFuture) });
     return { ok: true, result };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -139,4 +160,8 @@ ipcMain.handle("command:approve", async (_event, commandId) => {
 
 ipcMain.handle("command:discard", async (_event, commandId) => {
   return discardPendingCommand(commandId);
+});
+
+ipcMain.handle("command:auto-approval", async (_event, enabled) => {
+  return setCommandAutoApproval(enabled);
 });

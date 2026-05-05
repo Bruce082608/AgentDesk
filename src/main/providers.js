@@ -29,18 +29,23 @@ export function normalizeProviderConfig(config = {}) {
   };
 }
 
-export async function completeWithTools({ config, messages, tools }) {
+export async function completeWithTools({ config, messages, tools, signal }) {
   const provider = normalizeProviderConfig(config);
   if (!provider.apiKey) {
     throw new Error(`缺少 API key。请在界面中填写，或设置 ${PROVIDERS[provider.provider]?.apiKeyEnv ?? "AGENT_API_KEY"}。`);
   }
 
-  const response = await postChatCompletion(provider, {
-    messages,
-    tools,
-    tool_choice: "auto",
-    stream: false
-  });
+  const response = await postChatCompletion(
+    provider,
+    {
+      messages,
+      tools,
+      tool_choice: "auto",
+      stream: false
+    },
+    90000,
+    signal
+  );
 
   const choice = response?.choices?.[0];
   if (!choice?.message) {
@@ -55,19 +60,25 @@ export async function completeWithTools({ config, messages, tools }) {
   };
 }
 
-export async function streamWithTools({ config, messages, tools, onDelta }) {
+export async function streamWithTools({ config, messages, tools, onDelta, signal }) {
   const provider = normalizeProviderConfig(config);
   if (!provider.apiKey) {
     throw new Error(`缺少 API key。请在界面中填写，或设置 ${PROVIDERS[provider.provider]?.apiKeyEnv ?? "AGENT_API_KEY"}。`);
   }
 
-  const response = await postChatCompletionStream(provider, {
-    messages,
-    tools,
-    tool_choice: "auto",
-    stream: true,
-    stream_options: { include_usage: true }
-  }, onDelta);
+  const response = await postChatCompletionStream(
+    provider,
+    {
+      messages,
+      tools,
+      tool_choice: "auto",
+      stream: true,
+      stream_options: { include_usage: true }
+    },
+    onDelta,
+    120000,
+    signal
+  );
 
   return {
     message: response.message,
@@ -107,20 +118,19 @@ export async function testProviderConnection(config = {}) {
   };
 }
 
-async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000, signal) {
+  const { signal: requestSignal, cleanup, isExternallyAborted } = createRequestSignal(timeoutMs, signal);
   const body = buildRequestBody(provider, bodyOverrides);
 
   try {
     const response = await fetch(`${provider.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${provider.apiKey}`
-    },
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${provider.apiKey}`
+      },
       body: JSON.stringify(body),
-      signal: controller.signal
+      signal: requestSignal
     });
 
     const text = await response.text();
@@ -139,17 +149,17 @@ async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000) {
     return data;
   } catch (error) {
     if (error?.name === "AbortError") {
+      if (isExternallyAborted()) throw new Error("请求已取消。");
       throw new Error(`模型接口请求超时（${Math.round(timeoutMs / 1000)} 秒）。请检查 API key、余额、网络或 Base URL。`);
     }
     throw error;
   } finally {
-    clearTimeout(timeout);
+    cleanup();
   }
 }
 
-async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeoutMs = 120000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeoutMs = 120000, signal) {
+  const { signal: requestSignal, cleanup, isExternallyAborted } = createRequestSignal(timeoutMs, signal);
   const body = buildRequestBody(provider, bodyOverrides);
 
   try {
@@ -160,7 +170,7 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
         Authorization: `Bearer ${provider.apiKey}`
       },
       body: JSON.stringify(body),
-      signal: controller.signal
+      signal: requestSignal
     });
 
     if (!response.ok) {
@@ -239,12 +249,38 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
     };
   } catch (error) {
     if (error?.name === "AbortError") {
+      if (isExternallyAborted()) throw new Error("请求已取消。");
       throw new Error(`模型接口请求超时（${Math.round(timeoutMs / 1000)} 秒）。请检查 API key、余额、网络或 Base URL。`);
     }
     throw error;
   } finally {
-    clearTimeout(timeout);
+    cleanup();
   }
+}
+
+function createRequestSignal(timeoutMs, externalSignal) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const abortFromExternal = () => controller.abort();
+
+  if (externalSignal?.aborted) {
+    controller.abort();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    isExternallyAborted: () => !timedOut && Boolean(externalSignal?.aborted),
+    cleanup: () => {
+      clearTimeout(timeout);
+      externalSignal?.removeEventListener("abort", abortFromExternal);
+    }
+  };
 }
 
 function buildRequestBody(provider, bodyOverrides) {

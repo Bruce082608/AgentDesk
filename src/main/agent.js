@@ -1,7 +1,7 @@
 import { streamWithTools } from "./providers.js";
 import { executeToolCall, toolDefinitions } from "./tools.js";
 
-const MAX_AGENT_STEPS = 8;
+const DEFAULT_MAX_AGENT_STEPS = 64;
 
 export async function runAgentTurn(payload, emit) {
   const workspace = payload.workspace;
@@ -10,6 +10,8 @@ export async function runAgentTurn(payload, emit) {
   const priorMessages = Array.isArray(payload.messages) ? payload.messages : [];
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   const contextTokens = Math.max(4096, Number(providerConfig.contextTokens) || 1000000);
+  const maxAgentSteps = getMaxAgentSteps(providerConfig.maxAgentSteps);
+  const signal = payload.signal;
 
   if (!userInput) throw new Error("消息不能为空。");
   if (!workspace) throw new Error("请先选择 workspace。");
@@ -24,8 +26,8 @@ export async function runAgentTurn(payload, emit) {
         "Before doing substantive work, call update_plan with 2-5 concrete steps. Keep it updated as work progresses.",
         "When editing files, call apply_patch with a unified diff. The user must approve the patch before it is applied.",
         "When you need project context, list files before reading.",
-        "Prefer PowerShell commands on Windows.",
-        "Never attempt destructive operations."
+        "Use PowerShell commands on Windows, and POSIX shell commands on macOS/Linux.",
+        "High-risk operations such as deleting files are allowed only through tools and will require user approval before execution."
       ].join("\n")
     }
   ];
@@ -44,11 +46,16 @@ export async function runAgentTurn(payload, emit) {
 
   emit({ type: "status", message: `发送给模型，上下文预算 ${contextTokens.toLocaleString("en-US")} tokens...` });
 
-  for (let step = 0; step < MAX_AGENT_STEPS; step += 1) {
+  for (let step = 0; step < maxAgentSteps; step += 1) {
+    throwIfAborted(signal);
+    if (step > 0) {
+      emit({ type: "status", message: `继续执行工具循环 ${step + 1}/${maxAgentSteps}...` });
+    }
     const { message, usage, provider, finishReason } = await streamWithTools({
       config: providerConfig,
       messages,
       tools: toolDefinitions,
+      signal,
       onDelta: (delta) => {
         if (delta.type === "content") emit({ type: "stream_delta", text: delta.text });
         if (delta.type === "reasoning") emit({ type: "reasoning_delta", text: delta.text });
@@ -83,6 +90,7 @@ export async function runAgentTurn(payload, emit) {
     }
 
     for (const toolCall of toolCalls) {
+      throwIfAborted(signal);
       const name = toolCall.function?.name ?? "unknown";
       const rawArgs = toolCall.function?.arguments ?? "{}";
       emit({ type: "tool_start", name, args: rawArgs });
@@ -110,7 +118,10 @@ export async function runAgentTurn(payload, emit) {
               type: "command_pending",
               commandId: parsed.commandId,
               command: parsed.command,
-              reason: "这个命令可能修改环境、安装依赖、访问网络或产生副作用，需要确认后执行。"
+              highRisk: Boolean(parsed.highRisk),
+              reason: parsed.highRisk
+                ? "这个命令属于高危操作，可能删除文件、重置 Git、修改权限或影响系统，需要确认后执行。"
+                : "这个命令可能修改环境、安装依赖、访问网络或产生副作用，需要确认后执行。"
             });
           }
         }
@@ -131,7 +142,18 @@ export async function runAgentTurn(payload, emit) {
     }
   }
 
-  throw new Error(`agent 超过最大工具循环次数 ${MAX_AGENT_STEPS}，已停止。`);
+  throw new Error(`agent 超过最大工具循环次数 ${maxAgentSteps}，已停止。可以调高 AGENT_MAX_STEPS 后重试。`);
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw new Error("请求已取消。");
+}
+
+function getMaxAgentSteps(configuredValue) {
+  const rawValue = configuredValue ?? process.env.AGENT_MAX_STEPS;
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed)) return DEFAULT_MAX_AGENT_STEPS;
+  return Math.min(Math.max(Math.floor(parsed), 8), 256);
 }
 
 function parseToolArguments(rawArgs) {

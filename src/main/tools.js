@@ -10,6 +10,7 @@ const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".v
 const MAX_FILE_BYTES = 120_000;
 const pendingPatches = new Map();
 const pendingCommands = new Map();
+let autoApproveFutureCommands = false;
 
 export const toolDefinitions = [
   {
@@ -101,7 +102,7 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "run_command",
-      description: "Run a PowerShell command in the workspace and return stdout/stderr. Destructive commands are blocked.",
+      description: "Run a shell command in the workspace and return stdout/stderr. Uses PowerShell on Windows and bash on macOS/Linux. High-risk or side-effecting commands require user approval unless future approvals were enabled.",
       parameters: {
         type: "object",
         properties: {
@@ -184,6 +185,9 @@ async function readFile(workspace, filePath) {
 async function searchFiles(workspace, query, maxResults) {
   const needle = String(query ?? "");
   if (!needle) throw new Error("query 不能为空。");
+  const rgResults = await searchFilesWithRg(workspace, needle, maxResults).catch(() => null);
+  if (rgResults) return rgResults;
+
   const filesJson = await listFiles(workspace, ".", 400);
   const files = JSON.parse(filesJson).files;
   const results = [];
@@ -254,16 +258,8 @@ export async function applyPendingPatch(patchId) {
 
   try {
     await fs.writeFile(tempPath, pending.patch, "utf8");
-    await execFileAsync("git", ["apply", "--check", "--whitespace=nowarn", tempPath], {
-      cwd: pending.workspace,
-      windowsHide: true,
-      maxBuffer: 1_000_000
-    });
-    await execFileAsync("git", ["apply", "--whitespace=nowarn", tempPath], {
-      cwd: pending.workspace,
-      windowsHide: true,
-      maxBuffer: 1_000_000
-    });
+    await runGitApply(pending.workspace, ["apply", "--check", "--whitespace=nowarn", tempPath]);
+    await runGitApply(pending.workspace, ["apply", "--whitespace=nowarn", tempPath]);
     pendingPatches.delete(patchId);
     return { ok: true, patchId, summary: pending.summary };
   } finally {
@@ -279,15 +275,14 @@ export function discardPendingPatch(patchId) {
 async function runCommand(workspace, command, timeoutMs) {
   const commandText = String(command ?? "").trim();
   if (!commandText) throw new Error("command 不能为空。");
-  if (isDangerousCommand(commandText)) {
-    throw new Error("命令被安全策略拦截。这个 demo 默认阻止删除、重置、关机、格式化等高风险命令。");
-  }
-  if (!isAutoAllowedCommand(commandText)) {
+  const highRisk = isDangerousCommand(commandText);
+  if (!autoApproveFutureCommands && (highRisk || !isAutoAllowedCommand(commandText))) {
     const commandId = randomUUID();
     pendingCommands.set(commandId, {
       id: commandId,
       workspace: path.resolve(workspace),
       command: commandText,
+      highRisk,
       timeoutMs,
       createdAt: Date.now()
     });
@@ -296,6 +291,8 @@ async function runCommand(workspace, command, timeoutMs) {
       pending: true,
       commandId,
       command: commandText,
+      highRisk,
+      risk: highRisk ? "high" : "normal",
       message: "Command queued for user approval. It has not been executed yet."
     });
   }
@@ -305,7 +302,8 @@ async function runCommand(workspace, command, timeoutMs) {
 
 async function executeCommand(workspace, commandText, timeoutMs) {
   const timeout = Math.min(Math.max(Number(timeoutMs) || 30_000, 1_000), 120_000);
-  const { stdout, stderr } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", commandText], {
+  const { file, args } = getShellInvocation(commandText);
+  const { stdout, stderr } = await execFileAsync(file, args, {
     cwd: workspace,
     timeout,
     windowsHide: true,
@@ -315,17 +313,42 @@ async function executeCommand(workspace, commandText, timeoutMs) {
   return JSON.stringify({ stdout, stderr }, null, 2);
 }
 
-export async function approvePendingCommand(commandId) {
+function getShellInvocation(commandText) {
+  if (process.env.AGENT_SHELL) {
+    return process.platform === "win32"
+      ? { file: process.env.AGENT_SHELL, args: ["-NoProfile", "-Command", commandText] }
+      : { file: process.env.AGENT_SHELL, args: ["-lc", commandText] };
+  }
+  if (process.platform === "win32") {
+    return { file: "powershell.exe", args: ["-NoProfile", "-Command", commandText] };
+  }
+  return { file: "/bin/bash", args: ["-lc", commandText] };
+}
+
+export async function approvePendingCommand(commandId, options = {}) {
   const pending = pendingCommands.get(commandId);
   if (!pending) throw new Error("待确认命令不存在或已处理。");
   pendingCommands.delete(commandId);
+  if (options.allowFuture) autoApproveFutureCommands = true;
   const result = await executeCommand(pending.workspace, pending.command, pending.timeoutMs);
-  return { ok: true, commandId, command: pending.command, result };
+  return {
+    ok: true,
+    commandId,
+    command: pending.command,
+    result,
+    highRisk: Boolean(pending.highRisk),
+    autoApproveFutureCommands
+  };
 }
 
 export function discardPendingCommand(commandId) {
   const existed = pendingCommands.delete(commandId);
   return { ok: existed, commandId };
+}
+
+export function setCommandAutoApproval(enabled) {
+  autoApproveFutureCommands = Boolean(enabled);
+  return { ok: true, autoApproveFutureCommands };
 }
 
 function resolveInsideWorkspace(workspace, targetPath) {
@@ -389,6 +412,8 @@ function isDangerousCommand(command) {
   return [
     /\bremove-item\b/,
     /(^|[;&|\s])rm\s+/,
+    /(^|[;&|\s])sudo\s+/,
+    /(^|[;&|\s])chmod\s+(-r\s+)?777\b/,
     /(^|[;&|\s])del\s+/,
     /(^|[;&|\s])erase\s+/,
     /(^|[;&|\s])rmdir\s+/,
@@ -404,12 +429,16 @@ function isDangerousCommand(command) {
 
 function isAutoAllowedCommand(command) {
   const lowered = command.trim().toLowerCase();
+  if (/[;&|`<>]/.test(lowered)) return false;
   return [
-    /^git\s+(status|diff|branch|log|show)(\s|$)/,
+    /^git\s+(status|diff|branch|log|show)(\s+[^\n]*)?$/,
     /^npm\s+run\s+typecheck(\s|$)/,
     /^npm\s+run\s+build(\s|$)/,
     /^npm\s+test(\s|$)/,
     /^node\s+--check(\s|$)/,
+    /^pwd$/,
+    /^cat\s+/,
+    /^rg\s+/,
     /^get-childitem(\s|$)/,
     /^dir(\s|$)/,
     /^ls(\s|$)/,
@@ -418,4 +447,62 @@ function isAutoAllowedCommand(command) {
     /^select-string(\s|$)/,
     /^findstr(\s|$)/
   ].some((pattern) => pattern.test(lowered));
+}
+
+async function searchFilesWithRg(workspace, needle, maxResults) {
+  const limit = Math.min(Number(maxResults) || 50, 100);
+  const results = [];
+  let stdout = "";
+
+  try {
+    ({ stdout } = await execFileAsync(
+      "rg",
+      [
+        "--line-number",
+        "--no-heading",
+        "--fixed-strings",
+        "--color=never",
+        "--glob",
+        "!{.git,node_modules,dist,build,.next,.vite,coverage}/**",
+        needle,
+        "."
+      ],
+      {
+        cwd: resolveInsideWorkspace(workspace, "."),
+        windowsHide: true,
+        maxBuffer: 1_000_000
+      }
+    ));
+  } catch (error) {
+    if (error?.code === 1) {
+      return JSON.stringify({ results: [], truncated: false, engine: "rg" }, null, 2);
+    }
+    throw error;
+  }
+
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line || results.length >= limit) break;
+    const match = line.match(/^(.+?):(\d+):(.*)$/);
+    if (!match) continue;
+    results.push({
+      file: match[1].replaceAll("\\", "/"),
+      line: Number(match[2]),
+      text: match[3].slice(0, 240)
+    });
+  }
+
+  return JSON.stringify({ results, truncated: results.length >= limit, engine: "rg" }, null, 2);
+}
+
+async function runGitApply(workspace, args) {
+  try {
+    return await execFileAsync("git", args, {
+      cwd: workspace,
+      windowsHide: true,
+      maxBuffer: 1_000_000
+    });
+  } catch (error) {
+    const detail = [error?.message, error?.stderr, error?.stdout].filter(Boolean).join("\n").trim();
+    throw new Error(detail || "git apply failed");
+  }
 }

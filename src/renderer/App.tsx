@@ -22,10 +22,216 @@ type CommandItem = {
   id: string;
   command: string;
   reason: string;
+  highRisk: boolean;
   status: "pending" | "approved" | "discarded" | "failed";
   result?: string;
   error?: string;
 };
+
+type SearchMatch = {
+  file: string;
+  line: number;
+  text: string;
+};
+
+type ChatSession = {
+  id: string;
+  title: string;
+  workspace: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+type SidebarSection = "files" | "advanced" | "help";
+type ThemeMode = "light" | "dark";
+type Language = "zh" | "en";
+
+const CHAT_SESSIONS_KEY = "agent-chat-sessions";
+const THEME_KEY = "agent-ui-theme";
+const LANGUAGE_KEY = "agent-ui-language";
+const MAX_SAVED_SESSIONS = 30;
+
+const translations = {
+  zh: {
+    newChat: "新建",
+    chats: "Chats",
+    workspace: "Workspace",
+    chooseFolder: "选择目录",
+    notSelected: "未选择",
+    refreshFiles: "刷新文件",
+    advancedMenu: "进阶菜单",
+    files: "文件",
+    advanced: "进阶",
+    help: "帮助",
+    searchPlaceholder: "搜索文件内容",
+    searching: "搜索中",
+    search: "搜索",
+    noFiles: "暂无文件树",
+    git: "Git",
+    viewGitDiff: "查看 git diff",
+    refreshGit: "刷新 Git",
+    noChanges: "No changes",
+    gitHint: "选择 Git workspace 后显示分支和变更。",
+    provider: "Provider",
+    baseUrl: "Base URL",
+    model: "Model",
+    apiKey: "API Key",
+    apiKeyPlaceholder: "可留空使用环境变量",
+    testing: "检测中...",
+    testApi: "检测 API",
+    contextBudget: "Context Budget",
+    maxOutputTokens: "Max Output Tokens",
+    thinkingMode: "Thinking Mode",
+    reasoningEffort: "Reasoning Effort",
+    temperature: "Temperature",
+    providerHintDeepSeek: "DeepSeek 参数从配置文件读取，API key 可用环境变量或本机临时保存。",
+    providerHintCompatible: "适合任何 OpenAI Chat Completions 兼容网关。",
+    helpTitle: "Help",
+    helpChatsTitle: "对话与历史",
+    helpChatsBody: `点击“新建”会开启一个新的 agent 会话；左侧 Chats 列表会保留最近 ${MAX_SAVED_SESSIONS} 个对话。选择历史对话会恢复消息和当时的 workspace。`,
+    helpWorkspaceTitle: "Workspace 与文件",
+    helpWorkspaceBody: "先选择一个项目目录。Files 页面会显示文件树，可以点文件预览，再把文件加入上下文。搜索框会优先使用 rg 搜索内容。",
+    helpProviderTitle: "模型与 API",
+    helpProviderBody: "进入“进阶”页面，在 Provider 中选择 DeepSeek 或 OpenAI-compatible。切换 provider 会自动填入默认 Base URL、模型名、上下文预算和输出 token。API Key 会用 Electron safeStorage 加密保存，也可以用环境变量提供。",
+    helpGitTitle: "Git diff 与变更",
+    helpGitBody: "Git 功能在“进阶”页面。它会显示当前分支、变更文件和提交信息草稿。点击“查看 git diff”会把未暂存 diff 输出到右侧 Activity，点击变更文件可以直接预览。",
+    helpPatchTitle: "Patch 审批",
+    helpPatchBody: "agent 修改文件时会先提交 unified diff，不会立刻写入磁盘。你可以在右侧 Pending Changes 中查看 patch，选择应用或放弃。应用后会自动刷新文件树和 Git 状态。",
+    helpCommandTitle: "命令与高危操作",
+    helpCommandBody: "只读命令会自动执行；安装依赖、联网、删除文件、重置 Git 等操作会进入 Command Approvals。选择“执行并允许后续”后，本次应用运行期间后续命令会自动执行，也可以随时恢复确认。",
+    helpLongTaskTitle: "长时间任务",
+    helpLongTaskBody: "agent 会持续进行多轮工具调用，并在顶部显示运行状态。运行中可以点击“停止”取消当前请求。右侧 Activity 会记录工具调用、模型用量、错误和命令结果。",
+    agentSession: "Agent Session",
+    running: "运行中",
+    ready: "就绪",
+    stop: "停止",
+    clear: "清空",
+    emptyTitle: "选择工作区后开始任务",
+    emptyBody: "例如：列出这个项目的文件结构，读 README，然后告诉我如何启动。",
+    you: "You",
+    agent: "Agent",
+    thinking: "Agent 正在处理...",
+    composerPlaceholder: "让 agent 检查、修改或运行这个 workspace...",
+    send: "发送",
+    activity: "Activity",
+    needsApproval: "Needs Approval",
+    pendingChanges: "Pending Changes",
+    commandApprovals: "Command Approvals",
+    restoreConfirm: "恢复确认",
+    autoApprovalBanner: "后续命令请求已自动允许，直到应用重启或手动恢复确认。",
+    apply: "应用",
+    discard: "放弃",
+    execute: "执行",
+    executeAllowFuture: "执行并允许后续",
+    activityEmpty: "工具调用、模型用量和错误会显示在这里。",
+    addContext: "加入上下文",
+    removeContextTitle: "点击移除上下文附件",
+    messagesUnit: "条消息",
+    newChatTitle: "新对话",
+    untitledChat: "未命名对话",
+    light: "浅色",
+    dark: "深色",
+    language: "语言",
+    theme: "主题",
+    appSubtitle: "本地桌面 Agent Demo",
+    sidebarNav: "侧栏页面",
+    branch: "分支",
+    config: "配置",
+    enabled: "启用",
+    disabled: "关闭",
+    waitingPlan: "等待模型生成计划"
+  },
+  en: {
+    newChat: "New",
+    chats: "Chats",
+    workspace: "Workspace",
+    chooseFolder: "Choose Folder",
+    notSelected: "Not selected",
+    refreshFiles: "Refresh Files",
+    advancedMenu: "Advanced",
+    files: "Files",
+    advanced: "Advanced",
+    help: "Help",
+    searchPlaceholder: "Search file contents",
+    searching: "Searching",
+    search: "Search",
+    noFiles: "No file tree yet",
+    git: "Git",
+    viewGitDiff: "View git diff",
+    refreshGit: "Refresh Git",
+    noChanges: "No changes",
+    gitHint: "Select a Git workspace to show branch and changes.",
+    provider: "Provider",
+    baseUrl: "Base URL",
+    model: "Model",
+    apiKey: "API Key",
+    apiKeyPlaceholder: "Leave empty to use env vars",
+    testing: "Testing...",
+    testApi: "Test API",
+    contextBudget: "Context Budget",
+    maxOutputTokens: "Max Output Tokens",
+    thinkingMode: "Thinking Mode",
+    reasoningEffort: "Reasoning Effort",
+    temperature: "Temperature",
+    providerHintDeepSeek: "DeepSeek settings are loaded from config. API keys can come from env vars or encrypted local storage.",
+    providerHintCompatible: "Works with any OpenAI Chat Completions compatible gateway.",
+    helpTitle: "Help",
+    helpChatsTitle: "Chats and History",
+    helpChatsBody: `Click New to start a fresh agent chat. The Chats list keeps the latest ${MAX_SAVED_SESSIONS} conversations. Selecting a history item restores its messages and workspace.`,
+    helpWorkspaceTitle: "Workspace and Files",
+    helpWorkspaceBody: "Choose a project folder first. The Files page shows a file tree, supports previewing files, and lets you attach files as context. Search uses rg first when available.",
+    helpProviderTitle: "Models and API",
+    helpProviderBody: "Open Advanced and use Provider to switch between DeepSeek and OpenAI-compatible APIs. Switching provider fills default Base URL, model, context budget, and output tokens. API keys are encrypted with Electron safeStorage, or can be provided through environment variables.",
+    helpGitTitle: "Git Diff and Changes",
+    helpGitBody: "Git lives under Advanced. It shows the current branch, changed files, and a commit-message draft. View git diff writes the unstaged diff to Activity, and changed files can be opened for preview.",
+    helpPatchTitle: "Patch Approval",
+    helpPatchBody: "When the agent edits files, it proposes a unified diff first and does not write immediately. Review it in Pending Changes, then apply or discard it. Applying refreshes the file tree and Git state.",
+    helpCommandTitle: "Commands and High-risk Actions",
+    helpCommandBody: "Read-only commands run automatically. Installing dependencies, network access, deleting files, Git resets, and similar actions appear in Command Approvals. Execute and allow future approvals lets later commands run automatically for this app session.",
+    helpLongTaskTitle: "Long-running Work",
+    helpLongTaskBody: "The agent can keep calling tools across many rounds and shows status at the top. Use Stop to cancel the active request. Activity records tool calls, model usage, errors, and command output.",
+    agentSession: "Agent Session",
+    running: "Running",
+    ready: "Ready",
+    stop: "Stop",
+    clear: "Clear",
+    emptyTitle: "Choose a workspace to begin",
+    emptyBody: "For example: list this project's files, read the README, then tell me how to start it.",
+    you: "You",
+    agent: "Agent",
+    thinking: "Agent is working...",
+    composerPlaceholder: "Ask the agent to inspect, modify, or run this workspace...",
+    send: "Send",
+    activity: "Activity",
+    needsApproval: "Needs Approval",
+    pendingChanges: "Pending Changes",
+    commandApprovals: "Command Approvals",
+    restoreConfirm: "Restore confirm",
+    autoApprovalBanner: "Future command requests are automatically allowed until the app restarts or confirmation is restored.",
+    apply: "Apply",
+    discard: "Discard",
+    execute: "Run",
+    executeAllowFuture: "Run and allow future",
+    activityEmpty: "Tool calls, model usage, and errors appear here.",
+    addContext: "Add context",
+    removeContextTitle: "Click to remove this context attachment",
+    messagesUnit: "messages",
+    newChatTitle: "New chat",
+    untitledChat: "Untitled chat",
+    light: "Light",
+    dark: "Dark",
+    language: "Language",
+    theme: "Theme",
+    appSubtitle: "Local desktop agent demo",
+    sidebarNav: "Sidebar sections",
+    branch: "Branch",
+    config: "Config",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    waitingPlan: "Waiting for model plan"
+  }
+} as const;
 
 const defaultConfig: ProviderConfig = {
   provider: "deepseek",
@@ -39,31 +245,128 @@ const defaultConfig: ProviderConfig = {
   reasoningEffort: "max"
 };
 
+function createBlankSession(workspace = ""): ChatSession {
+  const now = Date.now();
+  return {
+    id: crypto.randomUUID(),
+    title: translations.zh.newChatTitle,
+    workspace,
+    messages: [],
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function loadChatSessions(): ChatSession[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CHAT_SESSIONS_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((session) => typeof session?.id === "string")
+      .map((session) => ({
+        id: session.id,
+        title: String(session.title || translations.zh.untitledChat),
+        workspace: String(session.workspace || ""),
+        messages: Array.isArray(session.messages)
+          ? session.messages.filter((message: ChatMessage) => message?.role === "user" || message?.role === "assistant")
+          : [],
+        createdAt: Number(session.createdAt) || Date.now(),
+        updatedAt: Number(session.updatedAt) || Date.now()
+      }))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_SAVED_SESSIONS);
+  } catch {
+    return [];
+  }
+}
+
+function saveChatSessions(sessions: ChatSession[]) {
+  localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions));
+}
+
+function deriveSessionTitle(messages: ChatMessage[], fallback: string) {
+  const firstUserMessage = messages.find((message) => message.role === "user")?.content.trim();
+  if (!firstUserMessage) return fallback || translations.zh.newChatTitle;
+  return firstUserMessage.replace(/\s+/g, " ").slice(0, 42);
+}
+
+function formatSessionTime(timestamp: number, language: Language) {
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(timestamp);
+}
+
 function App() {
   const [workspace, setWorkspace] = useState("");
   const [input, setInput] = useState("");
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState("");
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  const [sidebarSection, setSidebarSection] = useState<SidebarSection>("files");
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const saved = localStorage.getItem(THEME_KEY);
+    return saved === "dark" ? "dark" : "light";
+  });
+  const [language, setLanguage] = useState<Language>(() => {
+    const saved = localStorage.getItem(LANGUAGE_KEY);
+    return saved === "en" ? "en" : "zh";
+  });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [events, setEvents] = useState<EventLogItem[]>([]);
   const [patches, setPatches] = useState<PatchItem[]>([]);
   const [commands, setCommands] = useState<CommandItem[]>([]);
   const [tree, setTree] = useState<WorkspaceTreeItem[]>([]);
+  const [fileSearch, setFileSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchMatch[]>([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [previewFile, setPreviewFile] = useState<AttachedFile | null>(null);
   const [gitSummary, setGitSummary] = useState<GitSummary | null>(null);
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
   const [config, setConfig] = useState<ProviderConfig>(defaultConfig);
   const [busy, setBusy] = useState(false);
+  const [searchingFiles, setSearchingFiles] = useState(false);
   const [testingApi, setTestingApi] = useState(false);
+  const [commandAutoApproval, setCommandAutoApproval] = useState(false);
   const [configPath, setConfigPath] = useState("");
   const [configLoaded, setConfigLoaded] = useState(false);
   const activeRequest = useRef<string | null>(null);
   const streamingMessageActive = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const t = translations[language];
+
+  useEffect(() => {
+    document.body.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    localStorage.setItem(LANGUAGE_KEY, language);
+  }, [language]);
+
+  useEffect(() => {
+    const savedSessions = loadChatSessions();
+    const initialSession = savedSessions[0] ?? createBlankSession(workspace);
+    const nextSessions = savedSessions.length > 0 ? savedSessions : [initialSession];
+    setSessions(nextSessions);
+    setActiveSessionId(initialSession.id);
+    setMessages(initialSession.messages);
+    if (initialSession.workspace) {
+      setWorkspace(initialSession.workspace);
+      refreshWorkspace(initialSession.workspace);
+      refreshGit(initialSession.workspace);
+    }
+    setSessionsLoaded(true);
+  }, []);
 
   useEffect(() => {
     window.agentWindow.loadConfig().then(({ config: fileConfig, path }) => {
-      const savedKey = localStorage.getItem("agent-api-key") || "";
-      setConfig({ ...defaultConfig, ...fileConfig, apiKey: savedKey });
+      const legacyKey = localStorage.getItem("agent-api-key") || "";
+      if (legacyKey) localStorage.removeItem("agent-api-key");
+      setConfig({ ...defaultConfig, ...fileConfig, apiKey: legacyKey || fileConfig.apiKey || "" });
       setConfigPath(path);
       setConfigLoaded(true);
       if ("recoveredFromError" in fileConfig && fileConfig.recoveredFromError) {
@@ -77,11 +380,32 @@ function App() {
 
   useEffect(() => {
     if (!configLoaded) return;
-    localStorage.setItem("agent-api-key", config.apiKey);
     window.agentWindow.saveConfig(config).catch((error) => {
       appendEvent("error", "配置保存失败", error instanceof Error ? error.message : String(error));
     });
   }, [config, configLoaded]);
+
+  useEffect(() => {
+    if (!sessionsLoaded || !activeSessionId) return;
+    setSessions((current) => {
+      const next = current
+        .map((session) => {
+          if (session.id !== activeSessionId) return session;
+          return {
+            ...session,
+            title: deriveSessionTitle(messages, session.title),
+            workspace,
+            messages,
+            updatedAt: Date.now()
+          };
+        })
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, MAX_SAVED_SESSIONS);
+      saveChatSessions(next);
+      return next;
+    });
+  }, [activeSessionId, messages, sessionsLoaded, workspace]);
+
 
   useEffect(() => {
     return window.agentWindow.onAgentEvent((event) => {
@@ -95,9 +419,9 @@ function App() {
   }, [messages, events, busy]);
 
   const providerHint = useMemo(() => {
-    if (config.provider === "deepseek") return "DeepSeek 参数从配置文件读取，API key 可用环境变量或本机临时保存。";
-    return "适合任何 OpenAI Chat Completions 兼容网关。";
-  }, [config.provider]);
+    if (config.provider === "deepseek") return t.providerHintDeepSeek;
+    return t.providerHintCompatible;
+  }, [config.provider, t]);
 
   function handleAgentEvent(event: AgentEvent) {
     if (event.type === "done") {
@@ -186,7 +510,7 @@ function App() {
 
     if (event.type === "command_pending") {
       setCommands((current) => [
-        { id: event.commandId, command: event.command, reason: event.reason, status: "pending" },
+        { id: event.commandId, command: event.command, reason: event.reason, highRisk: Boolean(event.highRisk), status: "pending" },
         ...current
       ]);
       appendEvent("tool", "命令等待确认", event.command);
@@ -200,10 +524,66 @@ function App() {
       activeRequest.current = null;
       streamingMessageActive.current = false;
     }
+
+    if (event.type === "cancelled") {
+      appendEvent("status", "请求已取消", event.message);
+      setMessages((current) => [...current, { role: "assistant", content: "请求已取消。" }]);
+      setBusy(false);
+      activeRequest.current = null;
+      streamingMessageActive.current = false;
+    }
   }
 
   function appendEvent(kind: EventLogItem["kind"], title: string, body: string) {
     setEvents((current) => [...current, { id: crypto.randomUUID(), title, body, kind }]);
+  }
+
+  function resetTransientState() {
+    setEvents([]);
+    setPatches([]);
+    setCommands([]);
+    setPlanItems([]);
+    setAttachedFiles([]);
+    setPreviewFile(null);
+    setSearchResults([]);
+    setFileSearch("");
+    streamingMessageActive.current = false;
+  }
+
+  function startNewSession() {
+    if (busy) return;
+    const session = createBlankSession(workspace);
+    setSessions((current) => {
+      const next = [session, ...current].slice(0, MAX_SAVED_SESSIONS);
+      saveChatSessions(next);
+      return next;
+    });
+    setActiveSessionId(session.id);
+    setMessages([]);
+    resetTransientState();
+  }
+
+  async function selectSession(sessionId: string) {
+    if (busy || sessionId === activeSessionId) return;
+    const session = sessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    setActiveSessionId(session.id);
+    setMessages(session.messages);
+    setWorkspace(session.workspace);
+    resetTransientState();
+    if (session.workspace) {
+      await refreshWorkspace(session.workspace);
+      await refreshGit(session.workspace);
+    } else {
+      setTree([]);
+      setGitSummary(null);
+    }
+  }
+
+  function clearCurrentSession() {
+    if (busy) return;
+    setMessages([]);
+    resetTransientState();
   }
 
   async function chooseWorkspace() {
@@ -212,6 +592,8 @@ function App() {
       setWorkspace(selected);
       setAttachedFiles([]);
       setPreviewFile(null);
+      setSearchResults([]);
+      setFileSearch("");
       await refreshWorkspace(selected);
       await refreshGit(selected);
     }
@@ -258,9 +640,14 @@ function App() {
   }
 
   async function attachFile(path: string) {
+    if (!workspace) return;
     if (attachedFiles.some((file) => file.path === path)) return;
-    const file = await window.agentWindow.readFile({ workspace, path });
-    setAttachedFiles((current) => [...current, file]);
+    try {
+      const file = await window.agentWindow.readFile({ workspace, path });
+      setAttachedFiles((current) => [...current, file]);
+    } catch (error) {
+      appendEvent("error", "文件加入上下文失败", error instanceof Error ? error.message : String(error));
+    }
   }
 
   function detachFile(path: string) {
@@ -281,7 +668,7 @@ function App() {
     streamingMessageActive.current = false;
     setBusy(true);
     setInput("");
-    setPlanItems([{ step: "等待模型生成计划", status: "in_progress" }]);
+    setPlanItems([{ step: t.waitingPlan, status: "in_progress" }]);
     setMessages((current) => [...current, { role: "user", content: trimmed }]);
 
     await window.agentWindow.sendMessage({
@@ -292,6 +679,26 @@ function App() {
       messages,
       attachments: attachedFiles
     });
+  }
+
+  async function cancelActiveRequest() {
+    if (!activeRequest.current) return;
+    await window.agentWindow.cancelMessage(activeRequest.current);
+  }
+
+  async function searchWorkspace() {
+    const query = fileSearch.trim();
+    if (!workspace || !query || searchingFiles) return;
+    setSearchingFiles(true);
+    try {
+      const result = await window.agentWindow.searchFiles({ workspace, query, maxResults: 50 });
+      setSearchResults(result.results);
+      appendEvent("tool", "文件搜索", JSON.stringify({ query, matches: result.results.length, engine: result.engine, truncated: result.truncated }, null, 2));
+    } catch (error) {
+      appendEvent("error", "文件搜索失败", error instanceof Error ? error.message : String(error));
+    } finally {
+      setSearchingFiles(false);
+    }
   }
 
   async function testApi() {
@@ -329,6 +736,8 @@ function App() {
     if (result.ok) {
       setPatches((current) => current.map((patch) => patch.id === patchId ? { ...patch, status: "applied" } : patch));
       appendEvent("patch", "Patch 已应用", result.result.summary);
+      await refreshWorkspace();
+      await refreshGit();
     } else {
       setPatches((current) => current.map((patch) => patch.id === patchId ? { ...patch, status: "failed", error: result.error } : patch));
       appendEvent("error", "Patch 应用失败", result.error);
@@ -341,11 +750,15 @@ function App() {
     appendEvent("patch", "Patch 已放弃", patchId);
   }
 
-  async function approveCommand(commandId: string) {
-    const result = await window.agentWindow.approveCommand(commandId);
+  async function approveCommand(commandId: string, allowFuture = false) {
+    const result = await window.agentWindow.approveCommand({ commandId, allowFuture });
     if (result.ok) {
       setCommands((current) => current.map((command) => command.id === commandId ? { ...command, status: "approved", result: result.result.result } : command));
       appendEvent("tool", `命令已执行：${result.result.command}`, result.result.result);
+      setCommandAutoApproval(result.result.autoApproveFutureCommands);
+      if (result.result.autoApproveFutureCommands) {
+        appendEvent("status", "后续命令已允许", "本次应用运行期间，agent 后续命令请求将自动执行。");
+      }
     } else {
       setCommands((current) => current.map((command) => command.id === commandId ? { ...command, status: "failed", error: result.error } : command));
       appendEvent("error", "命令执行失败", result.error);
@@ -355,6 +768,12 @@ function App() {
   async function discardCommand(commandId: string) {
     await window.agentWindow.discardCommand(commandId);
     setCommands((current) => current.map((command) => command.id === commandId ? { ...command, status: "discarded" } : command));
+  }
+
+  async function resetCommandAutoApproval() {
+    const result = await window.agentWindow.setCommandAutoApproval(false);
+    setCommandAutoApproval(result.autoApproveFutureCommands);
+    appendEvent("status", "后续命令确认已恢复", "agent 后续高危或副作用命令会再次请求确认。");
   }
 
   function updateProvider(provider: ProviderConfig["provider"]) {
@@ -372,150 +791,258 @@ function App() {
           <div className="brand-mark">A</div>
           <div>
             <h1>Agent Window</h1>
-            <p>DeepSeek-first desktop demo</p>
+            <p>{t.appSubtitle}</p>
           </div>
         </div>
 
         <section className="panel">
-          <div className="panel-title">Workspace</div>
-          <button className="primary" onClick={chooseWorkspace}>选择目录</button>
-          <div className="path-box">{workspace || "未选择"}</div>
-          <div className="row-actions">
-            <button className="secondary" onClick={() => refreshWorkspace()} disabled={!workspace}>刷新文件</button>
-            <button className="secondary" onClick={() => refreshGit()} disabled={!workspace}>刷新 Git</button>
+          <div className="panel-title row-title">
+            <span>{t.chats}</span>
+            <button className="secondary tiny" onClick={startNewSession} disabled={busy}>{t.newChat}</button>
           </div>
-        </section>
-
-        <section className="panel compact-panel">
-          <div className="panel-title">Git</div>
-          {gitSummary ? (
-            <>
-              <div className="metric">Branch <strong>{gitSummary.branch}</strong></div>
-              <button className="secondary full" onClick={showGitDiff}>查看 git diff</button>
-              <div className="commit-draft">{gitSummary.commitDraft}</div>
-              <div className="changed-list">
-                {gitSummary.changedFiles.length === 0 && <span className="muted">No changes</span>}
-                {gitSummary.changedFiles.map((file) => (
-                  <button key={`${file.status}-${file.path}`} onClick={() => openFile(file.path.replace(/^"|"$/g, ""))}>
-                    <span>{file.status}</span>{file.path}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="hint">选择 Git workspace 后显示分支和变更。</p>
-          )}
-        </section>
-
-        <section className="panel compact-panel">
-          <div className="panel-title">Files</div>
-          <div className="file-tree">
-            {tree.length === 0 && <span className="muted">暂无文件树</span>}
-            {tree.map((item) => (
+          <div className="session-list">
+            {sessions.map((session) => (
               <button
-                className={`file-node ${item.type}`}
-                key={item.path}
-                style={{ paddingLeft: `${8 + item.depth * 12}px` }}
-                disabled={item.type === "directory"}
-                onClick={() => openFile(item.path)}
+                className={`session-item ${session.id === activeSessionId ? "active" : ""}`}
+                key={session.id}
+                onClick={() => selectSession(session.id)}
+                disabled={busy}
               >
-                <span>{item.type === "directory" ? "▸" : "·"}</span>{item.name}
+                <strong>{session.title}</strong>
+                <span>{session.messages.length} {t.messagesUnit} · {formatSessionTime(session.updatedAt, language)}</span>
               </button>
             ))}
           </div>
         </section>
 
         <section className="panel">
-          <div className="panel-title">Provider</div>
-          <select value={config.provider} onChange={(event) => updateProvider(event.target.value as ProviderConfig["provider"])}>
-            <option value="deepseek">DeepSeek</option>
-            <option value="openai-compatible">OpenAI-compatible</option>
-          </select>
-          <label>
-            Base URL
-            <input value={config.baseUrl} onChange={(event) => setConfig({ ...config, baseUrl: event.target.value })} />
-          </label>
-          <label>
-            Model
-            <input value={config.model} onChange={(event) => setConfig({ ...config, model: event.target.value })} />
-          </label>
-          <label>
-            API Key
-            <input
-              type="password"
-              value={config.apiKey}
-              placeholder="可留空使用环境变量"
-              onChange={(event) => setConfig({ ...config, apiKey: event.target.value })}
-            />
-          </label>
-          <button className="secondary full" onClick={testApi} disabled={busy || testingApi}>
-            {testingApi ? "检测中..." : "检测 API"}
-          </button>
-          <label>
-            Context Budget
-            <input
-              type="number"
-              min="4096"
-              step="4096"
-              value={config.contextTokens}
-              onChange={(event) => setConfig({ ...config, contextTokens: Number(event.target.value) })}
-            />
-          </label>
-          <label>
-            Max Output Tokens
-            <input
-              type="number"
-              min="1"
-              step="1024"
-              value={config.maxTokens}
-              onChange={(event) => setConfig({ ...config, maxTokens: Number(event.target.value) })}
-            />
-          </label>
-          <label>
-            Thinking Mode
-            <select
-              value={config.thinkingMode}
-              onChange={(event) => setConfig({ ...config, thinkingMode: event.target.value as ProviderConfig["thinkingMode"] })}
-            >
-              <option value="enabled">Enabled</option>
-              <option value="disabled">Disabled</option>
-            </select>
-          </label>
-          <label>
-            Reasoning Effort
-            <select
-              value={config.reasoningEffort}
-              onChange={(event) => setConfig({ ...config, reasoningEffort: event.target.value as ProviderConfig["reasoningEffort"] })}
-            >
-              <option value="max">Max</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-          </label>
-          <label>
-            Temperature
-            <input
-              type="number"
-              min="0"
-              max="2"
-              step="0.1"
-              value={config.temperature}
-              onChange={(event) => setConfig({ ...config, temperature: Number(event.target.value) })}
-            />
-          </label>
-          <p className="hint">{providerHint}</p>
-          {configPath && <p className="hint file-hint">Config: {configPath}</p>}
+          <div className="panel-title">{t.workspace}</div>
+          <button className="primary" onClick={chooseWorkspace}>{t.chooseFolder}</button>
+          <div className="path-box">{workspace || t.notSelected}</div>
+          <div className="row-actions">
+            <button className="secondary" onClick={() => refreshWorkspace()} disabled={!workspace}>{t.refreshFiles}</button>
+            <button className="secondary" onClick={() => setSidebarSection("advanced")}>{t.advancedMenu}</button>
+          </div>
         </section>
+
+        <nav className="section-tabs" aria-label={t.sidebarNav}>
+          <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")}>{t.files}</button>
+          <button className={sidebarSection === "advanced" ? "active" : ""} onClick={() => setSidebarSection("advanced")}>{t.advanced}</button>
+          <button className={sidebarSection === "help" ? "active" : ""} onClick={() => setSidebarSection("help")}>{t.help}</button>
+        </nav>
+
+        {sidebarSection === "files" && (
+          <section className="panel compact-panel">
+            <div className="panel-title">{t.files}</div>
+            <div className="file-search">
+              <input
+                value={fileSearch}
+                placeholder={t.searchPlaceholder}
+                disabled={!workspace}
+                onChange={(event) => setFileSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") searchWorkspace();
+                }}
+              />
+              <button className="secondary" disabled={!workspace || !fileSearch.trim() || searchingFiles} onClick={searchWorkspace}>
+                {searchingFiles ? t.searching : t.search}
+              </button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className="search-results">
+                {searchResults.map((match) => (
+                  <button key={`${match.file}:${match.line}:${match.text}`} onClick={() => openFile(match.file)}>
+                    <strong>{match.file}:{match.line}</strong>
+                    <span>{match.text}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="file-tree">
+              {tree.length === 0 && <span className="muted">{t.noFiles}</span>}
+              {tree.map((item) => (
+                <button
+                  className={`file-node ${item.type}`}
+                  key={item.path}
+                  style={{ paddingLeft: `${8 + item.depth * 12}px` }}
+                  disabled={item.type === "directory"}
+                  onClick={() => openFile(item.path)}
+                >
+                  <span>{item.type === "directory" ? "▸" : "·"}</span>{item.name}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {sidebarSection === "advanced" && (
+          <>
+            <section className="panel compact-panel">
+              <div className="panel-title">{t.git}</div>
+              {gitSummary ? (
+                <>
+                  <div className="metric">{t.branch} <strong>{gitSummary.branch}</strong></div>
+                  <button className="secondary full" onClick={showGitDiff}>{t.viewGitDiff}</button>
+                  <button className="secondary full" onClick={() => refreshGit()} disabled={!workspace}>{t.refreshGit}</button>
+                  <div className="commit-draft">{gitSummary.commitDraft}</div>
+                  <div className="changed-list">
+                    {gitSummary.changedFiles.length === 0 && <span className="muted">{t.noChanges}</span>}
+                    {gitSummary.changedFiles.map((file) => (
+                      <button key={`${file.status}-${file.path}`} onClick={() => openFile(file.path.replace(/^"|"$/g, ""))}>
+                        <span>{file.status}</span>{file.path}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="hint">{t.gitHint}</p>
+              )}
+            </section>
+
+            <section className="panel">
+              <div className="panel-title">{t.provider}</div>
+              <select value={config.provider} onChange={(event) => updateProvider(event.target.value as ProviderConfig["provider"])}>
+                <option value="deepseek">DeepSeek</option>
+                <option value="openai-compatible">OpenAI-compatible</option>
+              </select>
+              <label>
+                {t.baseUrl}
+                <input value={config.baseUrl} onChange={(event) => setConfig({ ...config, baseUrl: event.target.value })} />
+              </label>
+              <label>
+                {t.model}
+                <input value={config.model} onChange={(event) => setConfig({ ...config, model: event.target.value })} />
+              </label>
+              <label>
+                {t.apiKey}
+                <input
+                  type="password"
+                  value={config.apiKey}
+                  placeholder={t.apiKeyPlaceholder}
+                  onChange={(event) => setConfig({ ...config, apiKey: event.target.value })}
+                />
+              </label>
+              <button className="secondary full" onClick={testApi} disabled={busy || testingApi}>
+                {testingApi ? t.testing : t.testApi}
+              </button>
+              <label>
+                {t.contextBudget}
+                <input
+                  type="number"
+                  min="4096"
+                  step="4096"
+                  value={config.contextTokens}
+                  onChange={(event) => setConfig({ ...config, contextTokens: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                {t.maxOutputTokens}
+                <input
+                  type="number"
+                  min="1"
+                  step="1024"
+                  value={config.maxTokens}
+                  onChange={(event) => setConfig({ ...config, maxTokens: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                {t.thinkingMode}
+                <select
+                  value={config.thinkingMode}
+                  onChange={(event) => setConfig({ ...config, thinkingMode: event.target.value as ProviderConfig["thinkingMode"] })}
+                >
+                  <option value="enabled">{t.enabled}</option>
+                  <option value="disabled">{t.disabled}</option>
+                </select>
+              </label>
+              <label>
+                {t.reasoningEffort}
+                <select
+                  value={config.reasoningEffort}
+                  onChange={(event) => setConfig({ ...config, reasoningEffort: event.target.value as ProviderConfig["reasoningEffort"] })}
+                >
+                  <option value="max">Max</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </label>
+              <label>
+                {t.temperature}
+                <input
+                  type="number"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={config.temperature}
+                  onChange={(event) => setConfig({ ...config, temperature: Number(event.target.value) })}
+                />
+              </label>
+              <p className="hint">{providerHint}</p>
+              {configPath && <p className="hint file-hint">{t.config}: {configPath}</p>}
+            </section>
+          </>
+        )}
+
+        {sidebarSection === "help" && (
+          <section className="panel help-panel">
+            <div className="panel-title">{t.helpTitle}</div>
+            <details open>
+              <summary>{t.helpChatsTitle}</summary>
+              <p>{t.helpChatsBody}</p>
+            </details>
+            <details>
+              <summary>{t.helpWorkspaceTitle}</summary>
+              <p>{t.helpWorkspaceBody}</p>
+            </details>
+            <details>
+              <summary>{t.helpProviderTitle}</summary>
+              <p>{t.helpProviderBody}</p>
+            </details>
+            <details>
+              <summary>{t.helpGitTitle}</summary>
+              <p>{t.helpGitBody}</p>
+            </details>
+            <details>
+              <summary>{t.helpPatchTitle}</summary>
+              <p>{t.helpPatchBody}</p>
+            </details>
+            <details>
+              <summary>{t.helpCommandTitle}</summary>
+              <p>{t.helpCommandBody}</p>
+            </details>
+            <details>
+              <summary>{t.helpLongTaskTitle}</summary>
+              <p>{t.helpLongTaskBody}</p>
+            </details>
+          </section>
+        )}
       </aside>
 
       <main className="conversation">
         <header className="topbar">
           <div>
-            <strong>Agent Session</strong>
-            <span>{busy ? "运行中" : "就绪"}</span>
+            <strong>{t.agentSession}</strong>
+            <span>{busy ? t.running : t.ready}</span>
           </div>
-          <button className="secondary" onClick={() => { setMessages([]); setEvents([]); setPatches([]); setCommands([]); setPlanItems([]); }} disabled={busy}>清空</button>
+          <div className="topbar-actions">
+            <label className="topbar-control">
+              <span>{t.theme}</span>
+              <select value={theme} onChange={(event) => setTheme(event.target.value as ThemeMode)}>
+                <option value="light">{t.light}</option>
+                <option value="dark">{t.dark}</option>
+              </select>
+            </label>
+            <label className="topbar-control">
+              <span>{t.language}</span>
+              <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
+                <option value="zh">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            {busy && <button className="secondary danger" onClick={cancelActiveRequest}>{t.stop}</button>}
+            <button className="secondary" onClick={clearCurrentSession} disabled={busy}>{t.clear}</button>
+          </div>
         </header>
 
         {(attachedFiles.length > 0 || previewFile || planItems.length > 0) && (
@@ -530,7 +1057,7 @@ function App() {
             {attachedFiles.length > 0 && (
               <div className="attachments">
                 {attachedFiles.map((file) => (
-                  <button key={file.path} onClick={() => detachFile(file.path)} title="点击移除上下文附件">{file.path} ×</button>
+                  <button key={file.path} onClick={() => detachFile(file.path)} title={t.removeContextTitle}>{file.path} ×</button>
                 ))}
               </div>
             )}
@@ -538,7 +1065,7 @@ function App() {
               <details className="file-preview">
                 <summary>
                   <span>{previewFile.path}</span>
-                  <button onClick={(event) => { event.preventDefault(); attachFile(previewFile.path); }}>加入上下文</button>
+                  <button onClick={(event) => { event.preventDefault(); attachFile(previewFile.path); }}>{t.addContext}</button>
                 </summary>
                 <pre>{previewFile.content}</pre>
               </details>
@@ -549,39 +1076,41 @@ function App() {
         <div className="message-list">
           {messages.length === 0 && (
             <div className="empty-state">
-              <h2>选择工作区后开始任务</h2>
-              <p>例如：列出这个项目的文件结构，读 README，然后告诉我如何启动。</p>
+              <h2>{t.emptyTitle}</h2>
+              <p>{t.emptyBody}</p>
             </div>
           )}
           {messages.map((message, index) => (
             <article className={`message ${message.role}`} key={`${message.role}-${index}`}>
-              <div className="role">{message.role === "user" ? "You" : "Agent"}</div>
+              <div className="role">{message.role === "user" ? t.you : t.agent}</div>
               <pre>{message.content}</pre>
             </article>
           ))}
-          {busy && <div className="thinking">Agent 正在处理...</div>}
+          {busy && <div className="thinking">{t.thinking}</div>}
           <div ref={bottomRef} />
         </div>
 
         <footer className="composer">
           <textarea
             value={input}
-            placeholder="让 agent 检查、修改或运行这个 workspace..."
+            placeholder={t.composerPlaceholder}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) send();
             }}
           />
-          <button className="send" disabled={busy || !input.trim()} onClick={send}>发送</button>
+          <button className="send" disabled={busy || !input.trim()} onClick={send}>{t.send}</button>
         </footer>
       </main>
 
       <aside className="activity">
-        <div className="activity-header">Activity</div>
-        <div className="event-list">
-          {patches.length > 0 && (
+        <div className="activity-header">{t.activity}</div>
+        {(patches.length > 0 || commands.length > 0) && (
+          <div className="approval-dock">
+            <div className="approval-dock-title">{t.needsApproval}</div>
+            {patches.length > 0 && (
             <section className="patch-stack">
-              <div className="panel-title">Pending Changes</div>
+              <div className="panel-title">{t.pendingChanges}</div>
               {patches.map((patch) => (
                 <details className={`patch-card ${patch.status}`} key={patch.id} open={patch.status === "pending" || patch.status === "failed"}>
                   <summary>
@@ -591,33 +1120,41 @@ function App() {
                   <pre>{patch.patch}</pre>
                   {patch.error && <div className="patch-error">{patch.error}</div>}
                   <div className="patch-actions">
-                    <button className="primary small" disabled={patch.status !== "pending"} onClick={() => applyPatch(patch.id)}>应用</button>
-                    <button className="secondary small" disabled={patch.status !== "pending"} onClick={() => discardPatch(patch.id)}>放弃</button>
+                    <button className="primary small" disabled={patch.status !== "pending"} onClick={() => applyPatch(patch.id)}>{t.apply}</button>
+                    <button className="secondary small" disabled={patch.status !== "pending"} onClick={() => discardPatch(patch.id)}>{t.discard}</button>
                   </div>
                 </details>
               ))}
             </section>
-          )}
-          {commands.length > 0 && (
+            )}
+            {commands.length > 0 && (
             <section className="patch-stack">
-              <div className="panel-title">Command Approvals</div>
+              <div className="panel-title command-title">
+                <span>{t.commandApprovals}</span>
+                {commandAutoApproval && <button className="secondary tiny" onClick={resetCommandAutoApproval}>{t.restoreConfirm}</button>}
+              </div>
+              {commandAutoApproval && <div className="approval-banner">{t.autoApprovalBanner}</div>}
               {commands.map((command) => (
-                <details className={`patch-card command-card ${command.status}`} key={command.id} open={command.status === "pending" || command.status === "failed"}>
+                <details className={`patch-card command-card ${command.highRisk ? "high-risk" : ""} ${command.status}`} key={command.id} open={command.status === "pending" || command.status === "failed"}>
                   <summary>
                     <span>{command.command}</span>
-                    <small>{command.status}</small>
+                    <small>{command.highRisk ? `high / ${command.status}` : command.status}</small>
                   </summary>
                   <div className="patch-error">{command.error || command.reason}</div>
                   {command.result && <pre>{command.result}</pre>}
                   <div className="patch-actions">
-                    <button className="primary small" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id)}>执行</button>
-                    <button className="secondary small" disabled={command.status !== "pending"} onClick={() => discardCommand(command.id)}>放弃</button>
+                    <button className="primary small" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id)}>{t.execute}</button>
+                    <button className="primary small allow-future" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id, true)}>{t.executeAllowFuture}</button>
+                    <button className="secondary small" disabled={command.status !== "pending"} onClick={() => discardCommand(command.id)}>{t.discard}</button>
                   </div>
                 </details>
               ))}
             </section>
-          )}
-          {events.length === 0 && patches.length === 0 && commands.length === 0 && <div className="muted">工具调用、模型用量和错误会显示在这里。</div>}
+            )}
+          </div>
+        )}
+        <div className="event-list">
+          {events.length === 0 && patches.length === 0 && commands.length === 0 && <div className="muted">{t.activityEmpty}</div>}
           {events.map((event) => (
             <details className={`event ${event.kind}`} key={event.id} open={event.kind === "error"}>
               <summary>{event.title}</summary>

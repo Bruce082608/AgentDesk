@@ -44,6 +44,36 @@ export async function readWorkspaceFile(workspace, filePath) {
   return { path: filePath, content: await fs.readFile(absolute, "utf8") };
 }
 
+export async function searchWorkspaceFiles(workspace, query, maxResults = 50) {
+  const needle = String(query ?? "").trim();
+  if (!needle) return { results: [], truncated: false, engine: "none" };
+  const limit = Math.min(Number(maxResults) || 50, 100);
+
+  const rgResult = await searchWithRg(workspace, needle, limit).catch(() => null);
+  if (rgResult) return rgResult;
+
+  const tree = await getWorkspaceTree(workspace);
+  const results = [];
+  for (const item of tree.items) {
+    if (results.length >= limit) break;
+    if (item.type !== "file") continue;
+    try {
+      const file = await readWorkspaceFile(workspace, item.path);
+      const lines = file.content.split(/\r?\n/);
+      for (let index = 0; index < lines.length; index += 1) {
+        if (lines[index].includes(needle)) {
+          results.push({ file: item.path, line: index + 1, text: lines[index].slice(0, 240) });
+          if (results.length >= limit) break;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return { results, truncated: results.length >= limit, engine: "fallback" };
+}
+
 export async function getGitSummary(workspace) {
   const branch = await runGit(workspace, ["branch", "--show-current"]).catch(() => "");
   const status = await runGit(workspace, ["status", "--short"]).catch(() => "");
@@ -71,6 +101,43 @@ async function runGit(workspace, args) {
     maxBuffer: 2_000_000
   });
   return stdout;
+}
+
+async function searchWithRg(workspace, needle, limit) {
+  let stdout = "";
+  try {
+    ({ stdout } = await execFileAsync(
+      "rg",
+      [
+        "--line-number",
+        "--no-heading",
+        "--fixed-strings",
+        "--color=never",
+        "--glob",
+        "!{.git,node_modules,dist,build,.next,.vite,coverage}/**",
+        needle,
+        "."
+      ],
+      {
+        cwd: resolveInsideWorkspace(workspace, "."),
+        windowsHide: true,
+        maxBuffer: 1_000_000
+      }
+    ));
+  } catch (error) {
+    if (error?.code === 1) return { results: [], truncated: false, engine: "rg" };
+    throw error;
+  }
+
+  const results = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line || results.length >= limit) break;
+    const match = line.match(/^(.+?):(\d+):(.*)$/);
+    if (!match) continue;
+    results.push({ file: match[1].replaceAll("\\", "/"), line: Number(match[2]), text: match[3].slice(0, 240) });
+  }
+
+  return { results, truncated: results.length >= limit, engine: "rg" };
 }
 
 function draftCommitMessage(changedFiles) {

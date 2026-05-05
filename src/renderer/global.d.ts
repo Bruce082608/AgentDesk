@@ -6,16 +6,19 @@ declare global {
       chooseWorkspace: () => Promise<string | null>;
       getWorkspaceTree: (workspace: string) => Promise<{ items: WorkspaceTreeItem[]; truncated: boolean }>;
       readFile: (payload: { workspace: string; path: string }) => Promise<{ path: string; content: string }>;
+      searchFiles: (payload: { workspace: string; query: string; maxResults?: number }) => Promise<WorkspaceSearchResult>;
       getGitSummary: (workspace: string) => Promise<GitSummary>;
       getGitDiff: (workspace: string) => Promise<{ diff: string }>;
       loadConfig: () => Promise<{ config: ProviderConfig & { recoveredFromError?: string }; path: string }>;
       saveConfig: (config: ProviderConfig) => Promise<{ ok: boolean; path: string }>;
-      sendMessage: (payload: AgentRequest) => Promise<{ ok: boolean }>;
+      sendMessage: (payload: AgentRequest) => Promise<{ ok: boolean; cancelled?: boolean }>;
+      cancelMessage: (requestId: string) => Promise<{ ok: boolean }>;
       testProvider: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderTestResult } | { ok: false; error: string }>;
       applyPatch: (patchId: string) => Promise<{ ok: true; result: { ok: boolean; patchId: string; summary: string } } | { ok: false; error: string }>;
       discardPatch: (patchId: string) => Promise<{ ok: boolean; patchId: string }>;
-      approveCommand: (commandId: string) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string } } | { ok: false; error: string }>;
+      approveCommand: (payload: { commandId: string; allowFuture?: boolean }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; highRisk: boolean; autoApproveFutureCommands: boolean } } | { ok: false; error: string }>;
       discardCommand: (commandId: string) => Promise<{ ok: boolean; commandId: string }>;
+      setCommandAutoApproval: (enabled: boolean) => Promise<{ ok: boolean; autoApproveFutureCommands: boolean }>;
       onAgentEvent: (callback: (event: AgentEvent) => void) => () => void;
     };
   }
@@ -62,6 +65,12 @@ export type WorkspaceTreeItem = {
   depth: number;
 };
 
+export type WorkspaceSearchResult = {
+  results: Array<{ file: string; line: number; text: string }>;
+  truncated: boolean;
+  engine: string;
+};
+
 export type AttachedFile = {
   path: string;
   content: string;
@@ -88,6 +97,7 @@ export type AgentEvent =
   | { requestId: string; type: "tool_result"; name: string; result: string }
   | { requestId: string; type: "tool_error"; name: string; message: string }
   | { requestId: string; type: "patch_proposed"; patchId: string; summary: string; patch: string }
-  | { requestId: string; type: "command_pending"; commandId: string; command: string; reason: string }
+  | { requestId: string; type: "command_pending"; commandId: string; command: string; reason: string; highRisk?: boolean }
   | { requestId: string; type: "error"; message: string }
+  | { requestId: string; type: "cancelled"; message: string }
   | { requestId: string; type: "done" };
