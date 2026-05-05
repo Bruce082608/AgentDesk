@@ -740,22 +740,133 @@ button:disabled {
   font-weight: 800;
 }
 
-.message pre {
+.message-body {
   margin: 0;
   padding: 15px;
   border: 1px solid #d8e1ee;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.92);
   color: #1f2937;
-  white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.58;
   box-shadow: 0 10px 30px rgba(30, 41, 59, 0.07);
 }
 
-.message.user pre {
+.message.user .message-body {
   background: #eaf1ff;
   border-color: #cbdafa;
+}
+
+.markdown-content > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-content > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content p {
+  margin: 0 0 10px;
+  white-space: pre-wrap;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  margin: 14px 0 8px;
+  color: #111827;
+  line-height: 1.25;
+}
+
+.markdown-content h1 {
+  font-size: 22px;
+}
+
+.markdown-content h2 {
+  font-size: 19px;
+}
+
+.markdown-content h3 {
+  font-size: 16px;
+}
+
+.markdown-content h4 {
+  font-size: 14px;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0 0 10px 22px;
+  padding: 0;
+}
+
+.markdown-content li {
+  margin: 4px 0;
+}
+
+.markdown-content blockquote {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border-left: 3px solid #b9ccff;
+  background: #f8fafc;
+  color: #475467;
+}
+
+.markdown-content a {
+  color: #1d4ed8;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.markdown-content code {
+  border: 1px solid #d8e1ee;
+  border-radius: 5px;
+  padding: 1px 5px;
+  background: #f8fafc;
+  color: #be123c;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.markdown-content .markdown-code {
+  position: relative;
+  margin: 0 0 12px;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid #d8e1ee;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e5e7eb;
+  white-space: pre;
+  line-height: 1.5;
+}
+
+.markdown-content .markdown-code code {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+
+.markdown-code-language {
+  display: block;
+  margin-bottom: 8px;
+  color: #93c5fd;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.markdown-content hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid #d8e1ee;
 }
 
 .thinking {
@@ -768,7 +879,7 @@ button:disabled {
 
 .composer {
   display: grid;
-  grid-template-columns: 1fr 88px;
+  grid-template-columns: 92px 1fr 88px;
   grid-template-rows: 8px minmax(0, 1fr);
   gap: 8px 12px;
   padding: 0 14px 14px;
@@ -812,6 +923,14 @@ button:disabled {
   height: 100%;
   min-height: 0;
   margin-top: 0;
+}
+
+.upload-button {
+  height: 100%;
+  padding: 0 10px;
+  background: #e8eef8;
+  color: #1f3a6d;
+  border: 1px solid #cdd9ef;
 }
 
 .send {
@@ -1122,7 +1241,7 @@ body[data-theme="dark"] textarea,
 body[data-theme="dark"] .path-box,
 body[data-theme="dark"] .commit-draft,
 body[data-theme="dark"] .file-preview,
-body[data-theme="dark"] .message pre,
+body[data-theme="dark"] .message-body,
 body[data-theme="dark"] .event,
 body[data-theme="dark"] .help-panel details,
 body[data-theme="dark"] .search-results button,
@@ -1149,6 +1268,7 @@ body[data-theme="dark"] textarea:focus {
 }
 
 body[data-theme="dark"] .secondary,
+body[data-theme="dark"] .upload-button,
 body[data-theme="dark"] .file-preview summary button {
   background: #1e293b;
   color: #dbeafe;
@@ -1168,7 +1288,7 @@ body[data-theme="dark"] .send {
   color: #ffffff;
 }
 
-body[data-theme="dark"] .message.user pre,
+body[data-theme="dark"] .message.user .message-body,
 body[data-theme="dark"] .session-item.active,
 body[data-theme="dark"] .session-item:hover:not(:disabled),
 body[data-theme="dark"] .file-node:hover:not(:disabled),
@@ -1179,6 +1299,31 @@ body[data-theme="dark"] .plan-chip.in_progress {
   background: #172554;
   border-color: #1d4ed8;
   color: #dbeafe;
+}
+
+body[data-theme="dark"] .markdown-content h1,
+body[data-theme="dark"] .markdown-content h2,
+body[data-theme="dark"] .markdown-content h3,
+body[data-theme="dark"] .markdown-content h4 {
+  color: #f8fafc;
+}
+
+body[data-theme="dark"] .markdown-content blockquote,
+body[data-theme="dark"] .markdown-content code {
+  border-color: #334155;
+  background: #0f172a;
+}
+
+body[data-theme="dark"] .markdown-content blockquote {
+  color: #cbd5e1;
+}
+
+body[data-theme="dark"] .markdown-content a {
+  color: #93c5fd;
+}
+
+body[data-theme="dark"] .markdown-content hr {
+  border-color: #334155;
 }
 
 body[data-theme="dark"] .file-node,

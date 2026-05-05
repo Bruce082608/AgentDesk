@@ -7,6 +7,7 @@ declare global {
       getWorkspaceTree: (workspace: string) => Promise<{ items: WorkspaceTreeItem[]; truncated: boolean }>;
       readFile: (payload: { workspace: string; path: string }) => Promise<{ path: string; content: string }>;
       searchFiles: (payload: { workspace: string; query: string; maxResults?: number }) => Promise<WorkspaceSearchResult>;
+      chooseAttachmentFiles: () => Promise<AttachedFile[]>;
       getGitSummary: (workspace: string) => Promise<GitSummary>;
       getGitDiff: (workspace: string) => Promise<{ diff: string }>;
       loadConfig: () => Promise<{ config: ProviderConfig & { recoveredFromError?: string }; path: string }>;

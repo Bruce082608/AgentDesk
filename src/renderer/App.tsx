@@ -148,6 +148,7 @@ const translations = {
     agent: "Agent",
     thinking: "Agent 正在处理...",
     composerPlaceholder: "让 agent 检查、修改或运行这个 workspace...",
+    uploadFiles: "上传文件",
     send: "发送",
     activity: "Activity",
     needsApproval: "Needs Approval",
@@ -251,6 +252,7 @@ const translations = {
     agent: "Agent",
     thinking: "Agent is working...",
     composerPlaceholder: "Ask the agent to inspect, modify, or run this workspace...",
+    uploadFiles: "Upload",
     send: "Send",
     activity: "Activity",
     needsApproval: "Needs Approval",
@@ -355,6 +357,151 @@ function readStoredNumber(key: string, fallback: number, min: number, max: numbe
   return Math.min(Math.max(parsed, min), max);
 }
 
+function MarkdownContent({ content }: { content: string }) {
+  const blocks: React.ReactNode[] = [];
+  const lines = String(content ?? "").split(/\r?\n/);
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let codeLines: string[] = [];
+  let codeLanguage = "";
+  let inCode = false;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    blocks.push(<p key={`p-${blocks.length}`}>{renderInline(paragraph.join("\n"))}</p>);
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (!listType || listItems.length === 0) return;
+    const children = listItems.map((item, index) => <li key={index}>{renderInline(item)}</li>);
+    blocks.push(listType === "ol" ? <ol key={`ol-${blocks.length}`}>{children}</ol> : <ul key={`ul-${blocks.length}`}>{children}</ul>);
+    listItems = [];
+    listType = null;
+  };
+
+  const flushCode = () => {
+    blocks.push(
+      <pre className="markdown-code" key={`code-${blocks.length}`}>
+        {codeLanguage && <span className="markdown-code-language">{codeLanguage}</span>}
+        <code>{codeLines.join("\n")}</code>
+      </pre>
+    );
+    codeLines = [];
+    codeLanguage = "";
+  };
+
+  for (const line of lines) {
+    const fence = line.match(/^```([\w.-]*)\s*$/);
+    if (fence) {
+      if (inCode) {
+        flushCode();
+        inCode = false;
+      } else {
+        flushParagraph();
+        flushList();
+        inCode = true;
+        codeLanguage = fence[1] || "";
+      }
+      continue;
+    }
+
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = Math.min(heading[1].length, 4);
+      const content = renderInline(heading[2]);
+      if (level === 1) blocks.push(<h1 key={`h-${blocks.length}`}>{content}</h1>);
+      else if (level === 2) blocks.push(<h2 key={`h-${blocks.length}`}>{content}</h2>);
+      else if (level === 3) blocks.push(<h3 key={`h-${blocks.length}`}>{content}</h3>);
+      else blocks.push(<h4 key={`h-${blocks.length}`}>{content}</h4>);
+      continue;
+    }
+
+    if (/^\s*---+\s*$/.test(line)) {
+      flushParagraph();
+      flushList();
+      blocks.push(<hr key={`hr-${blocks.length}`} />);
+      continue;
+    }
+
+    const quote = line.match(/^>\s?(.+)$/);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      blocks.push(<blockquote key={`quote-${blocks.length}`}>{renderInline(quote[1])}</blockquote>);
+      continue;
+    }
+
+    const list = line.match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/);
+    if (list) {
+      flushParagraph();
+      const nextType = list[2] ? "ol" : "ul";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType;
+      listItems.push(list[3]);
+      continue;
+    }
+
+    flushList();
+    paragraph.push(line);
+  }
+
+  if (inCode) flushCode();
+  flushParagraph();
+  flushList();
+
+  return <div className="markdown-content">{blocks.length > 0 ? blocks : <p />}</div>;
+}
+
+function renderInline(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const pattern = /(\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text))) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    const key = nodes.length;
+    if (match[2] && match[3]) {
+      const href = safeHref(match[3]);
+      nodes.push(href ? <a key={key} href={href} target="_blank" rel="noreferrer">{match[2]}</a> : match[2]);
+    } else if (match[4]) {
+      nodes.push(<code key={key}>{match[4]}</code>);
+    } else if (match[5]) {
+      nodes.push(<strong key={key}>{match[5]}</strong>);
+    } else if (match[6]) {
+      nodes.push(<em key={key}>{match[6]}</em>);
+    }
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+function safeHref(value: string) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:", "mailto:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
 function App() {
   const [workspace, setWorkspace] = useState("");
   const [input, setInput] = useState("");
@@ -407,6 +554,8 @@ function App() {
   const [configLoaded, setConfigLoaded] = useState(false);
   const activeRequest = useRef<string | null>(null);
   const streamingMessageActive = useRef(false);
+  const messageListRef = useRef<HTMLDivElement | null>(null);
+  const followOutputRef = useRef(true);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const t = translations[language];
 
@@ -500,7 +649,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (!followOutputRef.current) return;
+    const list = messageListRef.current;
+    if (!list) return;
+    list.scrollTop = list.scrollHeight;
   }, [messages, events, busy]);
 
   const providerHint = useMemo(() => {
@@ -622,6 +774,13 @@ function App() {
 
   function appendEvent(kind: EventLogItem["kind"], title: string, body: string) {
     setEvents((current) => [...current, { id: crypto.randomUUID(), title, body, kind }]);
+  }
+
+  function updateOutputFollowState() {
+    const list = messageListRef.current;
+    if (!list) return;
+    const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+    followOutputRef.current = distanceToBottom < 32;
   }
 
   function recordTokenUsage(usage: unknown) {
@@ -770,11 +929,25 @@ function App() {
     setAttachedFiles((current) => current.filter((file) => file.path !== path));
   }
 
+  async function uploadAttachmentFiles() {
+    try {
+      const files = await window.agentWindow.chooseAttachmentFiles();
+      if (files.length === 0) return;
+      setAttachedFiles((current) => {
+        const seen = new Set(current.map((file) => file.path));
+        return [...current, ...files.filter((file) => !seen.has(file.path))];
+      });
+      appendEvent("tool", "文件已上传", JSON.stringify(files.map((file) => ({ path: file.path, chars: file.content.length })), null, 2));
+    } catch (error) {
+      appendEvent("error", "文件上传失败", error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function send() {
     const trimmed = input.trim();
     if (!trimmed || busy) return;
 
-    if (!workspace) {
+    if (!workspace && attachedFiles.length === 0) {
       appendEvent("error", "缺少 workspace", "请先选择一个工作区目录。");
       return;
     }
@@ -782,6 +955,7 @@ function App() {
     const requestId = crypto.randomUUID();
     activeRequest.current = requestId;
     streamingMessageActive.current = false;
+    followOutputRef.current = true;
     setBusy(true);
     setInput("");
     setPlanItems([{ step: t.waitingPlan, status: "in_progress" }]);
@@ -789,7 +963,7 @@ function App() {
 
     await window.agentWindow.sendMessage({
       requestId,
-      workspace,
+      workspace: workspace || ".",
       input: trimmed,
       providerConfig: config,
       messages,
@@ -1308,7 +1482,7 @@ function App() {
           </section>
         )}
 
-        <div className="message-list">
+        <div className="message-list" ref={messageListRef} onScroll={updateOutputFollowState}>
           {messages.length === 0 && (
             <div className="empty-state">
               <h2>{t.emptyTitle}</h2>
@@ -1318,7 +1492,9 @@ function App() {
           {messages.map((message, index) => (
             <article className={`message ${message.role}`} key={`${message.role}-${index}`}>
               <div className="role">{message.role === "user" ? t.you : t.agent}</div>
-              <pre>{message.content}</pre>
+              <div className="message-body">
+                <MarkdownContent content={message.content} />
+              </div>
             </article>
           ))}
           {busy && <div className="thinking">{t.thinking}</div>}
@@ -1333,6 +1509,7 @@ function App() {
             aria-label={language === "zh" ? "调整底部对话框高度" : "Resize composer height"}
             onPointerDown={startComposerResize}
           />
+          <button className="upload-button" type="button" disabled={busy} onClick={uploadAttachmentFiles}>{t.uploadFiles}</button>
           <textarea
             value={input}
             placeholder={t.composerPlaceholder}

@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAgentTurn } from "./agent.js";
+import { readUploadedFiles } from "./attachments.js";
 import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval } from "./tools.js";
@@ -76,6 +77,16 @@ ipcMain.handle("file:read", async (_event, payload) => {
 
 ipcMain.handle("file:search", async (_event, payload) => {
   return await searchWorkspaceFiles(payload.workspace, payload.query, payload.maxResults);
+});
+
+ipcMain.handle("file:choose-attachments", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openFile", "multiSelections"],
+    title: "选择要上传分析的文件"
+  });
+
+  if (result.canceled || result.filePaths.length === 0) return [];
+  return await readUploadedFiles(result.filePaths);
 });
 
 ipcMain.handle("git:summary", async (_event, workspace) => {

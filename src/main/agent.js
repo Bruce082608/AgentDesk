@@ -4,7 +4,7 @@ import { executeToolCall, toolDefinitions } from "./tools.js";
 const DEFAULT_MAX_AGENT_STEPS = 64;
 
 export async function runAgentTurn(payload, emit) {
-  const workspace = payload.workspace;
+  const workspace = payload.workspace || process.cwd();
   const providerConfig = payload.providerConfig ?? {};
   const userInput = String(payload.input ?? "").trim();
   const priorMessages = Array.isArray(payload.messages) ? payload.messages : [];
@@ -26,6 +26,7 @@ export async function runAgentTurn(payload, emit) {
         "Before doing substantive work, call update_plan with 2-5 concrete steps. Keep it updated as work progresses.",
         "When editing files, call apply_patch with a unified diff. The user must approve the patch before it is applied.",
         "When you need project context, list files before reading.",
+        "When the user needs current or online information, use web_search and cite the returned URLs in your answer.",
         "Use PowerShell commands on Windows, and POSIX shell commands on macOS/Linux.",
         "High-risk operations such as deleting files are allowed only through tools and will require user approval before execution."
       ].join("\n")
