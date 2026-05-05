@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAgentTurn } from "./agent.js";
-import { testProviderConnection } from "./providers.js";
+import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
@@ -20,7 +20,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     backgroundColor: "#111318",
-    title: "Agent Window Demo",
+    title: "Bruce的秘密基地",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -123,6 +123,18 @@ ipcMain.handle("agent:cancel", async (_event, requestId) => {
 ipcMain.handle("provider:test", async (_event, config) => {
   try {
     const result = await testProviderConnection(config);
+    return { ok: true, result };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+});
+
+ipcMain.handle("provider:balance", async (_event, config) => {
+  try {
+    const result = await getProviderBalance(config);
     return { ok: true, result };
   } catch (error) {
     return {

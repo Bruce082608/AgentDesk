@@ -14,6 +14,7 @@ declare global {
       sendMessage: (payload: AgentRequest) => Promise<{ ok: boolean; cancelled?: boolean }>;
       cancelMessage: (requestId: string) => Promise<{ ok: boolean }>;
       testProvider: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderTestResult } | { ok: false; error: string }>;
+      getBalance: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderBalanceResult } | { ok: false; error: string }>;
       applyPatch: (patchId: string) => Promise<{ ok: true; result: { ok: boolean; patchId: string; summary: string } } | { ok: false; error: string }>;
       discardPatch: (patchId: string) => Promise<{ ok: boolean; patchId: string }>;
       approveCommand: (payload: { commandId: string; allowFuture?: boolean }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; highRisk: boolean; autoApproveFutureCommands: boolean } } | { ok: false; error: string }>;
@@ -37,6 +38,7 @@ export type ProviderConfig = {
   temperature: number;
   maxTokens: number;
   contextTokens: number;
+  maxAgentSteps: number;
   thinkingMode: "enabled" | "disabled";
   reasoningEffort: "low" | "medium" | "high" | "max";
 };
@@ -47,6 +49,16 @@ export type ProviderTestResult = {
   model: string;
   content: string;
   usage: unknown;
+};
+
+export type ProviderBalanceResult = {
+  is_available: boolean;
+  balance_infos: Array<{
+    currency: "CNY" | "USD" | string;
+    total_balance: string;
+    granted_balance: string;
+    topped_up_balance: string;
+  }>;
 };
 
 export type AgentRequest = {

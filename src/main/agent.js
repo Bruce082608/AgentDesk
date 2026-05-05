@@ -142,7 +142,7 @@ export async function runAgentTurn(payload, emit) {
     }
   }
 
-  throw new Error(`agent 超过最大工具循环次数 ${maxAgentSteps}，已停止。可以调高 AGENT_MAX_STEPS 后重试。`);
+  throw new Error(`agent 超过最大工具循环次数 ${maxAgentSteps}，已停止。可以在进阶菜单调高工具调用次数限制后重试。`);
 }
 
 function throwIfAborted(signal) {

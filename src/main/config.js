@@ -11,6 +11,7 @@ const DEFAULT_CONFIG = {
   model: "deepseek-v4-pro",
   contextTokens: 1000000,
   maxTokens: 32768,
+  maxAgentSteps: 64,
   thinkingMode: "enabled",
   reasoningEffort: "max",
   temperature: 0.2
@@ -53,6 +54,7 @@ export async function saveAppConfig(config) {
     model: config.model,
     contextTokens: Number(config.contextTokens),
     maxTokens: Number(config.maxTokens),
+    maxAgentSteps: clampInteger(config.maxAgentSteps, DEFAULT_CONFIG.maxAgentSteps, 8, 256),
     thinkingMode: config.thinkingMode,
     reasoningEffort: config.reasoningEffort,
     temperature: Number(config.temperature)
@@ -104,4 +106,10 @@ async function saveApiKey(apiKey) {
 
 function getSecretsPath() {
   return path.join(app.getPath("userData"), "secrets.json");
+}
+
+function clampInteger(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.floor(parsed), min), max);
 }

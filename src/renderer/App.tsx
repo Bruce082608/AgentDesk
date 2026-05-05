@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AgentEvent, AttachedFile, ChatMessage, GitSummary, PlanItem, ProviderConfig, WorkspaceTreeItem } from "./global";
+import type { AgentEvent, AttachedFile, ChatMessage, GitSummary, PlanItem, ProviderBalanceResult, ProviderConfig, WorkspaceTreeItem } from "./global";
 import "./styles.css";
+
+const appName = "Bruce的秘密基地";
+const brandIconUrl = new URL("./assets/bruce-secret-base.jpg", import.meta.url).href;
 
 type EventLogItem = {
   id: string;
@@ -34,6 +37,13 @@ type SearchMatch = {
   text: string;
 };
 
+type TokenUsageStats = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  requests: number;
+};
+
 type ChatSession = {
   id: string;
   title: string;
@@ -50,7 +60,18 @@ type Language = "zh" | "en";
 const CHAT_SESSIONS_KEY = "agent-chat-sessions";
 const THEME_KEY = "agent-ui-theme";
 const LANGUAGE_KEY = "agent-ui-language";
+const LEFT_SIDEBAR_WIDTH_KEY = "agent-left-sidebar-width";
+const RIGHT_SIDEBAR_WIDTH_KEY = "agent-right-sidebar-width";
+const COMPOSER_HEIGHT_KEY = "agent-composer-height";
 const MAX_SAVED_SESSIONS = 30;
+const MIN_LEFT_SIDEBAR_WIDTH = 220;
+const MAX_LEFT_SIDEBAR_WIDTH = 480;
+const MIN_RIGHT_SIDEBAR_WIDTH = 260;
+const MAX_RIGHT_SIDEBAR_WIDTH = 560;
+const MIN_CONVERSATION_WIDTH = 440;
+const RESIZE_HANDLE_WIDTH = 7;
+const MIN_COMPOSER_HEIGHT = 72;
+const MAX_COMPOSER_HEIGHT = 260;
 
 const translations = {
   zh: {
@@ -80,8 +101,22 @@ const translations = {
     apiKeyPlaceholder: "可留空使用环境变量",
     testing: "检测中...",
     testApi: "检测 API",
+    balanceChecking: "查询中...",
+    queryBalance: "查询 API 余额",
+    balanceAvailable: "账户可用",
+    balanceUnavailable: "余额不足",
+    totalBalance: "总余额",
+    grantedBalance: "赠金余额",
+    toppedUpBalance: "充值余额",
+    localTokenUsage: "本地 token 用量",
+    promptTokens: "输入 tokens",
+    completionTokens: "输出 tokens",
+    totalTokens: "总 tokens",
+    usageRequests: "请求次数",
+    balanceHint: "余额来自 DeepSeek 官方 /user/balance；token 用量为本应用本地累计。",
     contextBudget: "Context Budget",
     maxOutputTokens: "Max Output Tokens",
+    maxAgentSteps: "工具调用次数限制",
     thinkingMode: "Thinking Mode",
     reasoningEffort: "Reasoning Effort",
     temperature: "Temperature",
@@ -169,8 +204,22 @@ const translations = {
     apiKeyPlaceholder: "Leave empty to use env vars",
     testing: "Testing...",
     testApi: "Test API",
+    balanceChecking: "Checking...",
+    queryBalance: "Check API Balance",
+    balanceAvailable: "Account available",
+    balanceUnavailable: "Insufficient balance",
+    totalBalance: "Total balance",
+    grantedBalance: "Granted balance",
+    toppedUpBalance: "Topped-up balance",
+    localTokenUsage: "Local token usage",
+    promptTokens: "Prompt tokens",
+    completionTokens: "Completion tokens",
+    totalTokens: "Total tokens",
+    usageRequests: "Requests",
+    balanceHint: "Balance comes from DeepSeek /user/balance; token usage is accumulated locally in this app.",
     contextBudget: "Context Budget",
     maxOutputTokens: "Max Output Tokens",
+    maxAgentSteps: "Tool Call Limit",
     thinkingMode: "Thinking Mode",
     reasoningEffort: "Reasoning Effort",
     temperature: "Temperature",
@@ -241,6 +290,7 @@ const defaultConfig: ProviderConfig = {
   temperature: 0.2,
   maxTokens: 32768,
   contextTokens: 1000000,
+  maxAgentSteps: 64,
   thinkingMode: "enabled",
   reasoningEffort: "max"
 };
@@ -299,6 +349,12 @@ function formatSessionTime(timestamp: number, language: Language) {
   }).format(timestamp);
 }
 
+function readStoredNumber(key: string, fallback: number, min: number, max: number) {
+  const parsed = Number(localStorage.getItem(key));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
 function App() {
   const [workspace, setWorkspace] = useState("");
   const [input, setInput] = useState("");
@@ -314,6 +370,15 @@ function App() {
     const saved = localStorage.getItem(LANGUAGE_KEY);
     return saved === "en" ? "en" : "zh";
   });
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(() =>
+    readStoredNumber(LEFT_SIDEBAR_WIDTH_KEY, 292, MIN_LEFT_SIDEBAR_WIDTH, MAX_LEFT_SIDEBAR_WIDTH)
+  );
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(() =>
+    readStoredNumber(RIGHT_SIDEBAR_WIDTH_KEY, 340, MIN_RIGHT_SIDEBAR_WIDTH, MAX_RIGHT_SIDEBAR_WIDTH)
+  );
+  const [composerHeight, setComposerHeight] = useState(() =>
+    readStoredNumber(COMPOSER_HEIGHT_KEY, 78, MIN_COMPOSER_HEIGHT, MAX_COMPOSER_HEIGHT)
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [events, setEvents] = useState<EventLogItem[]>([]);
   const [patches, setPatches] = useState<PatchItem[]>([]);
@@ -329,6 +394,14 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [searchingFiles, setSearchingFiles] = useState(false);
   const [testingApi, setTestingApi] = useState(false);
+  const [checkingBalance, setCheckingBalance] = useState(false);
+  const [balanceResult, setBalanceResult] = useState<ProviderBalanceResult | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageStats>({
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    requests: 0
+  });
   const [commandAutoApproval, setCommandAutoApproval] = useState(false);
   const [configPath, setConfigPath] = useState("");
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -346,6 +419,18 @@ function App() {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     localStorage.setItem(LANGUAGE_KEY, language);
   }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem(LEFT_SIDEBAR_WIDTH_KEY, String(leftSidebarWidth));
+  }, [leftSidebarWidth]);
+
+  useEffect(() => {
+    localStorage.setItem(RIGHT_SIDEBAR_WIDTH_KEY, String(rightSidebarWidth));
+  }, [rightSidebarWidth]);
+
+  useEffect(() => {
+    localStorage.setItem(COMPOSER_HEIGHT_KEY, String(composerHeight));
+  }, [composerHeight]);
 
   useEffect(() => {
     const savedSessions = loadChatSessions();
@@ -455,6 +540,7 @@ function App() {
         setMessages((current) => [...current, { role: "assistant", content: event.message }]);
       }
       streamingMessageActive.current = false;
+      recordTokenUsage(event.usage);
       setEvents((current) => [
         ...current,
         {
@@ -536,6 +622,36 @@ function App() {
 
   function appendEvent(kind: EventLogItem["kind"], title: string, body: string) {
     setEvents((current) => [...current, { id: crypto.randomUUID(), title, body, kind }]);
+  }
+
+  function recordTokenUsage(usage: unknown) {
+    if (!usage || typeof usage !== "object") return;
+    const data = usage as Record<string, unknown>;
+    const promptTokens = Number(data.prompt_tokens ?? data.promptTokens ?? 0);
+    const completionTokens = Number(data.completion_tokens ?? data.completionTokens ?? 0);
+    const totalTokens = Number(data.total_tokens ?? data.totalTokens ?? promptTokens + completionTokens);
+    if (![promptTokens, completionTokens, totalTokens].some((value) => Number.isFinite(value) && value > 0)) return;
+    setTokenUsage((current) => ({
+      promptTokens: current.promptTokens + (Number.isFinite(promptTokens) ? promptTokens : 0),
+      completionTokens: current.completionTokens + (Number.isFinite(completionTokens) ? completionTokens : 0),
+      totalTokens: current.totalTokens + (Number.isFinite(totalTokens) ? totalTokens : 0),
+      requests: current.requests + 1
+    }));
+  }
+
+  function formatInteger(value: number) {
+    return Math.round(value).toLocaleString(language === "zh" ? "zh-CN" : "en-US");
+  }
+
+  function formatBalanceAmount(value: string, currency: string) {
+    const amount = Number(value);
+    const displayValue = Number.isFinite(amount)
+      ? amount.toLocaleString(language === "zh" ? "zh-CN" : "en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 6
+        })
+      : value;
+    return `${currency} ${displayValue}`;
   }
 
   function resetTransientState() {
@@ -730,6 +846,24 @@ function App() {
     }
   }
 
+  async function queryBalance() {
+    if (checkingBalance || busy) return;
+    setCheckingBalance(true);
+    setBalanceResult(null);
+    appendEvent("status", "API 余额查询", "正在请求 DeepSeek 官方余额接口...");
+    try {
+      const result = await window.agentWindow.getBalance(config);
+      if (result.ok) {
+        setBalanceResult(result.result);
+        appendEvent("status", "API 余额查询成功", JSON.stringify(result.result, null, 2));
+      } else {
+        appendEvent("error", "API 余额查询失败", result.error);
+      }
+    } finally {
+      setCheckingBalance(false);
+    }
+  }
+
   async function applyPatch(patchId: string) {
     setPatches((current) => current.map((patch) => patch.id === patchId ? { ...patch, status: "pending", error: undefined } : patch));
     const result = await window.agentWindow.applyPatch(patchId);
@@ -784,13 +918,67 @@ function App() {
     setConfig((current) => ({ ...current, provider, ...nextDefaults }));
   }
 
+  function startColumnResize(side: "left" | "right", event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startLeftWidth = leftSidebarWidth;
+    const startRightWidth = rightSidebarWidth;
+
+    const move = (moveEvent: PointerEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const availableWidth = window.innerWidth - MIN_CONVERSATION_WIDTH - RESIZE_HANDLE_WIDTH * 2;
+      if (side === "left") {
+        const maxWidth = Math.min(MAX_LEFT_SIDEBAR_WIDTH, Math.max(MIN_LEFT_SIDEBAR_WIDTH, availableWidth - startRightWidth));
+        setLeftSidebarWidth(Math.min(Math.max(startLeftWidth + deltaX, MIN_LEFT_SIDEBAR_WIDTH), maxWidth));
+      } else {
+        const maxWidth = Math.min(MAX_RIGHT_SIDEBAR_WIDTH, Math.max(MIN_RIGHT_SIDEBAR_WIDTH, availableWidth - startLeftWidth));
+        setRightSidebarWidth(Math.min(Math.max(startRightWidth - deltaX, MIN_RIGHT_SIDEBAR_WIDTH), maxWidth));
+      }
+    };
+
+    const stop = () => {
+      document.body.classList.remove("resizing-columns");
+      window.removeEventListener("pointermove", move);
+    };
+
+    document.body.classList.add("resizing-columns");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+  }
+
+  function startComposerResize(event: React.PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = composerHeight;
+
+    const move = (moveEvent: PointerEvent) => {
+      const deltaY = startY - moveEvent.clientY;
+      const maxHeight = Math.min(MAX_COMPOSER_HEIGHT, Math.max(MIN_COMPOSER_HEIGHT, window.innerHeight - 220));
+      setComposerHeight(Math.min(Math.max(startHeight + deltaY, MIN_COMPOSER_HEIGHT), maxHeight));
+    };
+
+    const stop = () => {
+      document.body.classList.remove("resizing-rows");
+      window.removeEventListener("pointermove", move);
+    };
+
+    document.body.classList.add("resizing-rows");
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
+  }
+
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      style={{ gridTemplateColumns: `${leftSidebarWidth}px ${RESIZE_HANDLE_WIDTH}px minmax(${MIN_CONVERSATION_WIDTH}px, 1fr) ${RESIZE_HANDLE_WIDTH}px ${rightSidebarWidth}px` }}
+    >
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">A</div>
+          <div className="brand-mark">
+            <img src={brandIconUrl} alt="" />
+          </div>
           <div>
-            <h1>Agent Window</h1>
+            <h1>{appName}</h1>
             <p>{t.appSubtitle}</p>
           </div>
         </div>
@@ -925,6 +1113,31 @@ function App() {
               <button className="secondary full" onClick={testApi} disabled={busy || testingApi}>
                 {testingApi ? t.testing : t.testApi}
               </button>
+              <button className="secondary full" onClick={queryBalance} disabled={busy || checkingBalance || config.provider !== "deepseek"}>
+                {checkingBalance ? t.balanceChecking : t.queryBalance}
+              </button>
+              {balanceResult && (
+                <div className="balance-card">
+                  <div className={`balance-status ${balanceResult.is_available ? "available" : "unavailable"}`}>
+                    {balanceResult.is_available ? t.balanceAvailable : t.balanceUnavailable}
+                  </div>
+                  {balanceResult.balance_infos.map((info) => (
+                    <div className="balance-currency" key={info.currency}>
+                      <div className="metric">{t.totalBalance} <strong>{formatBalanceAmount(info.total_balance, info.currency)}</strong></div>
+                      <div className="metric">{t.grantedBalance} <strong>{formatBalanceAmount(info.granted_balance, info.currency)}</strong></div>
+                      <div className="metric">{t.toppedUpBalance} <strong>{formatBalanceAmount(info.topped_up_balance, info.currency)}</strong></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="usage-card">
+                <div className="panel-title">{t.localTokenUsage}</div>
+                <div className="metric">{t.promptTokens} <strong>{formatInteger(tokenUsage.promptTokens)}</strong></div>
+                <div className="metric">{t.completionTokens} <strong>{formatInteger(tokenUsage.completionTokens)}</strong></div>
+                <div className="metric">{t.totalTokens} <strong>{formatInteger(tokenUsage.totalTokens)}</strong></div>
+                <div className="metric">{t.usageRequests} <strong>{formatInteger(tokenUsage.requests)}</strong></div>
+                <p className="hint">{t.balanceHint}</p>
+              </div>
               <label>
                 {t.contextBudget}
                 <input
@@ -943,6 +1156,20 @@ function App() {
                   step="1024"
                   value={config.maxTokens}
                   onChange={(event) => setConfig({ ...config, maxTokens: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                {t.maxAgentSteps}
+                <input
+                  type="number"
+                  min="8"
+                  max="256"
+                  step="1"
+                  value={config.maxAgentSteps}
+                  onChange={(event) => {
+                    const nextValue = Math.min(Math.max(Math.floor(Number(event.target.value) || 64), 8), 256);
+                    setConfig({ ...config, maxAgentSteps: nextValue });
+                  }}
                 />
               </label>
               <label>
@@ -1019,6 +1246,14 @@ function App() {
         )}
       </aside>
 
+      <div
+        className="column-resize-handle left"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={language === "zh" ? "调整左侧边栏宽度" : "Resize left sidebar"}
+        onPointerDown={(event) => startColumnResize("left", event)}
+      />
+
       <main className="conversation">
         <header className="topbar">
           <div>
@@ -1090,7 +1325,14 @@ function App() {
           <div ref={bottomRef} />
         </div>
 
-        <footer className="composer">
+        <footer className="composer" style={{ height: `${composerHeight + 30}px` }}>
+          <div
+            className="composer-resize-handle"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label={language === "zh" ? "调整底部对话框高度" : "Resize composer height"}
+            onPointerDown={startComposerResize}
+          />
           <textarea
             value={input}
             placeholder={t.composerPlaceholder}
@@ -1102,6 +1344,14 @@ function App() {
           <button className="send" disabled={busy || !input.trim()} onClick={send}>{t.send}</button>
         </footer>
       </main>
+
+      <div
+        className="column-resize-handle right"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={language === "zh" ? "调整右侧边栏宽度" : "Resize right sidebar"}
+        onPointerDown={(event) => startColumnResize("right", event)}
+      />
 
       <aside className="activity">
         <div className="activity-header">{t.activity}</div>

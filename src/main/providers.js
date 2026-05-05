@@ -118,6 +118,48 @@ export async function testProviderConnection(config = {}) {
   };
 }
 
+export async function getProviderBalance(config = {}) {
+  const provider = normalizeProviderConfig(config);
+  if (!provider.apiKey) {
+    throw new Error(`缺少 API key。请在界面中填写，或设置 ${PROVIDERS[provider.provider]?.apiKeyEnv ?? "AGENT_API_KEY"}。`);
+  }
+  if (provider.provider !== "deepseek") {
+    throw new Error("当前只支持查询 DeepSeek 官方 API 余额。OpenAI-compatible 供应商的余额接口不统一。");
+  }
+
+  const { signal, cleanup, isExternallyAborted } = createRequestSignal(30000);
+  try {
+    const balanceBaseUrl = provider.baseUrl.replace(/\/v1$/i, "");
+    const response = await fetch(`${balanceBaseUrl}/user/balance`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${provider.apiKey}`
+      },
+      signal
+    });
+    const text = await response.text();
+    let data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error(`余额接口返回了非 JSON 内容：${text.slice(0, 500)}`);
+    }
+    if (!response.ok) {
+      const message = data?.error?.message || data?.message || text || response.statusText;
+      throw new Error(`余额接口请求失败 ${response.status}: ${message}`);
+    }
+    return data;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      if (isExternallyAborted()) throw new Error("请求已取消。");
+      throw new Error("余额接口请求超时（30 秒）。请检查 API key、网络或 Base URL。");
+    }
+    throw error;
+  } finally {
+    cleanup();
+  }
+}
+
 async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000, signal) {
   const { signal: requestSignal, cleanup, isExternallyAborted } = createRequestSignal(timeoutMs, signal);
   const body = buildRequestBody(provider, bodyOverrides);
