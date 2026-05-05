@@ -1,0 +1,10 @@
+{
+  "provider": "deepseek",
+  "baseUrl": "https://api.deepseek.com",
+  "model": "deepseek-v4-pro",
+  "contextTokens": 1000000,
+  "maxTokens": 32768,
+  "thinkingMode": "enabled",
+  "reasoningEffort": "max",
+  "temperature": 0.2
+}
