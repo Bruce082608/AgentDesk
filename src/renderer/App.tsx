@@ -1,650 +1,94 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import ReactMarkdown, { type Components } from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
-import remarkGfm from "remark-gfm";
-import hljs from "highlight.js/lib/core";
-import bash from "highlight.js/lib/languages/bash";
-import css from "highlight.js/lib/languages/css";
-import diff from "highlight.js/lib/languages/diff";
-import javascript from "highlight.js/lib/languages/javascript";
-import json from "highlight.js/lib/languages/json";
-import markdown from "highlight.js/lib/languages/markdown";
-import powershell from "highlight.js/lib/languages/powershell";
-import python from "highlight.js/lib/languages/python";
-import typescript from "highlight.js/lib/languages/typescript";
-import xml from "highlight.js/lib/languages/xml";
-import yaml from "highlight.js/lib/languages/yaml";
-import "highlight.js/styles/github.css";
-import type { AgentEvent, AttachedFile, ChatMessage, GitSummary, PermissionMode, PlanItem, ProviderBalanceResult, ProviderConfig, WorkspaceTreeItem } from "./global";
+import type { Language } from "./i18n";
+import { translations } from "./i18n";
+import type {
+  ActivityFilter,
+  AttachedFile,
+  ChatMessage,
+  ChatSession,
+  CommandItem,
+  EventLogItem,
+  GitSummary,
+  PatchItem,
+  PermissionMode,
+  PlanItem,
+  ProviderBalanceResult,
+  ProviderConfig,
+  ReasoningView,
+  RightSidebarSection,
+  SearchMatch,
+  SidebarSection,
+  ThemeMode,
+  TokenUsageStats,
+  ToolDraft,
+  UserQuestionItem,
+  WorkspaceTreeItem
+} from "./types";
+import {
+  CHAT_SESSIONS_KEY,
+  COMPOSER_HEIGHT_KEY,
+  LANGUAGE_KEY,
+  LEFT_SIDEBAR_WIDTH_KEY,
+  MAX_COMPOSER_HEIGHT,
+  MAX_LEFT_SIDEBAR_WIDTH,
+  MAX_RIGHT_SIDEBAR_WIDTH,
+  MAX_SAVED_SESSIONS,
+  MIN_COMPOSER_HEIGHT,
+  MIN_CONVERSATION_WIDTH,
+  MIN_LEFT_SIDEBAR_WIDTH,
+  MIN_RIGHT_SIDEBAR_WIDTH,
+  RESIZE_HANDLE_WIDTH,
+  RIGHT_SIDEBAR_WIDTH_KEY,
+  THEME_KEY,
+  defaultConfig,
+  emptyTokenUsage
+} from "./types";
+import {
+  CodeBlock,
+  MarkdownContent,
+  copyText,
+  createBlankSession,
+  deriveSessionTitle,
+  estimatePendingInputTokens,
+  filterActivityEvents,
+  formatBalanceAmount,
+  formatInteger,
+  formatSessionTime,
+  formatToolDraftText,
+  getInitialExpandedDirs,
+  hasTreeChildren,
+  isTreeItemVisible,
+  loadChatSessions,
+  readStoredNumber,
+  saveChatSessions,
+  trimActivityEvents
+} from "./utils";
 import "./styles.css";
 
 const appName = "Bruce的秘密基地";
 const brandIconUrl = new URL("./assets/bruce-secret-base.jpg", import.meta.url).href;
 
-hljs.registerLanguage("bash", bash);
-hljs.registerLanguage("css", css);
-hljs.registerLanguage("diff", diff);
-hljs.registerLanguage("javascript", javascript);
-hljs.registerLanguage("json", json);
-hljs.registerLanguage("markdown", markdown);
-hljs.registerLanguage("powershell", powershell);
-hljs.registerLanguage("python", python);
-hljs.registerLanguage("typescript", typescript);
-hljs.registerLanguage("xml", xml);
-hljs.registerLanguage("yaml", yaml);
-
-type EventLogItem = {
-  id: string;
-  title: string;
-  body: string;
-  kind: "status" | "tool" | "error" | "model" | "patch";
-};
-
-type PatchItem = {
-  id: string;
-  summary: string;
-  patch: string;
-  status: "pending" | "applied" | "discarded" | "failed";
-  error?: string;
-};
-
-type CommandItem = {
-  id: string;
-  command: string;
-  reason: string;
-  highRisk: boolean;
-  status: "pending" | "approved" | "discarded" | "failed";
-  result?: string;
-  error?: string;
-};
-
-type UserQuestionItem = {
-  id: string;
-  question: string;
-  context?: string;
-  status: "pending" | "dismissed";
-};
-
-type ToolDraft = {
-  name: string;
-  text: string;
-};
-
-type SearchMatch = {
-  file: string;
-  line: number;
-  text: string;
-};
-
-type TokenUsageStats = {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  requests: number;
-};
-
-type ChatSession = {
-  id: string;
-  title: string;
-  workspace: string;
-  messages: ChatMessage[];
-  tokenUsage: TokenUsageStats;
-  createdAt: number;
-  updatedAt: number;
-};
-
-type SidebarSection = "files" | "advanced";
-type RightSidebarSection = "plan" | "activity";
-type ActivityFilter = "all" | "tool" | "error" | "approval" | "system";
-type ThemeMode = "light" | "dark";
-type Language = "zh" | "en";
-type ReasoningView = "preview" | "full" | "collapsed";
-
-const CHAT_SESSIONS_KEY = "agent-chat-sessions";
-const THEME_KEY = "agent-ui-theme";
-const LANGUAGE_KEY = "agent-ui-language";
-const LEFT_SIDEBAR_WIDTH_KEY = "agent-left-sidebar-width";
-const RIGHT_SIDEBAR_WIDTH_KEY = "agent-right-sidebar-width";
-const COMPOSER_HEIGHT_KEY = "agent-composer-height";
-const MAX_SAVED_SESSIONS = 30;
-const MAX_ACTIVITY_EVENTS = 5000;
-const MIN_LEFT_SIDEBAR_WIDTH = 220;
-const MAX_LEFT_SIDEBAR_WIDTH = 480;
-const MIN_RIGHT_SIDEBAR_WIDTH = 260;
-const MAX_RIGHT_SIDEBAR_WIDTH = 560;
-const MIN_CONVERSATION_WIDTH = 440;
-const RESIZE_HANDLE_WIDTH = 7;
-const MIN_COMPOSER_HEIGHT = 72;
-const MAX_COMPOSER_HEIGHT = 260;
-
-const emptyTokenUsage = (): TokenUsageStats => ({
-  promptTokens: 0,
-  completionTokens: 0,
-  totalTokens: 0,
-  requests: 0
-});
-
-const translations = {
-  zh: {
-    newChat: "新建",
-    chats: "Chats",
-    workspace: "Workspace",
-    chooseFolder: "选择目录",
-    notSelected: "未选择",
-    files: "文件",
-    advanced: "进阶",
-    copy: "复制",
-    copied: "已复制",
-    regenerate: "重新生成",
-    rename: "重命名",
-    deleteSession: "删除",
-    renameSessionPrompt: "输入新的会话名称",
-    deleteSessionConfirm: "确定删除这个会话吗？",
-    reasoning: "思考过程",
-    expandReasoning: "完全展开",
-    collapseReasoning: "完全折叠",
-    previewReasoning: "显示三行",
-    answerQuestion: "回答",
-    dismiss: "忽略",
-    contextUsage: "上下文",
-    offlineTitle: "网络不可用",
-    offlineBody: "当前处于离线状态，请恢复网络后再发送请求。",
-    searchPlaceholder: "搜索文件内容",
-    searching: "搜索中",
-    search: "搜索",
-    noFiles: "暂无文件树",
-    emptyDir: "空",
-    git: "Git",
-    viewGitDiff: "查看 git diff",
-    refreshGit: "刷新 Git",
-    noChanges: "No changes",
-    gitHint: "选择 Git workspace 后显示分支和变更。",
-    provider: "Provider",
-    baseUrl: "Base URL",
-    model: "Model",
-    summaryModel: "摘要模型",
-    summaryModelPlaceholder: "默认 deepseek-v4-flash；留空则使用主模型",
-    apiKey: "API Key",
-    apiKeyPlaceholder: "可留空使用环境变量",
-    testing: "检测中...",
-    testApi: "检测 API",
-    balanceChecking: "查询中...",
-    queryBalance: "查询 API 余额",
-    balanceAvailable: "账户可用",
-    balanceUnavailable: "余额不足",
-    totalBalance: "总余额",
-    grantedBalance: "赠金余额",
-    toppedUpBalance: "充值余额",
-    localTokenUsage: "本地 token 用量",
-    promptTokens: "输入 tokens",
-    completionTokens: "输出 tokens",
-    totalTokens: "总 tokens",
-    usageRequests: "请求次数",
-    balanceHint: "余额来自 DeepSeek 官方 /user/balance；token 用量为本应用本地累计。",
-    contextBudget: "Context Budget",
-    maxOutputTokens: "Max Output Tokens",
-    maxAgentSteps: "工具调用次数限制",
-    thinkingMode: "Thinking Mode",
-    reasoningEffort: "Reasoning Effort",
-    temperature: "Temperature",
-    providerHintDeepSeek: "DeepSeek 参数从配置文件读取，API key 可用环境变量或本机临时保存。",
-    providerHintCompatible: "适合任何 OpenAI Chat Completions 兼容网关。",
-    agentSession: "Agent Session",
-    running: "运行中",
-    ready: "就绪",
-    stop: "停止",
-    clear: "清空",
-    emptyTitle: "选择工作区后开始任务",
-    emptyBody: "例如：列出这个项目的文件结构，读 README，然后告诉我如何启动。",
-    you: "You",
-    agent: "Agent",
-    thinking: "Agent 正在处理...",
-    writingCode: "Agent 正在写代码",
-    composerPlaceholder: "让 agent 检查、修改或运行这个 workspace...",
-    uploadFiles: "上传文件",
-    send: "发送",
-    plan: "Plan",
-    activity: "Activity",
-    activityFilterAll: "全部",
-    activityFilterTool: "工具调用",
-    activityFilterError: "错误",
-    activityFilterApproval: "审批",
-    activityFilterSystem: "系统",
-    activitySearchPlaceholder: "搜索 Activity",
-    planEmpty: "Agent 的计划会显示在这里。",
-    needsApproval: "Needs Approval",
-    pendingChanges: "Pending Changes",
-    commandApprovals: "Command Approvals",
-    restoreConfirm: "恢复确认",
-    autoApprovalBanner: "后续命令请求已自动允许，直到应用重启或手动恢复确认。",
-    permissionMode: "权限模式",
-    defaultPermission: "默认权限",
-    fullAccessPermission: "完全访问权限",
-    defaultPermissionHint: "默认权限：只读命令自动执行，写入、删除、安装、联网和高危操作会请求确认。",
-    fullAccessPermissionHint: "完全访问权限：agent 的命令和 patch 将自动执行/应用，适合你信任当前任务时使用。",
-    apply: "应用",
-    discard: "放弃",
-    execute: "执行",
-    executeAllowFuture: "执行并允许后续",
-    activityEmpty: "工具调用、模型用量和错误会显示在这里。",
-    addContext: "加入上下文",
-    removeContextTitle: "点击移除上下文附件",
-    messagesUnit: "条消息",
-    newChatTitle: "新对话",
-    untitledChat: "未命名对话",
-    light: "浅色",
-    dark: "深色",
-    language: "语言",
-    theme: "主题",
-    appSubtitle: "本地桌面 Agent Demo",
-    sidebarNav: "侧栏页面",
-    branch: "分支",
-    config: "配置",
-    enabled: "启用",
-    disabled: "关闭",
-    waitingPlan: "等待模型生成计划"
-  },
-  en: {
-    newChat: "New",
-    chats: "Chats",
-    workspace: "Workspace",
-    chooseFolder: "Choose Folder",
-    notSelected: "Not selected",
-    files: "Files",
-    advanced: "Advanced",
-    copy: "Copy",
-    copied: "Copied",
-    regenerate: "Regenerate",
-    rename: "Rename",
-    deleteSession: "Delete",
-    renameSessionPrompt: "Enter a new chat name",
-    deleteSessionConfirm: "Delete this chat?",
-    reasoning: "Thinking",
-    expandReasoning: "Expand fully",
-    collapseReasoning: "Collapse",
-    previewReasoning: "Show 3 lines",
-    answerQuestion: "Answer",
-    dismiss: "Dismiss",
-    contextUsage: "Context",
-    offlineTitle: "Offline",
-    offlineBody: "You appear to be offline. Reconnect before sending a request.",
-    searchPlaceholder: "Search file contents",
-    searching: "Searching",
-    search: "Search",
-    noFiles: "No file tree yet",
-    emptyDir: "empty",
-    git: "Git",
-    viewGitDiff: "View git diff",
-    refreshGit: "Refresh Git",
-    noChanges: "No changes",
-    gitHint: "Select a Git workspace to show branch and changes.",
-    provider: "Provider",
-    baseUrl: "Base URL",
-    model: "Model",
-    summaryModel: "Summary model",
-    summaryModelPlaceholder: "Default deepseek-v4-flash; leave empty to use primary model",
-    apiKey: "API Key",
-    apiKeyPlaceholder: "Leave empty to use env vars",
-    testing: "Testing...",
-    testApi: "Test API",
-    balanceChecking: "Checking...",
-    queryBalance: "Check API Balance",
-    balanceAvailable: "Account available",
-    balanceUnavailable: "Insufficient balance",
-    totalBalance: "Total balance",
-    grantedBalance: "Granted balance",
-    toppedUpBalance: "Topped-up balance",
-    localTokenUsage: "Local token usage",
-    promptTokens: "Prompt tokens",
-    completionTokens: "Completion tokens",
-    totalTokens: "Total tokens",
-    usageRequests: "Requests",
-    balanceHint: "Balance comes from DeepSeek /user/balance; token usage is accumulated locally in this app.",
-    contextBudget: "Context Budget",
-    maxOutputTokens: "Max Output Tokens",
-    maxAgentSteps: "Tool Call Limit",
-    thinkingMode: "Thinking Mode",
-    reasoningEffort: "Reasoning Effort",
-    temperature: "Temperature",
-    providerHintDeepSeek: "DeepSeek settings are loaded from config. API keys can come from env vars or encrypted local storage.",
-    providerHintCompatible: "Works with any OpenAI Chat Completions compatible gateway.",
-    agentSession: "Agent Session",
-    running: "Running",
-    ready: "Ready",
-    stop: "Stop",
-    clear: "Clear",
-    emptyTitle: "Choose a workspace to begin",
-    emptyBody: "For example: list this project's files, read the README, then tell me how to start it.",
-    you: "You",
-    agent: "Agent",
-    thinking: "Agent is working...",
-    writingCode: "Agent is writing code",
-    composerPlaceholder: "Ask the agent to inspect, modify, or run this workspace...",
-    uploadFiles: "Upload",
-    send: "Send",
-    plan: "Plan",
-    activity: "Activity",
-    activityFilterAll: "All",
-    activityFilterTool: "Tools",
-    activityFilterError: "Errors",
-    activityFilterApproval: "Approvals",
-    activityFilterSystem: "System",
-    activitySearchPlaceholder: "Search Activity",
-    planEmpty: "Agent plans appear here.",
-    needsApproval: "Needs Approval",
-    pendingChanges: "Pending Changes",
-    commandApprovals: "Command Approvals",
-    restoreConfirm: "Restore confirm",
-    autoApprovalBanner: "Future command requests are automatically allowed until the app restarts or confirmation is restored.",
-    permissionMode: "Permission mode",
-    defaultPermission: "Default",
-    fullAccessPermission: "Full access",
-    defaultPermissionHint: "Default: read-only commands run automatically; writes, deletes, installs, network, and high-risk actions ask for confirmation.",
-    fullAccessPermissionHint: "Full access: agent commands and patches run/apply automatically. Use when you trust the current task.",
-    apply: "Apply",
-    discard: "Discard",
-    execute: "Run",
-    executeAllowFuture: "Run and allow future",
-    activityEmpty: "Tool calls, model usage, and errors appear here.",
-    addContext: "Add context",
-    removeContextTitle: "Click to remove this context attachment",
-    messagesUnit: "messages",
-    newChatTitle: "New chat",
-    untitledChat: "Untitled chat",
-    light: "Light",
-    dark: "Dark",
-    language: "Language",
-    theme: "Theme",
-    appSubtitle: "Local desktop agent demo",
-    sidebarNav: "Sidebar sections",
-    branch: "Branch",
-    config: "Config",
-    enabled: "Enabled",
-    disabled: "Disabled",
-    waitingPlan: "Waiting for model plan"
-  }
-} as const;
-
-const defaultConfig: ProviderConfig = {
-  provider: "deepseek",
-  baseUrl: "https://api.deepseek.com",
-  model: "deepseek-v4-pro",
-  summaryModel: "deepseek-v4-flash",
-  apiKey: "",
-  temperature: 0.2,
-  maxTokens: 32768,
-  contextTokens: 1000000,
-  maxAgentSteps: 64,
-  thinkingMode: "enabled",
-  reasoningEffort: "max"
-};
-
-function createBlankSession(workspace = ""): ChatSession {
-  const now = Date.now();
-  return {
-    id: crypto.randomUUID(),
-    title: translations.zh.newChatTitle,
-    workspace,
-    messages: [],
-    tokenUsage: emptyTokenUsage(),
-    createdAt: now,
-    updatedAt: now
-  };
+function normalizeQuestionOptions(options: string[] | undefined, question: string, language: Language) {
+  const choices = Array.isArray(options)
+    ? options.map((option) => String(option || "").trim()).filter(Boolean)
+    : [];
+  const unique = [...new Set(choices)].slice(0, 6);
+  if (unique.length >= 2) return unique;
+  return language === "zh" || /[\u3400-\u9fff]/.test(question) ? ["是", "否"] : ["Yes", "No"];
 }
 
-function normalizeTokenUsage(value: unknown): TokenUsageStats {
-  const data = value && typeof value === "object" ? value as Partial<TokenUsageStats> : {};
-  return {
-    promptTokens: Number(data.promptTokens) || 0,
-    completionTokens: Number(data.completionTokens) || 0,
-    totalTokens: Number(data.totalTokens) || 0,
-    requests: Number(data.requests) || 0
-  };
+function formatQuestionMessage(question: string, context: string | undefined, options: string[]) {
+  return [
+    context ? `> ${context}` : "",
+    question,
+    "",
+    ...options.map((option, index) => `${index + 1}. ${option}`)
+  ].filter(Boolean).join("\n");
 }
 
-function loadChatSessions(): ChatSession[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(CHAT_SESSIONS_KEY) || "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((session) => typeof session?.id === "string")
-      .map((session) => ({
-        id: session.id,
-        title: String(session.title || translations.zh.untitledChat),
-        workspace: String(session.workspace || ""),
-        messages: Array.isArray(session.messages)
-          ? session.messages.filter((message: ChatMessage) => message?.role === "user" || message?.role === "assistant")
-              .map((message: ChatMessage) => ({
-                role: message.role,
-                content: String(message.content || ""),
-                reasoning: typeof message.reasoning === "string" ? message.reasoning : undefined
-              }))
-          : [],
-        tokenUsage: normalizeTokenUsage(session.tokenUsage),
-        createdAt: Number(session.createdAt) || Date.now(),
-        updatedAt: Number(session.updatedAt) || Date.now()
-      }))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, MAX_SAVED_SESSIONS);
-  } catch {
-    return [];
-  }
-}
-
-function saveChatSessions(sessions: ChatSession[]) {
-  localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions));
-}
-
-function deriveSessionTitle(messages: ChatMessage[], fallback: string) {
-  const firstUserMessage = messages.find((message) => message.role === "user")?.content.trim();
-  if (!firstUserMessage) return fallback || translations.zh.newChatTitle;
-  return firstUserMessage.replace(/\s+/g, " ").slice(0, 42);
-}
-
-function formatSessionTime(timestamp: number, language: Language) {
-  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(timestamp);
-}
-
-function readStoredNumber(key: string, fallback: number, min: number, max: number) {
-  const parsed = Number(localStorage.getItem(key));
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(Math.max(parsed, min), max);
-}
-
-function MarkdownContent({ content, copyLabel = translations.zh.copy, copiedLabel = translations.zh.copied }: { content: string; copyLabel?: string; copiedLabel?: string }) {
-  const components = useMemo<Components>(() => ({
-    a({ href, children }) {
-      const safe = href ? safeHref(href) : "";
-      return safe ? <a href={safe} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>;
-    },
-    pre({ children }) {
-      const child = React.Children.toArray(children)[0];
-      if (React.isValidElement(child)) {
-        const props = child.props as { className?: string; children?: React.ReactNode };
-        const language = languageFromClassName(props.className || "");
-        const code = extractReactText(props.children).replace(/\n$/, "");
-        return <CodeBlock code={code} language={language} copyLabel={copyLabel} copiedLabel={copiedLabel} />;
-      }
-      return <pre>{children}</pre>;
-    },
-    code({ className, children }) {
-      return <code className={className}>{children}</code>;
-    }
-  }), [copiedLabel, copyLabel]);
-
-  return (
-    <div className="markdown-content">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
-        components={components}
-      >
-        {String(content ?? "")}
-      </ReactMarkdown>
-    </div>
-  );
-}
-
-function safeHref(value: string) {
-  try {
-    const url = new URL(value);
-    return ["http:", "https:", "mailto:"].includes(url.protocol) ? url.href : "";
-  } catch {
-    return "";
-  }
-}
-
-function languageFromClassName(className: string) {
-  const match = className.match(/(?:^|\s)language-([^\s]+)/);
-  return match?.[1] || "";
-}
-
-function extractReactText(node: React.ReactNode): string {
-  if (node === null || node === undefined || typeof node === "boolean") return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(extractReactText).join("");
-  if (React.isValidElement(node)) {
-    const props = node.props as { children?: React.ReactNode };
-    return extractReactText(props.children);
-  }
-  return "";
-}
-
-function isTreeItemVisible(item: WorkspaceTreeItem, expandedDirs: Set<string>) {
-  const parts = item.path.split("/");
-  parts.pop();
-  let current = "";
-  for (const part of parts) {
-    current = current ? `${current}/${part}` : part;
-    if (!expandedDirs.has(current)) return false;
-  }
-  return true;
-}
-
-function getInitialExpandedDirs(items: WorkspaceTreeItem[]) {
-  const expanded = new Set<string>();
-  for (const item of items) {
-    if (item.type === "directory" && item.depth === 0) expanded.add(item.path);
-  }
-  return expanded;
-}
-
-function hasTreeChildren(items: WorkspaceTreeItem[], directoryPath: string) {
-  const prefix = `${directoryPath}/`;
-  return items.some((item) => item.path.startsWith(prefix));
-}
-
-function estimatePendingInputTokens(messages: ChatMessage[], input: string, attachments: AttachedFile[], currentTokenCount: number) {
-  const hasPendingInput = Boolean(input.trim() || attachments.length > 0 || messages.length === 0);
-  return hasPendingInput ? currentTokenCount : 0;
-}
-
-function formatToolDraftText(value: string) {
-  const raw = String(value || "");
-  if (!raw.trim()) return "";
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed.patch === "string") return parsed.patch;
-    if (typeof parsed.content === "string") return parsed.content;
-    if (typeof parsed.command === "string") return parsed.command;
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return raw
-      .replace(/\\r\\n|\\n/g, "\n")
-      .replace(/\\t/g, "\t")
-      .replace(/\\"/g, "\"")
-      .replace(/\\\\/g, "\\");
-  }
-}
-
-function trimActivityEvents(events: EventLogItem[]) {
-  return events.length > MAX_ACTIVITY_EVENTS ? events.slice(-MAX_ACTIVITY_EVENTS) : events;
-}
-
-function filterActivityEvents(events: EventLogItem[], filter: ActivityFilter, query: string) {
-  const normalizedQuery = query.trim().toLowerCase();
-  return events.filter((event) => {
-    if (!matchesActivityFilter(event, filter)) return false;
-    if (!normalizedQuery) return true;
-    return `${event.title}\n${event.body}\n${event.kind}`.toLowerCase().includes(normalizedQuery);
-  });
-}
-
-function matchesActivityFilter(event: EventLogItem, filter: ActivityFilter) {
-  if (filter === "all") return true;
-  if (filter === "tool") return event.kind === "tool";
-  if (filter === "error") return event.kind === "error";
-  if (filter === "approval") return event.kind === "patch";
-  return event.kind === "status" || event.kind === "model";
-}
-
-function CodeBlock({ code, language, copyLabel, copiedLabel }: { code: string; language: string; copyLabel: string; copiedLabel: string }) {
-  const [copied, setCopied] = useState(false);
-  const highlighted = useMemo(() => {
-    const normalized = normalizeCodeLanguage(language);
-    try {
-      if (normalized && hljs.getLanguage(normalized)) {
-        return hljs.highlight(code, { language: normalized, ignoreIllegals: true }).value;
-      }
-      return hljs.highlightAuto(code).value;
-    } catch {
-      return escapeHtml(code);
-    }
-  }, [code, language]);
-
-  async function copyCode() {
-    await copyText(code);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
-  }
-
-  return (
-    <div className="markdown-code-wrap">
-      <div className="markdown-code-toolbar">
-        {language && <span className="markdown-code-language">{language}</span>}
-        <button type="button" className="code-copy" onClick={copyCode}>{copied ? copiedLabel : copyLabel}</button>
-      </div>
-      <pre className="markdown-code">
-        <code dangerouslySetInnerHTML={{ __html: highlighted }} />
-      </pre>
-    </div>
-  );
-}
-
-function normalizeCodeLanguage(language: string) {
-  const value = String(language || "").trim().toLowerCase();
-  const aliases: Record<string, string> = {
-    js: "javascript",
-    jsx: "javascript",
-    ts: "typescript",
-    tsx: "typescript",
-    sh: "bash",
-    shell: "bash",
-    zsh: "bash",
-    ps1: "powershell",
-    py: "python",
-    md: "markdown",
-    yml: "yaml"
-  };
-  return aliases[value] || value;
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-async function copyText(value: string) {
-  await navigator.clipboard.writeText(value);
+function formatQuestionAnswer(question: string, option: string) {
+  return `针对你的问题「${question}」，我选择：${option}`;
 }
 
 function App() {
@@ -656,7 +100,8 @@ function App() {
   const [sidebarSection, setSidebarSection] = useState<SidebarSection>("files");
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_KEY);
-    return saved === "dark" ? "dark" : "light";
+    if (saved === "dark" || saved === "light" || saved === "system") return saved;
+    return "light";
   });
   const [language, setLanguage] = useState<Language>(() => {
     const saved = localStorage.getItem(LANGUAGE_KEY);
@@ -702,6 +147,7 @@ function App() {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("default");
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [contextTokenCount, setContextTokenCount] = useState(0);
+  const [contextCompressionStatus, setContextCompressionStatus] = useState("");
   const [configPath, setConfigPath] = useState("");
   const [configLoaded, setConfigLoaded] = useState(false);
   const activeRequest = useRef<string | null>(null);
@@ -712,11 +158,26 @@ function App() {
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const followOutputRef = useRef(true);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const compressionStatusTimer = useRef<number | null>(null);
   const t = translations[language];
 
   useEffect(() => {
-    document.body.dataset.theme = theme;
     localStorage.setItem(THEME_KEY, theme);
+
+    if (theme !== "system") {
+      document.body.dataset.theme = theme;
+      return;
+    }
+
+    // System mode: detect OS color scheme preference
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const applySystemTheme = () => {
+      document.body.dataset.theme = mediaQuery.matches ? "dark" : "light";
+    };
+    applySystemTheme();
+
+    mediaQuery.addEventListener("change", applySystemTheme);
+    return () => mediaQuery.removeEventListener("change", applySystemTheme);
   }, [theme]);
 
   useEffect(() => {
@@ -810,7 +271,7 @@ function App() {
           if (session.id !== activeSessionId) return session;
           return {
             ...session,
-            title: deriveSessionTitle(messages, session.title),
+            title: session.titleEdited ? session.title : deriveSessionTitle(messages, session.title),
             workspace,
             messages,
             tokenUsage,
@@ -824,12 +285,17 @@ function App() {
     });
   }, [activeSessionId, messages, sessionsLoaded, tokenUsage, workspace]);
 
-
   useEffect(() => {
     return window.agentWindow.onAgentEvent((event) => {
       if (event.requestId !== activeRequest.current) return;
       handleAgentEvent(event);
     });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (compressionStatusTimer.current) window.clearTimeout(compressionStatusTimer.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -884,7 +350,7 @@ function App() {
     [events, activityFilter, activitySearch]
   );
 
-  function handleAgentEvent(event: AgentEvent) {
+  function handleAgentEvent(event: any) {
     if (event.type === "done") {
       setPlanItems((current) => current.map((item) => item.status === "in_progress" ? { ...item, status: "completed" } : item));
       setBusy(false);
@@ -944,12 +410,18 @@ function App() {
           next[next.length - 1] = {
             ...last,
             content: last.content || event.message || "",
-            reasoning: event.reasoning || last.reasoning
+            reasoning: event.reasoning || last.reasoning,
+            tool_calls: event.tool_calls?.length ? event.tool_calls : last.tool_calls
           };
           return next;
         });
-      } else if (event.message.trim() || event.reasoning?.trim()) {
-        setMessages((current) => [...current, { role: "assistant", content: event.message, reasoning: event.reasoning || undefined }]);
+      } else if (event.message.trim() || event.reasoning?.trim() || event.tool_calls?.length) {
+        setMessages((current) => [...current, {
+          role: "assistant",
+          content: event.message || "",
+          reasoning: event.reasoning || undefined,
+          tool_calls: event.tool_calls?.length ? event.tool_calls : undefined
+        }]);
       }
       streamingMessageActive.current = false;
       reasoningMessageActive.current = false;
@@ -970,6 +442,7 @@ function App() {
     }
 
     if (event.type === "status") {
+      updateCompressionStatus(event.message);
       appendEvent("status", "状态", event.message);
       return;
     }
@@ -980,11 +453,27 @@ function App() {
     }
 
     if (event.type === "tool_result") {
+      if (event.toolCallId) {
+        setMessages((current) => [...current, {
+          role: "tool",
+          content: event.result,
+          tool_call_id: event.toolCallId,
+          name: event.name
+        }]);
+      }
       appendEvent("tool", `工具结果：${event.name}`, event.result);
       return;
     }
 
     if (event.type === "tool_error") {
+      if (event.toolCallId) {
+        setMessages((current) => [...current, {
+          role: "tool",
+          content: event.result || event.message,
+          tool_call_id: event.toolCallId,
+          name: event.name
+        }]);
+      }
       appendEvent("error", `工具失败：${event.name}`, event.message);
       return;
     }
@@ -1020,10 +509,13 @@ function App() {
     }
 
     if (event.type === "ask_user_pending") {
+      const options = normalizeQuestionOptions(event.options, event.question, language);
+      const assistantQuestion = formatQuestionMessage(event.question, event.context, options);
       setQuestions((current) => [
-        { id: crypto.randomUUID(), question: event.question, context: event.context, status: "pending" },
+        { id: crypto.randomUUID(), question: event.question, context: event.context, options, status: "pending" },
         ...current
       ]);
+      setMessages((current) => [...current, { role: "assistant", content: assistantQuestion }]);
       appendEvent("patch", "Agent 请求用户输入", event.question);
       return;
     }
@@ -1053,6 +545,26 @@ function App() {
     setEvents((current) => trimActivityEvents([...current, { id: crypto.randomUUID(), title, body, kind }]));
   }
 
+  function updateCompressionStatus(message: string) {
+    const isCompressionStart = message.includes("正在压缩");
+    const isCompressionDone = message.includes("已压缩") || message.includes("摘要失败") || message.includes("已退回滑动窗口");
+    if (!isCompressionStart && !isCompressionDone) return;
+    if (compressionStatusTimer.current) {
+      window.clearTimeout(compressionStatusTimer.current);
+      compressionStatusTimer.current = null;
+    }
+    if (isCompressionStart) {
+      setContextCompressionStatus(language === "zh" ? "正在自动压缩上下文" : "Auto-compressing context");
+      return;
+    }
+    setContextCompressionStatus(
+      message.includes("摘要失败")
+        ? (language === "zh" ? "上下文压缩失败，已使用滑动窗口" : "Context compression failed; using recent history")
+        : (language === "zh" ? "上下文压缩完成" : "Context compression complete")
+    );
+    compressionStatusTimer.current = window.setTimeout(() => setContextCompressionStatus(""), 3000);
+  }
+
   function updateOutputFollowState() {
     const list = messageListRef.current;
     if (!list) return;
@@ -1073,21 +585,6 @@ function App() {
       totalTokens: current.totalTokens + (Number.isFinite(totalTokens) ? totalTokens : 0),
       requests: current.requests + 1
     }));
-  }
-
-  function formatInteger(value: number) {
-    return Math.round(value).toLocaleString(language === "zh" ? "zh-CN" : "en-US");
-  }
-
-  function formatBalanceAmount(value: string, currency: string) {
-    const amount = Number(value);
-    const displayValue = Number.isFinite(amount)
-      ? amount.toLocaleString(language === "zh" ? "zh-CN" : "en-US", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 6
-        })
-      : value;
-    return `${currency} ${displayValue}`;
   }
 
   function resetTransientState() {
@@ -1174,7 +671,7 @@ function App() {
     const nextTitle = renamingTitle.trim();
     if (!nextTitle) return;
     setSessions((current) => {
-      const next = current.map((item) => item.id === sessionId ? { ...item, title: nextTitle, updatedAt: Date.now() } : item);
+      const next = current.map((item) => item.id === sessionId ? { ...item, title: nextTitle, titleEdited: true, updatedAt: Date.now() } : item);
       saveChatSessions(next);
       return next;
     });
@@ -1385,11 +882,17 @@ function App() {
     });
   }
 
-  function answerQuestion(questionId: string) {
+  async function answerQuestion(questionId: string, option: string) {
+    if (busy) return;
     const question = questions.find((item) => item.id === questionId);
     if (!question) return;
-    composerInputRef.current?.focus();
     setQuestions((current) => current.map((item) => item.id === questionId ? { ...item, status: "dismissed" } : item));
+    const answer = formatQuestionAnswer(question.question, option);
+    await startAgentRequest({
+      inputText: answer,
+      priorMessages: messages,
+      nextMessages: [...messages, { role: "user", content: answer }]
+    });
   }
 
   function dismissQuestion(questionId: string) {
@@ -1539,7 +1042,7 @@ function App() {
   function updateProvider(provider: ProviderConfig["provider"]) {
     const nextDefaults =
       provider === "deepseek"
-        ? { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro", summaryModel: "deepseek-v4-flash", thinkingMode: "enabled" as const, reasoningEffort: "max" as const, contextTokens: 1000000, maxTokens: 32768 }
+        ? { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro", summaryModel: "deepseek-v4-flash", thinkingMode: "enabled" as const, reasoningEffort: "max" as const, contextTokens: 128000, maxTokens: 32768 }
         : { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", summaryModel: "", thinkingMode: "disabled" as const, reasoningEffort: "medium" as const, contextTokens: 128000, maxTokens: 4096 };
     setConfig((current) => ({ ...current, provider, ...nextDefaults }));
   }
@@ -1781,19 +1284,19 @@ function App() {
                   </div>
                   {balanceResult.balance_infos.map((info) => (
                     <div className="balance-currency" key={info.currency}>
-                      <div className="metric">{t.totalBalance} <strong>{formatBalanceAmount(info.total_balance, info.currency)}</strong></div>
-                      <div className="metric">{t.grantedBalance} <strong>{formatBalanceAmount(info.granted_balance, info.currency)}</strong></div>
-                      <div className="metric">{t.toppedUpBalance} <strong>{formatBalanceAmount(info.topped_up_balance, info.currency)}</strong></div>
+                      <div className="metric">{t.totalBalance} <strong>{formatBalanceAmount(info.total_balance, info.currency, language)}</strong></div>
+                      <div className="metric">{t.grantedBalance} <strong>{formatBalanceAmount(info.granted_balance, info.currency, language)}</strong></div>
+                      <div className="metric">{t.toppedUpBalance} <strong>{formatBalanceAmount(info.topped_up_balance, info.currency, language)}</strong></div>
                     </div>
                   ))}
                 </div>
               )}
               <div className="usage-card">
                 <div className="panel-title">{t.localTokenUsage}</div>
-                <div className="metric">{t.promptTokens} <strong>{formatInteger(tokenUsage.promptTokens)}</strong></div>
-                <div className="metric">{t.completionTokens} <strong>{formatInteger(tokenUsage.completionTokens)}</strong></div>
-                <div className="metric">{t.totalTokens} <strong>{formatInteger(tokenUsage.totalTokens)}</strong></div>
-                <div className="metric">{t.usageRequests} <strong>{formatInteger(tokenUsage.requests)}</strong></div>
+                <div className="metric">{t.promptTokens} <strong>{formatInteger(tokenUsage.promptTokens, language)}</strong></div>
+                <div className="metric">{t.completionTokens} <strong>{formatInteger(tokenUsage.completionTokens, language)}</strong></div>
+                <div className="metric">{t.totalTokens} <strong>{formatInteger(tokenUsage.totalTokens, language)}</strong></div>
+                <div className="metric">{t.usageRequests} <strong>{formatInteger(tokenUsage.requests, language)}</strong></div>
                 <p className="hint">{t.balanceHint}</p>
               </div>
               <label>
@@ -1891,6 +1394,7 @@ function App() {
               <select value={theme} onChange={(event) => setTheme(event.target.value as ThemeMode)}>
                 <option value="light">{t.light}</option>
                 <option value="dark">{t.dark}</option>
+                <option value="system">{t.system}</option>
               </select>
             </label>
             <label className="topbar-control">
@@ -1924,6 +1428,7 @@ function App() {
             </div>
           )}
           {messages.map((message, index) => {
+            if (message.role === "tool" || message.role === "system") return null;
             const reasoningKey = `${message.role}-${index}`;
             const reasoningView = reasoningViews[reasoningKey] || "preview";
             return (
@@ -1998,7 +1503,9 @@ function App() {
                         {question.context && <div className="question-context">{question.context}</div>}
                         <div className="question-text">{question.question}</div>
                         <div className="patch-actions">
-                          <button className="primary small" onClick={() => answerQuestion(question.id)}>{t.answerQuestion}</button>
+                          {question.options.map((option) => (
+                            <button className="primary small question-option" key={option} disabled={busy} onClick={() => answerQuestion(question.id, option)}>{option}</button>
+                          ))}
                           <button className="secondary small" onClick={() => dismissQuestion(question.id)}>{t.dismiss}</button>
                         </div>
                       </div>
@@ -2050,6 +1557,12 @@ function App() {
                 )}
               </div>
             </section>
+          )}
+          {contextCompressionStatus && (
+            <div className="context-compression-status" role="status">
+              <span className="compression-dot" />
+              <span>{contextCompressionStatus}</span>
+            </div>
           )}
           {busy && <div className="thinking">{t.thinking}</div>}
           <div ref={bottomRef} />

@@ -23,7 +23,7 @@ export function normalizeProviderConfig(config = {}) {
     apiKey: config.apiKey || process.env.AGENT_API_KEY || process.env[preset.apiKeyEnv] || "",
     temperature: numeric(config.temperature, 0.2),
     maxTokens: Math.max(1, Math.floor(numeric(config.maxTokens, 32768))),
-    contextTokens: Math.max(4096, Math.floor(numeric(config.contextTokens, 1000000))),
+    contextTokens: Math.max(4096, Math.floor(numeric(config.contextTokens, 128000))),
     thinkingMode: config.thinkingMode === "disabled" ? "disabled" : "enabled",
     reasoningEffort: ["low", "medium", "high", "max"].includes(config.reasoningEffort) ? config.reasoningEffort : "max"
   };

@@ -27,10 +27,22 @@ declare global {
   }
 }
 
+export type ChatToolCall = {
+  id: string;
+  type?: "function" | string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+};
+
 export type ChatMessage = {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "tool" | "system";
   content: string;
   reasoning?: string;
+  tool_calls?: ChatToolCall[];
+  tool_call_id?: string;
+  name?: string;
 };
 
 export type ProviderConfig = {
@@ -70,7 +82,7 @@ export type AgentRequest = {
   workspace: string;
   input: string;
   providerConfig: ProviderConfig;
-  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  messages: ChatMessage[];
   attachments: AttachedFile[];
 };
 
@@ -111,14 +123,14 @@ export type AgentEvent =
   | { requestId: string; type: "reasoning_delta"; text: string }
   | { requestId: string; type: "tool_call_delta"; name?: string; text: string }
   | { requestId: string; type: "plan_update"; items: PlanItem[] }
-  | { requestId: string; type: "model"; message: string; provider: string; model: string; finishReason?: string | null; reasoning?: string; usage?: unknown }
+  | { requestId: string; type: "model"; message: string; provider: string; model: string; finishReason?: string | null; reasoning?: string; usage?: unknown; tool_calls?: ChatToolCall[] }
   | { requestId: string; type: "tool_start"; name: string; args: string }
-  | { requestId: string; type: "tool_result"; name: string; result: string }
-  | { requestId: string; type: "tool_error"; name: string; message: string }
+  | { requestId: string; type: "tool_result"; name: string; result: string; toolCallId?: string }
+  | { requestId: string; type: "tool_error"; name: string; message: string; toolCallId?: string; result?: string }
   | { requestId: string; type: "patch_proposed"; patchId: string; summary: string; patch: string }
   | { requestId: string; type: "patch_applied"; patchId: string; summary: string; strategy?: string }
   | { requestId: string; type: "command_pending"; commandId: string; command: string; reason: string; highRisk?: boolean }
-  | { requestId: string; type: "ask_user_pending"; question: string; context?: string }
+  | { requestId: string; type: "ask_user_pending"; question: string; context?: string; options?: string[] }
   | { requestId: string; type: "error"; message: string }
   | { requestId: string; type: "cancelled"; message: string }
   | { requestId: string; type: "done" };

@@ -12,7 +12,7 @@ const DEFAULT_CONFIG = {
   baseUrl: "https://api.deepseek.com",
   model: "deepseek-v4-pro",
   summaryModel: "deepseek-v4-flash",
-  contextTokens: 1000000,
+  contextTokens: 128000,
   maxTokens: 32768,
   maxAgentSteps: 64,
   thinkingMode: "enabled",
@@ -65,7 +65,7 @@ export async function saveAppConfig(config) {
     baseUrl: config.baseUrl,
     model: config.model,
     summaryModel: normalizeSummaryModel(config),
-    contextTokens: Number(config.contextTokens),
+    contextTokens: normalizeContextTokens(config),
     maxTokens: Number(config.maxTokens),
     maxAgentSteps: clampInteger(config.maxAgentSteps, DEFAULT_CONFIG.maxAgentSteps, 8, 256),
     thinkingMode: config.thinkingMode,
@@ -80,7 +80,8 @@ export async function saveAppConfig(config) {
 function normalizeConfig(config) {
   return {
     ...config,
-    summaryModel: normalizeSummaryModel(config)
+    summaryModel: normalizeSummaryModel(config),
+    contextTokens: normalizeContextTokens(config)
   };
 }
 
@@ -88,6 +89,13 @@ function normalizeSummaryModel(config) {
   const value = typeof config?.summaryModel === "string" ? config.summaryModel.trim() : "";
   if (value) return value;
   return config?.provider === "openai-compatible" ? "" : DEFAULT_CONFIG.summaryModel;
+}
+
+function normalizeContextTokens(config) {
+  const parsed = Number(config?.contextTokens);
+  const fallback = config?.provider === "openai-compatible" ? 128000 : DEFAULT_CONFIG.contextTokens;
+  const value = Number.isFinite(parsed) ? Math.max(4096, Math.floor(parsed)) : fallback;
+  return config?.provider === "openai-compatible" ? value : Math.min(value, DEFAULT_CONFIG.contextTokens);
 }
 
 export function getConfigPath() {

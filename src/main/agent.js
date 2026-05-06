@@ -3,7 +3,8 @@ import { executeToolCall, toolDefinitions } from "./tools.js";
 import { countChatMessageTokens, countChatMessagesTokens, countTextTokens } from "../shared/tokenCounter.js";
 
 const DEFAULT_MAX_AGENT_STEPS = 64;
-const SUMMARY_TRIGGER_RATIO = 0.7;
+const SUMMARY_TRIGGER_RATIO = 0.5;
+const SUMMARY_TRIGGER_ABSOLUTE_TOKENS = 64000;
 const RECENT_HISTORY_RATIO_AFTER_SUMMARY = 0.45;
 const CONTEXT_SAFETY_MARGIN_TOKENS = 1024;
 const MAX_STREAM_RECOVERY_ATTEMPTS = 2;
@@ -14,7 +15,7 @@ export async function runAgentTurn(payload, emit) {
   const userInput = String(payload.input ?? "").trim();
   const priorMessages = Array.isArray(payload.messages) ? payload.messages : [];
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
-  const contextTokens = Math.max(4096, Number(providerConfig.contextTokens) || 1000000);
+  const contextTokens = getEffectiveContextTokens(providerConfig);
   const maxAgentSteps = getMaxAgentSteps(providerConfig.maxAgentSteps);
   const signal = payload.signal;
 
@@ -27,7 +28,7 @@ export async function runAgentTurn(payload, emit) {
       "You are a local coding agent running inside a desktop demo app.",
       "You can inspect and edit files through the provided tools.",
       "You may create, overwrite, or delete files with write_file/delete_file when that is clearer than a patch.",
-      "If you need a missing decision or clarification from the user, call ask_user with one concise question, then stop and wait for the user's next message.",
+      "If you need a missing decision or clarification from the user, call ask_user with one concise question and 2-6 clear options, then stop and wait for the user's selected option.",
       "CRITICAL - Patch Accuracy Rules:",
       "• Before generating a patch, always use read_file to get the LATEST content of the target file.",
       "• If you already read the file earlier in this conversation but a patch was applied since then, re-read the file.",
@@ -92,7 +93,8 @@ export async function runAgentTurn(payload, emit) {
       model: provider.model,
       finishReason,
       reasoning: message.reasoning_content || "",
-      usage
+      usage,
+      tool_calls: normalizeToolCalls(message.tool_calls)
     });
 
     messages.push(message);
@@ -131,8 +133,7 @@ export async function runAgentTurn(payload, emit) {
     }
 
     const recoveryMessages = [];
-    let shouldTerminateAfterToolBatch = false;
-    let terminationReason = "";
+    let shouldWaitForUserAnswer = false;
 
     for (const toolCall of toolCalls) {
       throwIfAborted(signal);
@@ -169,7 +170,7 @@ export async function runAgentTurn(payload, emit) {
           consecutiveFailedToolCount = 1;
         }
 
-        emit({ type: "tool_error", name, message: parsed.error || "Tool failed." });
+        emit({ type: "tool_error", name, message: parsed.error || "Tool failed.", toolCallId: toolCall.id, result });
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -178,15 +179,17 @@ export async function runAgentTurn(payload, emit) {
         recoveryMessages.push(buildToolRecoveryMessage(name, rawArgs, parsed, failureCount, consecutiveFailedToolCount));
 
         if (consecutiveFailedToolCount >= 3) {
-          shouldTerminateAfterToolBatch = true;
-          terminationReason = `工具 ${name} 已连续失败 ${consecutiveFailedToolCount} 次，已停止本轮工具循环。最后错误：${parsed.error || "unknown"}`;
+          emit({
+            type: "status",
+            message: `工具 ${name} 已连续失败 ${consecutiveFailedToolCount} 次，已把 stderr/stdout 写入上下文；下一轮必须换策略，而不是中断。`
+          });
         }
         continue;
       }
 
       lastFailedToolName = "";
       consecutiveFailedToolCount = 0;
-      emit({ type: "tool_result", name, result });
+      emit({ type: "tool_result", name, result, toolCallId: toolCall.id });
       messages.push({
         role: "tool",
         tool_call_id: toolCall.id,
@@ -249,8 +252,10 @@ export async function runAgentTurn(payload, emit) {
             emit({
               type: "ask_user_pending",
               question: parsed.question,
-              context: parsed.context || ""
+              context: parsed.context || "",
+              options: Array.isArray(parsed.options) ? parsed.options : []
             });
+            shouldWaitForUserAnswer = true;
           }
         }
       } catch (error) {
@@ -270,8 +275,9 @@ export async function runAgentTurn(payload, emit) {
       });
     }
 
-    if (shouldTerminateAfterToolBatch) {
-      throw new Error(terminationReason);
+    if (shouldWaitForUserAnswer) {
+      emit({ type: "status", message: "Agent 正在等待用户选择后继续。" });
+      return;
     }
   }
 
@@ -305,7 +311,10 @@ async function buildMessages({
   const fixedMessages = [systemMessage, attachmentMessage].filter(Boolean);
   const fixedTokens = countChatMessagesTokens([...fixedMessages, userMessage]);
   const historyTokens = countChatMessagesTokens(normalizedHistory);
-  const summaryTriggerTokens = Math.floor(maxTokens * SUMMARY_TRIGGER_RATIO);
+  const summaryTriggerTokens = Math.min(
+    Math.floor(maxTokens * SUMMARY_TRIGGER_RATIO),
+    SUMMARY_TRIGGER_ABSOLUTE_TOKENS
+  );
 
   if (historyTokens <= summaryTriggerTokens || normalizedHistory.length < 4) {
     const recentBudget = Math.max(1024, maxTokens - fixedTokens - CONTEXT_SAFETY_MARGIN_TOKENS);
@@ -329,7 +338,7 @@ async function buildMessages({
 
   emit({
     type: "status",
-    message: `历史上下文已超过预算的 70%，正在压缩 ${earlyMessages.length} 条早期消息...`
+    message: `历史上下文已超过压缩阈值（${summaryTriggerTokens.toLocaleString("en-US")} tokens），正在压缩 ${earlyMessages.length} 条早期消息...`
   });
 
   try {
@@ -370,16 +379,122 @@ async function buildMessages({
 }
 
 function normalizeChatMessages(messages) {
-  return messages
-    .filter((message) => message?.role === "user" || message?.role === "assistant")
-    .map((message) => ({
-      role: message.role,
-      content: [
+  const normalized = [];
+  for (const message of messages) {
+    const role = message?.role;
+    if (role === "user" || role === "system") {
+      const content = String(message.content ?? "").trim();
+      if (content) normalized.push({ role, content });
+      continue;
+    }
+
+    if (role === "assistant") {
+      const toolCalls = normalizeToolCalls(message.tool_calls);
+      const content = [
         String(message?.content ?? ""),
         message?.reasoning ? `\n\n[Assistant reasoning]\n${String(message.reasoning)}` : ""
-      ].join("").trim()
-    }))
-    .filter((message) => message.content);
+      ].join("").trim();
+      if (content || toolCalls.length > 0) {
+        normalized.push({
+          role: "assistant",
+          content,
+          ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
+        });
+      }
+      continue;
+    }
+
+    if (role === "tool") {
+      const toolCallId = String(message.tool_call_id ?? "").trim();
+      const content = String(message.content ?? "").trim();
+      if (toolCallId && content) {
+        normalized.push({
+          role: "tool",
+          tool_call_id: toolCallId,
+          content,
+          ...(message.name ? { name: String(message.name) } : {})
+        });
+      }
+    }
+  }
+  return repairChatProtocol(normalized);
+}
+
+function normalizeToolCalls(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((toolCall) => {
+      const id = String(toolCall?.id ?? "").trim();
+      if (!id) return null;
+      return {
+        id,
+        type: toolCall?.type || "function",
+        function: {
+          name: String(toolCall?.function?.name ?? ""),
+          arguments: String(toolCall?.function?.arguments ?? "")
+        }
+      };
+    })
+    .filter(Boolean);
+}
+
+function repairChatProtocol(messages) {
+  const repaired = [];
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+      const remainingIds = new Set(message.tool_calls.map((toolCall) => toolCall.id).filter(Boolean));
+      const group = [message];
+      let nextIndex = index + 1;
+
+      while (
+        nextIndex < messages.length &&
+        messages[nextIndex].role === "tool" &&
+        remainingIds.has(messages[nextIndex].tool_call_id)
+      ) {
+        group.push(messages[nextIndex]);
+        remainingIds.delete(messages[nextIndex].tool_call_id);
+        nextIndex += 1;
+      }
+
+      if (remainingIds.size === 0) {
+        repaired.push(...group);
+      } else {
+        const partialToolResults = group
+          .slice(1)
+          .map((toolMessage) => `Tool result ${toolMessage.tool_call_id}:\n${String(toolMessage.content || "").slice(0, 4000)}`)
+          .join("\n\n");
+        repaired.push({
+          role: "system",
+          content: [
+            message.content ? `Assistant message before an incomplete tool-call group:\n${message.content}` : "",
+            "Some earlier tool calls were truncated before their tool results. Treat the following as historical memory, not as an active tool call:",
+            JSON.stringify(message.tool_calls).slice(0, 4000),
+            partialToolResults
+          ].filter(Boolean).join("\n\n")
+        });
+      }
+      index = nextIndex - 1;
+      continue;
+    }
+
+    if (message.role === "tool") {
+      repaired.push({
+        role: "system",
+        content: [
+          `Orphaned earlier tool result (${message.name || message.tool_call_id || "unknown"}):`,
+          String(message.content || "").slice(0, 12000)
+        ].join("\n")
+      });
+      continue;
+    }
+
+    if (message.role === "assistant" && !message.content) continue;
+    repaired.push(message);
+  }
+
+  return repaired;
 }
 
 async function summarizeHistoryMessages({ messages, config, contextTokens, signal }) {
@@ -403,6 +518,8 @@ async function summarizeHistoryMessages({ messages, config, contextTokens, signa
           "You compress earlier conversation history for a coding agent.",
           "Write a concise but durable memory summary.",
           "Preserve user goals, project constraints, decisions, file paths, bugs fixed, pending tasks, approvals, and warnings.",
+          "Preserve important tool-call results and command errors as facts the future agent can use.",
+          "The transcript may already contain compressed memory summaries. Merge them with newer facts instead of replacing or dropping them.",
           "Do not invent facts. Prefer bullet points. Do not include small talk unless it changes the task."
         ].join("\n")
       },
@@ -425,8 +542,13 @@ function buildSummaryTranscript(messages, tokenBudget) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     const content = String(message.content || "");
-    const label = message.role === "assistant" ? "Assistant" : "User";
-    const entry = `${label}:\n${content}`;
+    const label = formatSummaryRoleLabel(message);
+    const entry = [
+      `${label}:`,
+      content,
+      message.tool_calls ? `Tool calls: ${JSON.stringify(message.tool_calls).slice(0, 4000)}` : "",
+      message.tool_call_id ? `Tool call id: ${message.tool_call_id}` : ""
+    ].filter(Boolean).join("\n");
     const tokens = countTextTokens(entry);
     if (totalTokens + tokens > tokenBudget && selected.length > 0) break;
     selected.unshift(entry);
@@ -434,6 +556,13 @@ function buildSummaryTranscript(messages, tokenBudget) {
   }
 
   return selected.join("\n\n---\n\n");
+}
+
+function formatSummaryRoleLabel(message) {
+  if (message.role === "assistant") return "Assistant";
+  if (message.role === "tool") return `Tool result${message.name ? ` (${message.name})` : ""}`;
+  if (message.role === "system") return "System memory";
+  return "User";
 }
 
 function buildConversationSummaryMessage(summary) {
@@ -472,6 +601,13 @@ function getMaxAgentSteps(configuredValue) {
   const parsed = Number(rawValue);
   if (!Number.isFinite(parsed)) return DEFAULT_MAX_AGENT_STEPS;
   return Math.min(Math.max(Math.floor(parsed), 8), 256);
+}
+
+function getEffectiveContextTokens(config) {
+  const parsed = Number(config?.contextTokens);
+  const fallback = config?.provider === "openai-compatible" ? 128000 : 128000;
+  const value = Number.isFinite(parsed) ? Math.max(4096, Math.floor(parsed)) : fallback;
+  return config?.provider === "openai-compatible" ? value : Math.min(value, 128000);
 }
 
 function parseToolArguments(rawArgs) {
@@ -538,7 +674,13 @@ function selectRecentMessages(messages, contextTokens) {
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    const normalized = { role: message.role, content: String(message?.content ?? "") };
+    const normalized = {
+      role: message.role,
+      content: String(message?.content ?? ""),
+      ...(message.tool_calls ? { tool_calls: normalizeToolCalls(message.tool_calls) } : {}),
+      ...(message.tool_call_id ? { tool_call_id: String(message.tool_call_id) } : {}),
+      ...(message.name ? { name: String(message.name) } : {})
+    };
     const messageTokens = countChatMessageTokens(normalized);
     const nextTotal = totalTokens + messageTokens;
     if (nextTotal > maxTokens && selected.length > 0) break;
@@ -546,5 +688,5 @@ function selectRecentMessages(messages, contextTokens) {
     totalTokens = nextTotal;
   }
 
-  return selected;
+  return repairChatProtocol(selected);
 }

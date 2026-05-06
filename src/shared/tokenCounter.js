@@ -2,9 +2,10 @@ import { encode } from "gpt-tokenizer";
 
 const MESSAGE_OVERHEAD_TOKENS = 4;
 const REQUEST_OVERHEAD_TOKENS = 16;
+const TOKENIZER_SAFETY_MULTIPLIER = 1.15;
 
 export function countTextTokens(value) {
-  return encode(String(value ?? "")).length;
+  return Math.ceil(encode(String(value ?? "")).length * TOKENIZER_SAFETY_MULTIPLIER);
 }
 
 export function countChatMessageTokens(message) {
@@ -13,7 +14,10 @@ export function countChatMessageTokens(message) {
     MESSAGE_OVERHEAD_TOKENS +
     countTextTokens(message.role || "") +
     countTextTokens(message.content || "") +
-    countTextTokens(message.reasoning || "")
+    countTextTokens(message.reasoning || "") +
+    countTextTokens(message.tool_call_id || "") +
+    countTextTokens(message.name || "") +
+    countTextTokens(message.tool_calls ? JSON.stringify(message.tool_calls) : "")
   );
 }
 

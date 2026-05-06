@@ -101,12 +101,17 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "ask_user",
-      description: "Ask the user a concise clarifying question when required information is missing or a decision is needed.",
+      description: "Ask the user a concise multiple-choice question when required information is missing or a decision is needed. Provide 2-6 clear options whenever possible.",
       parameters: {
         type: "object",
         properties: {
           question: { type: "string", description: "The question to show to the user." },
-          context: { type: "string", description: "Optional short context explaining why the answer is needed." }
+          context: { type: "string", description: "Optional short context explaining why the answer is needed." },
+          options: {
+            type: "array",
+            items: { type: "string" },
+            description: "Two to six user-facing options. Example: [\"Yes\", \"No\"]."
+          }
         },
         required: ["question"]
       }
@@ -201,7 +206,7 @@ async function executeToolImplementation(name, args, workspace) {
     case "delete_file":
       return deleteFile(workspace, args.path, args.summary);
     case "ask_user":
-      return askUser(args.question, args.context);
+      return askUser(args.question, args.context, args.options);
     case "apply_patch":
       return proposePatch(workspace, args.patch, args.summary);
     case "search_files":
@@ -417,20 +422,31 @@ async function deleteFile(workspace, filePath, summary = "") {
   return JSON.stringify({ ...result, patch }, null, 2);
 }
 
-function askUser(question, context = "") {
+function askUser(question, context = "", options = []) {
   const text = String(question ?? "").trim();
   if (!text) throw new Error("question 不能为空。");
+  const choices = normalizeQuestionOptions(options, text);
   return JSON.stringify(
     {
       ok: true,
       pending: true,
       question: text,
       context: String(context ?? "").trim(),
-      message: "Question shown to the user. Stop and wait for the user's next message before continuing."
+      options: choices,
+      message: "Question shown to the user as multiple-choice options. Stop and wait for the user's selected option before continuing."
     },
     null,
     2
   );
+}
+
+function normalizeQuestionOptions(options, question) {
+  const choices = Array.isArray(options)
+    ? options.map((option) => String(option ?? "").trim()).filter(Boolean)
+    : [];
+  const unique = [...new Set(choices)].slice(0, 6);
+  if (unique.length >= 2) return unique;
+  return /[\u3400-\u9fff]/.test(String(question)) ? ["是", "否"] : ["Yes", "No"];
 }
 
 async function searchFiles(workspace, query, maxResults) {
