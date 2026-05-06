@@ -19,9 +19,10 @@ declare global {
       countTokens: (payload: { messages: ChatMessage[]; input: string; attachments: AttachedFile[] }) => Promise<{ tokens: number }>;
       applyPatch: (patchId: string) => Promise<{ ok: true; result: { ok: boolean; patchId: string; summary: string; strategy?: string; warning?: string } } | { ok: false; error: string }>;
       discardPatch: (patchId: string) => Promise<{ ok: boolean; patchId: string }>;
-      approveCommand: (payload: { commandId: string; allowFuture?: boolean }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; highRisk: boolean; autoApproveFutureCommands: boolean; permissionMode?: PermissionMode } } | { ok: false; error: string }>;
+      approveCommand: (payload: { commandId: string; allowFuture?: boolean }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; highRisk: boolean; autoApproveFutureCommands: boolean; commandAutoApproval: boolean; patchAutoApproval: boolean; commandAutoApprovalExpiresAt?: number | null; patchAutoApprovalExpiresAt?: number | null } } | { ok: false; error: string }>;
       discardCommand: (commandId: string) => Promise<{ ok: boolean; commandId: string }>;
-      setCommandAutoApproval: (enabled: boolean) => Promise<{ ok: boolean; autoApproveFutureCommands: boolean; permissionMode?: PermissionMode }>;
+      setCommandAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
+      setPatchAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       onAgentEvent: (callback: (event: AgentEvent) => void) => () => void;
     };
   }
@@ -57,6 +58,17 @@ export type ProviderConfig = {
   maxAgentSteps: number;
   thinkingMode: "enabled" | "disabled";
   reasoningEffort: "low" | "medium" | "high" | "max";
+  capability?: ProviderModelCapability;
+};
+
+export type ProviderModelCapability = {
+  label: string;
+  contextTokens: number;
+  maxOutputTokens: number;
+  supportsThinking: boolean;
+  supportsToolCalls: boolean;
+  supportsTemperature: boolean;
+  balancePath?: string;
 };
 
 export type ProviderTestResult = {
@@ -79,6 +91,7 @@ export type ProviderBalanceResult = {
 
 export type AgentRequest = {
   requestId: string;
+  sessionId?: string;
   workspace: string;
   input: string;
   providerConfig: ProviderConfig;
@@ -116,6 +129,23 @@ export type PlanItem = {
 };
 
 export type PermissionMode = "default" | "full";
+
+export type AutoApprovalRequest = {
+  enabled: boolean;
+  workspace: string;
+  sessionId?: string;
+  requestId?: string;
+};
+
+export type AutoApprovalState = {
+  ok: boolean;
+  commandAutoApproval: boolean;
+  patchAutoApproval: boolean;
+  autoApproveFutureCommands?: boolean;
+  commandAutoApprovalExpiresAt?: number | null;
+  patchAutoApprovalExpiresAt?: number | null;
+  ttlMs?: number;
+};
 
 export type AgentEvent =
   | { requestId: string; type: "status"; message: string }

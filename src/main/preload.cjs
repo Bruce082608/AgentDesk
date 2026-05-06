@@ -19,7 +19,8 @@ contextBridge.exposeInMainWorld("agentWindow", {
   discardPatch: (patchId) => ipcRenderer.invoke("patch:discard", patchId),
   approveCommand: (payload) => ipcRenderer.invoke("command:approve", payload),
   discardCommand: (commandId) => ipcRenderer.invoke("command:discard", commandId),
-  setCommandAutoApproval: (enabled) => ipcRenderer.invoke("command:auto-approval", enabled),
+  setCommandAutoApproval: (payload) => ipcRenderer.invoke("command:auto-approval", payload),
+  setPatchAutoApproval: (payload) => ipcRenderer.invoke("patch:auto-approval", payload),
   onAgentEvent: (callback) => {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on("agent:event", listener);

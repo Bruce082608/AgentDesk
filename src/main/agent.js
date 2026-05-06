@@ -1,13 +1,13 @@
-import { completeChat, streamWithTools } from "./providers.js";
+import { completeChat, normalizeProviderConfig, streamWithTools } from "./providers.js";
 import { executeToolCall, toolDefinitions } from "./tools.js";
+import { getDynamicSafetyMarginTokens, getInputBudgetTokens } from "../shared/contextBudget.js";
 import { countChatMessageTokens, countChatMessagesTokens, countTextTokens } from "../shared/tokenCounter.js";
 
 const DEFAULT_MAX_AGENT_STEPS = 64;
-const SUMMARY_TRIGGER_RATIO = 0.5;
-const SUMMARY_TRIGGER_ABSOLUTE_TOKENS = 64000;
 const RECENT_HISTORY_RATIO_AFTER_SUMMARY = 0.45;
-const CONTEXT_SAFETY_MARGIN_TOKENS = 1024;
 const MAX_STREAM_RECOVERY_ATTEMPTS = 2;
+const SUMMARY_TOKEN_RATIO = 0.08;
+const SUMMARY_TRANSCRIPT_RATIO = 0.8;
 
 export async function runAgentTurn(payload, emit) {
   const workspace = payload.workspace || process.cwd();
@@ -15,7 +15,10 @@ export async function runAgentTurn(payload, emit) {
   const userInput = String(payload.input ?? "").trim();
   const priorMessages = Array.isArray(payload.messages) ? payload.messages : [];
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
-  const contextTokens = getEffectiveContextTokens(providerConfig);
+  const normalizedProviderConfig = normalizeProviderConfig(providerConfig);
+  const contextTokens = normalizedProviderConfig.contextTokens;
+  const maxOutputTokens = normalizedProviderConfig.maxTokens;
+  const inputBudgetTokens = getInputBudgetTokens(contextTokens, maxOutputTokens);
   const maxAgentSteps = getMaxAgentSteps(providerConfig.maxAgentSteps);
   const signal = payload.signal;
 
@@ -61,8 +64,8 @@ export async function runAgentTurn(payload, emit) {
   emit({
     type: "status",
     message: compressed
-      ? `发送给模型，上下文预算 ${contextTokens.toLocaleString("en-US")} tokens；已注入早期对话摘要。`
-      : `发送给模型，上下文预算 ${contextTokens.toLocaleString("en-US")} tokens...`
+      ? `发送给模型，上下文窗口 ${contextTokens.toLocaleString("en-US")} tokens；可用输入预算 ${inputBudgetTokens.toLocaleString("en-US")} tokens；已注入早期对话摘要。`
+      : `发送给模型，上下文窗口 ${contextTokens.toLocaleString("en-US")} tokens；可用输入预算 ${inputBudgetTokens.toLocaleString("en-US")} tokens...`
   });
   const toolFailures = new Map();
   let lastFailedToolName = "";
@@ -144,7 +147,11 @@ export async function runAgentTurn(payload, emit) {
       let result = "";
       let parsed = null;
       try {
-        result = await executeToolCall(toolCall, workspace);
+        result = await executeToolCall(toolCall, {
+          workspace,
+          requestId: payload.requestId || "",
+          sessionId: payload.sessionId || ""
+        });
         parsed = parseToolResult(result);
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
@@ -306,39 +313,38 @@ async function buildMessages({
   emit
 }) {
   const maxTokens = Math.max(4096, contextTokens);
+  const maxOutputTokens = getEffectiveMaxOutputTokens(providerConfig, maxTokens);
+  const safetyMarginTokens = getDynamicSafetyMarginTokens(maxTokens, maxOutputTokens);
+  const inputBudgetTokens = getInputBudgetTokens(maxTokens, maxOutputTokens);
   const normalizedHistory = normalizeChatMessages(priorMessages);
   const userMessage = { role: "user", content: userInput };
   const fixedMessages = [systemMessage, attachmentMessage].filter(Boolean);
   const fixedTokens = countChatMessagesTokens([...fixedMessages, userMessage]);
   const historyTokens = countChatMessagesTokens(normalizedHistory);
-  const summaryTriggerTokens = Math.min(
-    Math.floor(maxTokens * SUMMARY_TRIGGER_RATIO),
-    SUMMARY_TRIGGER_ABSOLUTE_TOKENS
-  );
+  const fullInputTokens = fixedTokens + historyTokens;
+  const historyBudget = Math.max(1024, inputBudgetTokens - fixedTokens);
 
-  if (historyTokens <= summaryTriggerTokens || normalizedHistory.length < 4) {
-    const recentBudget = Math.max(1024, maxTokens - fixedTokens - CONTEXT_SAFETY_MARGIN_TOKENS);
+  if (fullInputTokens <= inputBudgetTokens || normalizedHistory.length < 4) {
     return {
-      messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, recentBudget), userMessage],
+      messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, historyBudget), userMessage],
       compressed: false
     };
   }
 
-  const recentBudget = Math.max(2048, Math.floor(maxTokens * RECENT_HISTORY_RATIO_AFTER_SUMMARY));
+  const recentBudget = Math.max(2048, Math.min(historyBudget, Math.floor(inputBudgetTokens * RECENT_HISTORY_RATIO_AFTER_SUMMARY)));
   const recentMessages = selectRecentMessages(normalizedHistory, recentBudget);
   const earlyMessages = normalizedHistory.slice(0, Math.max(0, normalizedHistory.length - recentMessages.length));
 
   if (earlyMessages.length === 0) {
-    const fallbackBudget = Math.max(1024, maxTokens - fixedTokens - CONTEXT_SAFETY_MARGIN_TOKENS);
     return {
-      messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, fallbackBudget), userMessage],
+      messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, historyBudget), userMessage],
       compressed: false
     };
   }
 
   emit({
     type: "status",
-    message: `历史上下文已超过压缩阈值（${summaryTriggerTokens.toLocaleString("en-US")} tokens），正在压缩 ${earlyMessages.length} 条早期消息...`
+    message: `历史上下文接近可用输入预算（${fullInputTokens.toLocaleString("en-US")} / ${inputBudgetTokens.toLocaleString("en-US")} tokens；已预留输出 ${maxOutputTokens.toLocaleString("en-US")} tokens，安全余量 ${safetyMarginTokens.toLocaleString("en-US")} tokens），正在压缩 ${earlyMessages.length} 条早期消息...`
   });
 
   try {
@@ -351,7 +357,7 @@ async function buildMessages({
     const summaryMessage = buildConversationSummaryMessage(summary);
     const remainingBudget = Math.max(
       1024,
-      maxTokens - countChatMessagesTokens([...fixedMessages, summaryMessage, userMessage]) - CONTEXT_SAFETY_MARGIN_TOKENS
+      inputBudgetTokens - countChatMessagesTokens([...fixedMessages, summaryMessage, userMessage])
     );
     const recentWithinBudget = selectRecentMessages(recentMessages, remainingBudget);
 
@@ -370,9 +376,8 @@ async function buildMessages({
       type: "status",
       message: `早期对话摘要失败，已退回滑动窗口上下文：${messageText}`
     });
-    const fallbackBudget = Math.max(1024, maxTokens - fixedTokens - CONTEXT_SAFETY_MARGIN_TOKENS);
     return {
-      messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, fallbackBudget), userMessage],
+      messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, historyBudget), userMessage],
       compressed: false
     };
   }
@@ -498,17 +503,13 @@ function repairChatProtocol(messages) {
 }
 
 async function summarizeHistoryMessages({ messages, config, contextTokens, signal }) {
-  const maxSummaryTokens = Math.min(4096, Math.max(1024, Math.floor(contextTokens * 0.08)));
-  const transcriptBudget = Math.max(4096, Math.min(Math.floor(contextTokens * 0.5), 120000));
+  const { maxSummaryTokens, transcriptBudget, summaryConfig } = getSummaryCompressionBudgets({
+    config,
+    contextTokens
+  });
   const transcript = buildSummaryTranscript(messages, transcriptBudget);
-  const summaryModel = String(config.summaryModel || "").trim();
   const response = await completeChat({
-    config: {
-      ...config,
-      model: summaryModel || config.model,
-      maxTokens: Math.min(Number(config.maxTokens) || maxSummaryTokens, maxSummaryTokens),
-      thinkingMode: "disabled"
-    },
+    config: summaryConfig,
     maxTokens: maxSummaryTokens,
     signal,
     messages: [
@@ -533,6 +534,35 @@ async function summarizeHistoryMessages({ messages, config, contextTokens, signa
   const summary = String(response.message?.content || "").trim();
   if (!summary) throw new Error("模型返回了空摘要。");
   return summary;
+}
+
+function getSummaryCompressionBudgets({ config, contextTokens }) {
+  const sourceContextTokens = Math.max(4096, Math.floor(Number(contextTokens) || 0));
+  const summaryModel = String(config.summaryModel || "").trim();
+  const baseSummaryConfig = {
+    ...config,
+    model: summaryModel || config.model,
+    thinkingMode: "disabled"
+  };
+  const normalizedSummaryConfig = normalizeProviderConfig(baseSummaryConfig);
+  const summaryContextTokens = normalizedSummaryConfig.contextTokens;
+  const modelMaxOutputTokens = getEffectiveMaxOutputTokens(baseSummaryConfig, summaryContextTokens);
+  const desiredSummaryTokens = Math.max(1024, Math.floor(sourceContextTokens * SUMMARY_TOKEN_RATIO));
+  const maxSummaryTokens = Math.min(modelMaxOutputTokens, desiredSummaryTokens);
+  const summaryInputBudgetTokens = getInputBudgetTokens(summaryContextTokens, maxSummaryTokens);
+  const desiredTranscriptTokens = Math.max(4096, Math.floor(sourceContextTokens * SUMMARY_TRANSCRIPT_RATIO));
+  const transcriptBudget = Math.max(4096, Math.min(desiredTranscriptTokens, Math.floor(summaryInputBudgetTokens * 0.9)));
+
+  return {
+    maxSummaryTokens,
+    transcriptBudget,
+    summaryConfig: {
+      ...baseSummaryConfig,
+      maxTokens: maxSummaryTokens
+    },
+    summaryContextTokens,
+    summaryInputBudgetTokens
+  };
 }
 
 function buildSummaryTranscript(messages, tokenBudget) {
@@ -604,10 +634,11 @@ function getMaxAgentSteps(configuredValue) {
 }
 
 function getEffectiveContextTokens(config) {
-  const parsed = Number(config?.contextTokens);
-  const fallback = config?.provider === "openai-compatible" ? 128000 : 128000;
-  const value = Number.isFinite(parsed) ? Math.max(4096, Math.floor(parsed)) : fallback;
-  return config?.provider === "openai-compatible" ? value : Math.min(value, 128000);
+  return normalizeProviderConfig(config).contextTokens;
+}
+
+function getEffectiveMaxOutputTokens(config, contextTokens) {
+  return Math.min(normalizeProviderConfig(config).maxTokens, Math.max(1, contextTokens - 1024));
 }
 
 function parseToolArguments(rawArgs) {
@@ -690,3 +721,7 @@ function selectRecentMessages(messages, contextTokens) {
 
   return repairChatProtocol(selected);
 }
+
+export const __test__ = {
+  getSummaryCompressionBudgets
+};

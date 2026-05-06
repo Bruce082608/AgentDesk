@@ -159,3 +159,8 @@ function resolveInsideWorkspace(workspace, targetPath) {
   }
   return absoluteTarget;
 }
+
+export const __test__ = {
+  draftCommitMessage,
+  resolveInsideWorkspace
+};

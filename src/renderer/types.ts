@@ -27,6 +27,13 @@ export type CommandItem = {
   error?: string;
 };
 
+export type AutoApprovalState = {
+  commandAutoApproval: boolean;
+  patchAutoApproval: boolean;
+  commandAutoApprovalExpiresAt?: number | null;
+  patchAutoApprovalExpiresAt?: number | null;
+};
+
 export type UserQuestionItem = {
   id: string;
   question: string;
@@ -107,7 +114,7 @@ export const defaultConfig: ProviderConfig = {
   apiKey: "",
   temperature: 0.2,
   maxTokens: 32768,
-  contextTokens: 128000,
+  contextTokens: 1000000,
   maxAgentSteps: 64,
   thinkingMode: "enabled",
   reasoningEffort: "max"

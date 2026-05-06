@@ -3,7 +3,7 @@
   "baseUrl": "https://api.deepseek.com",
   "model": "deepseek-v4-pro",
   "contextTokens": 1000000,
-  "maxTokens": 100353,
+  "maxTokens": 65536,
   "maxAgentSteps": 64,
   "thinkingMode": "enabled",
   "reasoningEffort": "max",

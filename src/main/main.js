@@ -5,7 +5,7 @@ import { runAgentTurn } from "./agent.js";
 import { readUploadedFiles } from "./attachments.js";
 import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
-import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval } from "./tools.js";
+import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setPatchAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
 import { countAgentRequestTokens } from "../shared/tokenCounter.js";
 
@@ -196,6 +196,10 @@ ipcMain.handle("command:discard", async (_event, commandId) => {
   return discardPendingCommand(commandId);
 });
 
-ipcMain.handle("command:auto-approval", async (_event, enabled) => {
-  return setCommandAutoApproval(enabled);
+ipcMain.handle("command:auto-approval", async (_event, payload) => {
+  return setCommandAutoApproval(payload);
+});
+
+ipcMain.handle("patch:auto-approval", async (_event, payload) => {
+  return setPatchAutoApproval(payload);
 });

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { app, safeStorage } from "electron";
+import { getModelCapability, normalizeConfigForCapabilities } from "../shared/providerCapabilities.js";
 
 const CONFIG_FILE_NAME = "agent-config.json";
 const SECRETS_FILE_NAME = "secrets.json";
@@ -12,7 +13,7 @@ const DEFAULT_CONFIG = {
   baseUrl: "https://api.deepseek.com",
   model: "deepseek-v4-pro",
   summaryModel: "deepseek-v4-flash",
-  contextTokens: 128000,
+  contextTokens: 1_000_000,
   maxTokens: 32768,
   maxAgentSteps: 64,
   thinkingMode: "enabled",
@@ -34,7 +35,7 @@ export async function loadAppConfig() {
     }
     const parsed = normalizeConfig(JSON.parse(trimmed));
     if (configPath !== LEGACY_CONFIG_PATH) {
-      await writeConfigFile({ ...DEFAULT_CONFIG, ...parsed });
+      await writeConfigFile(toPersistedConfig(parsed));
     }
     return { ...DEFAULT_CONFIG, ...parsed, apiKey, ...getSafeStorageStatus(), apiKeyStorage: apiKeyState.storage };
   } catch (error) {
@@ -60,42 +61,46 @@ export async function saveAppConfig(config) {
     apiKeyStorage = await saveApiKey(config.apiKey);
   }
 
-  const persisted = {
-    provider: config.provider,
-    baseUrl: config.baseUrl,
-    model: config.model,
-    summaryModel: normalizeSummaryModel(config),
-    contextTokens: normalizeContextTokens(config),
-    maxTokens: Number(config.maxTokens),
-    maxAgentSteps: clampInteger(config.maxAgentSteps, DEFAULT_CONFIG.maxAgentSteps, 8, 256),
-    thinkingMode: config.thinkingMode,
-    reasoningEffort: config.reasoningEffort,
-    temperature: Number(config.temperature)
-  };
+  const normalized = normalizeConfig(config);
+  const persisted = toPersistedConfig({
+    ...normalized,
+    maxAgentSteps: clampInteger(config.maxAgentSteps, DEFAULT_CONFIG.maxAgentSteps, 8, 256)
+  });
 
   await writeConfigFile(persisted);
   return { ok: true, path: getConfigPath(), apiKeyStorage, ...getSafeStorageStatus() };
 }
 
-function normalizeConfig(config) {
+function toPersistedConfig(config) {
   return {
-    ...config,
-    summaryModel: normalizeSummaryModel(config),
-    contextTokens: normalizeContextTokens(config)
+    provider: config.provider,
+    baseUrl: config.baseUrl,
+    model: config.model,
+    summaryModel: config.summaryModel,
+    contextTokens: config.contextTokens,
+    maxTokens: config.maxTokens,
+    maxAgentSteps: config.maxAgentSteps,
+    thinkingMode: config.thinkingMode,
+    reasoningEffort: config.reasoningEffort,
+    temperature: config.temperature
   };
 }
 
-function normalizeSummaryModel(config) {
-  const value = typeof config?.summaryModel === "string" ? config.summaryModel.trim() : "";
-  if (value) return value;
-  return config?.provider === "openai-compatible" ? "" : DEFAULT_CONFIG.summaryModel;
-}
-
-function normalizeContextTokens(config) {
-  const parsed = Number(config?.contextTokens);
-  const fallback = config?.provider === "openai-compatible" ? 128000 : DEFAULT_CONFIG.contextTokens;
-  const value = Number.isFinite(parsed) ? Math.max(4096, Math.floor(parsed)) : fallback;
-  return config?.provider === "openai-compatible" ? value : Math.min(value, DEFAULT_CONFIG.contextTokens);
+function normalizeConfig(config) {
+  const normalized = normalizeConfigForCapabilities({ ...DEFAULT_CONFIG, ...config });
+  const { provider, capability } = getModelCapability(normalized);
+  return {
+    ...normalized,
+    capability: {
+      label: capability.label,
+      contextTokens: capability.contextTokens,
+      maxOutputTokens: capability.maxOutputTokens,
+      supportsThinking: capability.supportsThinking,
+      supportsToolCalls: capability.supportsToolCalls,
+      supportsTemperature: capability.supportsTemperature,
+      balancePath: provider.balancePath
+    }
+  };
 }
 
 export function getConfigPath() {

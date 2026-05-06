@@ -11,7 +11,8 @@ const MAX_FILE_BYTES = 120_000;
 const RIPGREP_COMMAND = process.platform === "win32" ? "rg.exe" : "rg";
 const pendingPatches = new Map();
 const pendingCommands = new Map();
-let permissionMode = "default";
+const autoApprovalScopes = new Map();
+const AUTO_APPROVAL_TTL_MS = 30 * 60 * 1000;
 
 export const toolDefinitions = [
   {
@@ -182,39 +183,41 @@ export const toolDefinitions = [
   }
 ];
 
-export async function executeToolCall(toolCall, workspace) {
+export async function executeToolCall(toolCall, context) {
   const name = toolCall.function?.name;
   let args = {};
 
   try {
     args = parseToolArgs(toolCall.function?.arguments);
-    const result = await executeToolImplementation(name, args, workspace);
+    const toolContext = normalizeToolContext(context);
+    const result = await executeToolImplementation(name, args, toolContext);
     return formatToolSuccess(name, result);
   } catch (error) {
     return formatToolFailure(name, error, args);
   }
 }
 
-async function executeToolImplementation(name, args, workspace) {
+async function executeToolImplementation(name, args, context) {
+  const workspace = context.workspace;
   switch (name) {
     case "list_files":
       return listFiles(workspace, args.directory || "", args.max_files || 120);
     case "read_file":
       return readFile(workspace, args.path);
     case "write_file":
-      return writeFile(workspace, args.path, args.content, args.summary);
+      return writeFile(context, args.path, args.content, args.summary);
     case "delete_file":
-      return deleteFile(workspace, args.path, args.summary);
+      return deleteFile(context, args.path, args.summary);
     case "ask_user":
       return askUser(args.question, args.context, args.options);
     case "apply_patch":
-      return proposePatch(workspace, args.patch, args.summary);
+      return proposePatch(context, args.patch, args.summary);
     case "search_files":
       return searchFiles(workspace, args.query, args.max_results || 50);
     case "web_search":
       return webSearch(args.query, args.max_results || 5);
     case "run_command":
-      return runCommand(workspace, args.command, args.timeout_ms || 30_000);
+      return runCommand(context, args.command, args.timeout_ms || 30_000);
     case "update_plan":
       return JSON.stringify({ ok: true, items: Array.isArray(args.items) ? args.items : [] });
     default:
@@ -382,7 +385,8 @@ async function readFile(workspace, filePath) {
   return await fs.readFile(absolute, "utf8");
 }
 
-async function writeFile(workspace, filePath, content, summary = "") {
+async function writeFile(context, filePath, content, summary = "") {
+  const workspace = context.workspace;
   const normalizedPath = normalizeWorkspacePath(filePath);
   const absolute = resolveInsideWorkspace(workspace, normalizedPath);
   const nextContent = String(content ?? "");
@@ -390,7 +394,7 @@ async function writeFile(workspace, filePath, content, summary = "") {
     throw new Error(`${normalizedPath} 内容太大，write_file 限制为 ${MAX_FILE_BYTES * 2} bytes。`);
   }
 
-  if (permissionMode === "full") {
+  if (isAutoApprovalEnabled("patch", context)) {
     await fs.mkdir(path.dirname(absolute), { recursive: true });
     await fs.writeFile(absolute, nextContent, "utf8");
     return JSON.stringify({ ok: true, written: true, path: normalizedPath, bytes: Buffer.byteLength(nextContent, "utf8") }, null, 2);
@@ -401,24 +405,25 @@ async function writeFile(workspace, filePath, content, summary = "") {
     throw error;
   });
   const patch = buildWholeFilePatch(normalizedPath, previousContent, nextContent);
-  const result = JSON.parse(await proposePatch(workspace, patch, summary || `${previousContent === null ? "Create" : "Update"} ${normalizedPath}`));
+  const result = JSON.parse(await proposePatch(context, patch, summary || `${previousContent === null ? "Create" : "Update"} ${normalizedPath}`));
   return JSON.stringify({ ...result, patch }, null, 2);
 }
 
-async function deleteFile(workspace, filePath, summary = "") {
+async function deleteFile(context, filePath, summary = "") {
+  const workspace = context.workspace;
   const normalizedPath = normalizeWorkspacePath(filePath);
   const absolute = resolveInsideWorkspace(workspace, normalizedPath);
   const stat = await fs.stat(absolute);
   if (!stat.isFile()) throw new Error(`${normalizedPath} 不是文件。`);
 
-  if (permissionMode === "full") {
+  if (isAutoApprovalEnabled("patch", context)) {
     await fs.rm(absolute, { force: true });
     return JSON.stringify({ ok: true, deleted: true, path: normalizedPath }, null, 2);
   }
 
   const previousContent = await fs.readFile(absolute, "utf8");
   const patch = buildWholeFilePatch(normalizedPath, previousContent, null);
-  const result = JSON.parse(await proposePatch(workspace, patch, summary || `Delete ${normalizedPath}`));
+  const result = JSON.parse(await proposePatch(context, patch, summary || `Delete ${normalizedPath}`));
   return JSON.stringify({ ...result, patch }, null, 2);
 }
 
@@ -479,13 +484,14 @@ async function searchFiles(workspace, query, maxResults) {
   return JSON.stringify({ results, truncated: results.length >= limit }, null, 2);
 }
 
-async function proposePatch(workspace, patch, summary = "") {
+async function proposePatch(context, patch, summary = "") {
+  const workspace = context.workspace;
   const patchText = ensureTrailingNewline(stripMarkdownFence(String(patch ?? "")));
   if (!patchText.trim()) throw new Error("patch 不能为空。");
   validatePatchPaths(workspace, patchText);
   const resolvedWorkspace = path.resolve(workspace);
 
-  if (permissionMode === "full") {
+  if (isAutoApprovalEnabled("patch", context)) {
     const result = await applyPatchText({
       id: randomUUID(),
       workspace: resolvedWorkspace,
@@ -499,7 +505,7 @@ async function proposePatch(workspace, patch, summary = "") {
       patchId: result.patchId,
       summary: result.summary,
       strategy: result.strategy,
-      message: "Patch applied automatically because full access mode is enabled."
+      message: "Patch applied automatically because scoped patch auto-approval is enabled."
     });
   }
 
@@ -507,6 +513,8 @@ async function proposePatch(workspace, patch, summary = "") {
   pendingPatches.set(patchId, {
     id: patchId,
     workspace: resolvedWorkspace,
+    requestId: context.requestId,
+    sessionId: context.sessionId,
     patch: patchText,
     summary: String(summary || "Proposed patch"),
     createdAt: Date.now()
@@ -549,15 +557,18 @@ export function discardPendingPatch(patchId) {
   return { ok: existed, patchId };
 }
 
-async function runCommand(workspace, command, timeoutMs) {
+async function runCommand(context, command, timeoutMs) {
+  const workspace = context.workspace;
   const commandText = String(command ?? "").trim();
   if (!commandText) throw new Error("command 不能为空。");
   const highRisk = isDangerousCommand(commandText);
-  if (permissionMode !== "full" && (highRisk || !isAutoAllowedCommand(commandText))) {
+  if (!isAutoApprovalEnabled("command", context) && (highRisk || !isAutoAllowedCommand(commandText))) {
     const commandId = randomUUID();
     pendingCommands.set(commandId, {
       id: commandId,
       workspace: path.resolve(workspace),
+      requestId: context.requestId,
+      sessionId: context.sessionId,
       command: commandText,
       highRisk,
       timeoutMs,
@@ -606,7 +617,14 @@ export async function approvePendingCommand(commandId, options = {}) {
   const pending = pendingCommands.get(commandId);
   if (!pending) throw new Error("待确认命令不存在或已处理。");
   pendingCommands.delete(commandId);
-  if (options.allowFuture) permissionMode = "full";
+  let permissionState = getAutoApprovalState(pending);
+  if (options.allowFuture) {
+    permissionState = setScopedAutoApproval({
+      ...pending,
+      kind: "command",
+      enabled: true
+    });
+  }
   const result = await executeCommand(pending.workspace, pending.command, pending.timeoutMs);
   return {
     ok: true,
@@ -614,8 +632,11 @@ export async function approvePendingCommand(commandId, options = {}) {
     command: pending.command,
     result,
     highRisk: Boolean(pending.highRisk),
-    autoApproveFutureCommands: permissionMode === "full",
-    permissionMode
+    autoApproveFutureCommands: permissionState.commandAutoApproval,
+    commandAutoApproval: permissionState.commandAutoApproval,
+    patchAutoApproval: permissionState.patchAutoApproval,
+    commandAutoApprovalExpiresAt: permissionState.commandAutoApprovalExpiresAt,
+    patchAutoApprovalExpiresAt: permissionState.patchAutoApprovalExpiresAt
   };
 }
 
@@ -624,9 +645,14 @@ export function discardPendingCommand(commandId) {
   return { ok: existed, commandId };
 }
 
-export function setCommandAutoApproval(enabled) {
-  permissionMode = enabled ? "full" : "default";
-  return { ok: true, autoApproveFutureCommands: permissionMode === "full", permissionMode };
+export function setCommandAutoApproval(payload) {
+  const context = normalizeApprovalPayload(payload, "command");
+  return setScopedAutoApproval(context);
+}
+
+export function setPatchAutoApproval(payload) {
+  const context = normalizeApprovalPayload(payload, "patch");
+  return setScopedAutoApproval(context);
 }
 
 async function applyPatchText(pending) {
@@ -905,3 +931,92 @@ async function runGitApply(workspace, args) {
     throw new Error(detail || "git apply failed");
   }
 }
+
+function normalizeToolContext(context) {
+  if (typeof context === "string") {
+    return { workspace: context, requestId: "", sessionId: "" };
+  }
+  return {
+    workspace: context?.workspace || process.cwd(),
+    requestId: String(context?.requestId || ""),
+    sessionId: String(context?.sessionId || "")
+  };
+}
+
+function normalizeApprovalPayload(payload, kind) {
+  if (typeof payload === "boolean") {
+    return { workspace: process.cwd(), requestId: "", sessionId: "", kind, enabled: payload };
+  }
+  return {
+    workspace: payload?.workspace || process.cwd(),
+    requestId: String(payload?.requestId || ""),
+    sessionId: String(payload?.sessionId || ""),
+    kind,
+    enabled: Boolean(payload?.enabled)
+  };
+}
+
+function permissionScopeKey(context) {
+  const workspace = path.resolve(context.workspace || process.cwd());
+  const session = String(context.sessionId || "workspace");
+  return `${workspace}::${session}`;
+}
+
+function getAutoApprovalState(context) {
+  const key = permissionScopeKey(context);
+  const now = Date.now();
+  const state = autoApprovalScopes.get(key) || {};
+  const commandAutoApproval = Number(state.commandExpiresAt || 0) > now;
+  const patchAutoApproval = Number(state.patchExpiresAt || 0) > now;
+  if (!commandAutoApproval && !patchAutoApproval && autoApprovalScopes.has(key)) {
+    autoApprovalScopes.delete(key);
+  }
+  return {
+    ok: true,
+    scope: {
+      workspace: path.resolve(context.workspace || process.cwd()),
+      sessionId: String(context.sessionId || "")
+    },
+    commandAutoApproval,
+    patchAutoApproval,
+    autoApproveFutureCommands: commandAutoApproval,
+    commandAutoApprovalExpiresAt: commandAutoApproval ? state.commandExpiresAt : null,
+    patchAutoApprovalExpiresAt: patchAutoApproval ? state.patchExpiresAt : null,
+    ttlMs: AUTO_APPROVAL_TTL_MS
+  };
+}
+
+function setScopedAutoApproval(context) {
+  const key = permissionScopeKey(context);
+  const now = Date.now();
+  const expiresAt = now + AUTO_APPROVAL_TTL_MS;
+  const current = autoApprovalScopes.get(key) || {};
+  const next = { ...current };
+  if (context.kind === "command") {
+    next.commandExpiresAt = context.enabled ? expiresAt : 0;
+  }
+  if (context.kind === "patch") {
+    next.patchExpiresAt = context.enabled ? expiresAt : 0;
+  }
+  autoApprovalScopes.set(key, next);
+  return getAutoApprovalState(context);
+}
+
+function isAutoApprovalEnabled(kind, context) {
+  const state = getAutoApprovalState(context);
+  return kind === "command" ? state.commandAutoApproval : state.patchAutoApproval;
+}
+
+export const __test__ = {
+  addPatchPath,
+  buildWholeFilePatch,
+  extractPatchPaths,
+  isAutoAllowedCommand,
+  isDangerousCommand,
+  normalizeWorkspacePath,
+  resolveInsideWorkspace,
+  validatePatchPaths,
+  permissionScopeKey,
+  setScopedAutoApproval,
+  getAutoApprovalState
+};

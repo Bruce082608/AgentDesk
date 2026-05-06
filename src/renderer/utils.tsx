@@ -198,6 +198,28 @@ export function estimatePendingInputTokens(messages: ChatMessage[], input: strin
   return hasPendingInput ? currentTokenCount : 0;
 }
 
+export function normalizeQuestionOptions(options: string[] | undefined, question: string, language: Language) {
+  const choices = Array.isArray(options)
+    ? options.map((option) => String(option || "").trim()).filter(Boolean)
+    : [];
+  const unique = [...new Set(choices)].slice(0, 6);
+  if (unique.length >= 2) return unique;
+  return language === "zh" || /[\u3400-\u9fff]/.test(question) ? ["是", "否"] : ["Yes", "No"];
+}
+
+export function formatQuestionMessage(question: string, context: string | undefined, options: string[]) {
+  return [
+    context ? `> ${context}` : "",
+    question,
+    "",
+    ...options.map((option, index) => `${index + 1}. ${option}`)
+  ].filter(Boolean).join("\n");
+}
+
+export function formatQuestionAnswer(question: string, option: string) {
+  return `针对你的问题「${question}」，我选择：${option}`;
+}
+
 /* ---- File tree helpers ---- */
 
 export function isTreeItemVisible(item: WorkspaceTreeItem, expandedDirs: Set<string>) {
@@ -230,8 +252,8 @@ export function trimActivityEvents<T extends { id: string }>(events: T[]): T[] {
   return events.length > 5000 ? events.slice(-5000) : events;
 }
 
-export function filterActivityEvents(
-  events: { id: string; title: string; body: string; kind: string }[],
+export function filterActivityEvents<T extends { id: string; title: string; body: string; kind: string }>(
+  events: T[],
   filter: "all" | "tool" | "error" | "approval" | "system",
   query: string
 ) {
