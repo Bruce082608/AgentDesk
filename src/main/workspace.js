@@ -7,6 +7,7 @@ const execFileAsync = promisify(execFile);
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".vite", "coverage"]);
 const MAX_TREE_FILES = 700;
 const MAX_READ_BYTES = 180_000;
+const RIPGREP_COMMAND = process.platform === "win32" ? "rg.exe" : "rg";
 
 export async function getWorkspaceTree(workspace) {
   const root = resolveInsideWorkspace(workspace, ".");
@@ -107,7 +108,7 @@ async function searchWithRg(workspace, needle, limit) {
   let stdout = "";
   try {
     ({ stdout } = await execFileAsync(
-      "rg",
+      RIPGREP_COMMAND,
       [
         "--line-number",
         "--no-heading",
@@ -125,7 +126,7 @@ async function searchWithRg(workspace, needle, limit) {
       }
     ));
   } catch (error) {
-    if (error?.code === 1) return { results: [], truncated: false, engine: "rg" };
+    if (error?.code === 1) return { results: [], truncated: false, engine: RIPGREP_COMMAND };
     throw error;
   }
 
@@ -137,7 +138,7 @@ async function searchWithRg(workspace, needle, limit) {
     results.push({ file: match[1].replaceAll("\\", "/"), line: Number(match[2]), text: match[3].slice(0, 240) });
   }
 
-  return { results, truncated: results.length >= limit, engine: "rg" };
+  return { results, truncated: results.length >= limit, engine: RIPGREP_COMMAND };
 }
 
 function draftCommitMessage(changedFiles) {

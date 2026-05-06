@@ -37,6 +37,7 @@ export type ProviderConfig = {
   provider: "deepseek" | "openai-compatible";
   baseUrl: string;
   model: string;
+  summaryModel: string;
   apiKey: string;
   temperature: number;
   maxTokens: number;
@@ -108,6 +109,7 @@ export type AgentEvent =
   | { requestId: string; type: "status"; message: string }
   | { requestId: string; type: "stream_delta"; text: string }
   | { requestId: string; type: "reasoning_delta"; text: string }
+  | { requestId: string; type: "tool_call_delta"; name?: string; text: string }
   | { requestId: string; type: "plan_update"; items: PlanItem[] }
   | { requestId: string; type: "model"; message: string; provider: string; model: string; finishReason?: string | null; reasoning?: string; usage?: unknown }
   | { requestId: string; type: "tool_start"; name: string; args: string }

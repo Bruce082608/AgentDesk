@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 const execFileAsync = promisify(execFile);
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".vite", "coverage"]);
 const MAX_FILE_BYTES = 120_000;
+const RIPGREP_COMMAND = process.platform === "win32" ? "rg.exe" : "rg";
 const pendingPatches = new Map();
 const pendingCommands = new Map();
 let permissionMode = "default";
@@ -178,8 +179,18 @@ export const toolDefinitions = [
 
 export async function executeToolCall(toolCall, workspace) {
   const name = toolCall.function?.name;
-  const args = parseToolArgs(toolCall.function?.arguments);
+  let args = {};
 
+  try {
+    args = parseToolArgs(toolCall.function?.arguments);
+    const result = await executeToolImplementation(name, args, workspace);
+    return formatToolSuccess(name, result);
+  } catch (error) {
+    return formatToolFailure(name, error, args);
+  }
+}
+
+async function executeToolImplementation(name, args, workspace) {
   switch (name) {
     case "list_files":
       return listFiles(workspace, args.directory || "", args.max_files || 120);
@@ -204,6 +215,83 @@ export async function executeToolCall(toolCall, workspace) {
     default:
       throw new Error(`未知工具：${name}`);
   }
+}
+
+function formatToolSuccess(name, result) {
+  const parsed = parseJsonResult(result);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    return JSON.stringify({ ok: parsed.ok !== false, tool: name, ...parsed }, null, 2);
+  }
+  return JSON.stringify({ ok: true, tool: name, result: String(result ?? "") }, null, 2);
+}
+
+function formatToolFailure(name, error, args) {
+  const classified = classifyToolError(error);
+  return JSON.stringify(
+    {
+      ok: false,
+      tool: name || "unknown",
+      error: classified.message,
+      errorType: classified.type,
+      detail: classified.detail,
+      recoverable: classified.recoverable,
+      args: sanitizeArgsForError(args)
+    },
+    null,
+    2
+  );
+}
+
+function parseJsonResult(result) {
+  if (result && typeof result === "object") return result;
+  if (typeof result !== "string") return null;
+  try {
+    return JSON.parse(result);
+  } catch {
+    return null;
+  }
+}
+
+function classifyToolError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = typeof error?.code === "string" ? error.code : "";
+  const detail = [error?.stderr, error?.stdout].filter(Boolean).join("\n").trim();
+  const lower = `${code} ${message} ${detail}`.toLowerCase();
+
+  if (code === "ENOENT" || /no such file|not found|不存在|找不到/.test(lower)) {
+    return { type: "file_not_found", message, detail, recoverable: true };
+  }
+  if (code === "EACCES" || code === "EPERM" || /permission denied|operation not permitted|权限/.test(lower)) {
+    return { type: "permission_denied", message, detail, recoverable: true };
+  }
+  if (/json|参数|argument|syntaxerror|unexpected token/.test(lower)) {
+    return { type: "invalid_arguments", message, detail, recoverable: true };
+  }
+  if (/路径越界|路径不安全|unsafe|outside workspace/.test(lower)) {
+    return { type: "path_security", message, detail, recoverable: true };
+  }
+  if (/timeout|timed out|超时/.test(lower)) {
+    return { type: "timeout", message, detail, recoverable: true };
+  }
+  if (/network|fetch|econn|enotfound|socket|搜索请求/.test(lower)) {
+    return { type: "network", message, detail, recoverable: true };
+  }
+  if (/command failed|git apply failed|exited|stderr/.test(lower) || typeof error?.code === "number") {
+    return { type: "command_failed", message, detail, recoverable: true };
+  }
+  return { type: "unknown", message, detail, recoverable: true };
+}
+
+function sanitizeArgsForError(args) {
+  if (!args || typeof args !== "object") return {};
+  const sanitized = { ...args };
+  if (typeof sanitized.content === "string" && sanitized.content.length > 500) {
+    sanitized.content = `${sanitized.content.slice(0, 500)}...`;
+  }
+  if (typeof sanitized.patch === "string" && sanitized.patch.length > 500) {
+    sanitized.patch = `${sanitized.patch.slice(0, 500)}...`;
+  }
+  return sanitized;
 }
 
 async function webSearch(query, maxResults) {
@@ -671,7 +759,7 @@ function isAutoAllowedCommand(command) {
     /^node\s+--check(\s|$)/,
     /^pwd$/,
     /^cat\s+/,
-    /^rg\s+/,
+    /^rg(\.exe)?\s+/,
     /^get-childitem(\s|$)/,
     /^dir(\s|$)/,
     /^ls(\s|$)/,
@@ -689,7 +777,7 @@ async function searchFilesWithRg(workspace, needle, maxResults) {
 
   try {
     ({ stdout } = await execFileAsync(
-      "rg",
+      RIPGREP_COMMAND,
       [
         "--line-number",
         "--no-heading",
@@ -708,7 +796,7 @@ async function searchFilesWithRg(workspace, needle, maxResults) {
     ));
   } catch (error) {
     if (error?.code === 1) {
-      return JSON.stringify({ results: [], truncated: false, engine: "rg" }, null, 2);
+      return JSON.stringify({ results: [], truncated: false, engine: RIPGREP_COMMAND }, null, 2);
     }
     throw error;
   }
@@ -724,7 +812,7 @@ async function searchFilesWithRg(workspace, needle, maxResults) {
     });
   }
 
-  return JSON.stringify({ results, truncated: results.length >= limit, engine: "rg" }, null, 2);
+  return JSON.stringify({ results, truncated: results.length >= limit, engine: RIPGREP_COMMAND }, null, 2);
 }
 
 function parseDuckDuckGoResults(html, limit) {

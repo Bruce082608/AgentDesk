@@ -60,6 +60,36 @@ export async function completeWithTools({ config, messages, tools, signal }) {
   };
 }
 
+export async function completeChat({ config, messages, maxTokens, signal }) {
+  const provider = normalizeProviderConfig(config);
+  if (!provider.apiKey) {
+    throw new Error(`缺少 API key。请在界面中填写，或设置 ${PROVIDERS[provider.provider]?.apiKeyEnv ?? "AGENT_API_KEY"}。`);
+  }
+
+  const response = await postChatCompletion(
+    provider,
+    {
+      messages,
+      max_tokens: Math.max(1, Math.floor(Number(maxTokens) || Math.min(provider.maxTokens, 2048))),
+      stream: false
+    },
+    120000,
+    signal
+  );
+
+  const choice = response?.choices?.[0];
+  if (!choice?.message) {
+    throw new Error("模型接口没有返回可用 message。");
+  }
+
+  return {
+    message: choice.message,
+    finishReason: choice.finish_reason ?? null,
+    usage: response.usage ?? null,
+    provider
+  };
+}
+
 export async function streamWithTools({ config, messages, tools, onDelta, signal }) {
   const provider = normalizeProviderConfig(config);
   if (!provider.apiKey) {
@@ -76,7 +106,7 @@ export async function streamWithTools({ config, messages, tools, onDelta, signal
       stream_options: { include_usage: true }
     },
     onDelta,
-    120000,
+    300000,
     signal
   );
 
@@ -84,6 +114,8 @@ export async function streamWithTools({ config, messages, tools, onDelta, signal
     message: response.message,
     finishReason: response.finishReason,
     usage: response.usage,
+    interrupted: Boolean(response.interrupted),
+    streamError: response.streamError || "",
     provider
   };
 }
@@ -201,8 +233,9 @@ async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000, si
 }
 
 async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeoutMs = 120000, signal) {
-  const { signal: requestSignal, cleanup, isExternallyAborted } = createRequestSignal(timeoutMs, signal);
+  const { signal: requestSignal, cleanup, isExternallyAborted, resetTimeout } = createRequestSignal(timeoutMs, signal);
   const body = buildRequestBody(provider, bodyOverrides);
+  const partial = createEmptyStreamResult();
 
   try {
     const response = await fetchWithRetry(`${provider.baseUrl}/chat/completions`, {
@@ -231,65 +264,29 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
     if (!reader) throw new Error("模型接口没有返回可读取的流。");
 
     const decoder = new TextDecoder();
-    let buffer = "";
-    let content = "";
-    let reasoningContent = "";
-    let finishReason = null;
-    let usage = null;
-    const toolCalls = [];
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      resetTimeout();
+      partial.buffer += decoder.decode(value, { stream: true });
 
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() ?? "";
+      const lines = partial.buffer.split(/\r?\n/);
+      partial.buffer = lines.pop() ?? "";
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const payload = trimmed.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
-
-        let data;
-        try {
-          data = JSON.parse(payload);
-        } catch {
-          continue;
-        }
-
-        if (data.usage) usage = data.usage;
-        const choice = data.choices?.[0];
-        if (!choice) continue;
-        if (choice.finish_reason) finishReason = choice.finish_reason;
-
-        const delta = choice.delta ?? {};
-        if (delta.content) {
-          content += delta.content;
-          onDelta?.({ type: "content", text: delta.content });
-        }
-        if (delta.reasoning_content) {
-          reasoningContent += delta.reasoning_content;
-          onDelta?.({ type: "reasoning", text: delta.reasoning_content });
-        }
-        if (delta.tool_calls) {
-          mergeToolCallDeltas(toolCalls, delta.tool_calls);
-        }
+        consumeStreamLine(line, partial, onDelta);
       }
     }
 
-    return {
-      message: {
-        role: "assistant",
-        content,
-        reasoning_content: reasoningContent || undefined,
-        tool_calls: toolCalls.length > 0 ? toolCalls : undefined
-      },
-      finishReason,
-      usage
-    };
+    return buildStreamResponse(partial);
   } catch (error) {
+    if (hasPartialStreamContent(partial) && !isExternallyAborted()) {
+      return buildStreamResponse(partial, {
+        interrupted: true,
+        streamError: error instanceof Error ? error.message : String(error)
+      });
+    }
     if (error?.name === "AbortError") {
       if (isExternallyAborted()) throw new Error("请求已取消。");
       throw new Error(`模型接口请求超时（${Math.round(timeoutMs / 1000)} 秒）。请检查 API key、余额、网络或 Base URL。`);
@@ -300,10 +297,87 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
   }
 }
 
+function createEmptyStreamResult() {
+  return {
+    buffer: "",
+    content: "",
+    reasoningContent: "",
+    finishReason: null,
+    usage: null,
+    toolCalls: []
+  };
+}
+
+function consumeStreamLine(line, partial, onDelta) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("data:")) return;
+  const payload = trimmed.slice(5).trim();
+  if (!payload || payload === "[DONE]") return;
+
+  let data;
+  try {
+    data = JSON.parse(payload);
+  } catch {
+    return;
+  }
+
+  if (data.usage) partial.usage = data.usage;
+  const choice = data.choices?.[0];
+  if (!choice) return;
+  if (choice.finish_reason) partial.finishReason = choice.finish_reason;
+
+  const delta = choice.delta ?? {};
+  if (delta.content) {
+    partial.content += delta.content;
+    onDelta?.({ type: "content", text: delta.content });
+  }
+  if (delta.reasoning_content) {
+    partial.reasoningContent += delta.reasoning_content;
+    onDelta?.({ type: "reasoning", text: delta.reasoning_content });
+  }
+  if (delta.tool_calls) {
+    for (const toolDelta of delta.tool_calls) {
+      if (toolDelta.function?.arguments) {
+        onDelta?.({
+          type: "tool_call_delta",
+          name: toolDelta.function?.name || "",
+          text: toolDelta.function.arguments
+        });
+      }
+    }
+    mergeToolCallDeltas(partial.toolCalls, delta.tool_calls);
+  }
+}
+
+function buildStreamResponse(partial, options = {}) {
+  const interrupted = Boolean(options.interrupted);
+  return {
+    message: {
+      role: "assistant",
+      content: partial.content,
+      reasoning_content: partial.reasoningContent || undefined,
+      tool_calls: !interrupted && partial.toolCalls.length > 0 ? partial.toolCalls : undefined
+    },
+    finishReason: interrupted ? "stream_interrupted" : partial.finishReason,
+    usage: partial.usage,
+    interrupted,
+    streamError: options.streamError || ""
+  };
+}
+
+function hasPartialStreamContent(partial) {
+  return Boolean(
+    partial.content ||
+    partial.reasoningContent ||
+    partial.toolCalls.length > 0 ||
+    partial.buffer.trim()
+  );
+}
+
 function createRequestSignal(timeoutMs, externalSignal) {
   const controller = new AbortController();
   let timedOut = false;
-  const timeout = setTimeout(() => {
+  let timeout = setTimeout(() => {
     timedOut = true;
     controller.abort();
   }, timeoutMs);
@@ -318,6 +392,13 @@ function createRequestSignal(timeoutMs, externalSignal) {
   return {
     signal: controller.signal,
     isExternallyAborted: () => !timedOut && Boolean(externalSignal?.aborted),
+    resetTimeout: () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+    },
     cleanup: () => {
       clearTimeout(timeout);
       externalSignal?.removeEventListener("abort", abortFromExternal);

@@ -1,5 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import ReactMarkdown, { type Components } from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
+import remarkGfm from "remark-gfm";
 import hljs from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
 import css from "highlight.js/lib/languages/css";
@@ -12,7 +15,7 @@ import python from "highlight.js/lib/languages/python";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
-import "highlight.js/styles/github-dark.css";
+import "highlight.js/styles/github.css";
 import type { AgentEvent, AttachedFile, ChatMessage, GitSummary, PermissionMode, PlanItem, ProviderBalanceResult, ProviderConfig, WorkspaceTreeItem } from "./global";
 import "./styles.css";
 
@@ -63,6 +66,11 @@ type UserQuestionItem = {
   status: "pending" | "dismissed";
 };
 
+type ToolDraft = {
+  name: string;
+  text: string;
+};
+
 type SearchMatch = {
   file: string;
   line: number;
@@ -81,11 +89,14 @@ type ChatSession = {
   title: string;
   workspace: string;
   messages: ChatMessage[];
+  tokenUsage: TokenUsageStats;
   createdAt: number;
   updatedAt: number;
 };
 
 type SidebarSection = "files" | "advanced";
+type RightSidebarSection = "plan" | "activity";
+type ActivityFilter = "all" | "tool" | "error" | "approval" | "system";
 type ThemeMode = "light" | "dark";
 type Language = "zh" | "en";
 type ReasoningView = "preview" | "full" | "collapsed";
@@ -97,6 +108,7 @@ const LEFT_SIDEBAR_WIDTH_KEY = "agent-left-sidebar-width";
 const RIGHT_SIDEBAR_WIDTH_KEY = "agent-right-sidebar-width";
 const COMPOSER_HEIGHT_KEY = "agent-composer-height";
 const MAX_SAVED_SESSIONS = 30;
+const MAX_ACTIVITY_EVENTS = 5000;
 const MIN_LEFT_SIDEBAR_WIDTH = 220;
 const MAX_LEFT_SIDEBAR_WIDTH = 480;
 const MIN_RIGHT_SIDEBAR_WIDTH = 260;
@@ -105,6 +117,13 @@ const MIN_CONVERSATION_WIDTH = 440;
 const RESIZE_HANDLE_WIDTH = 7;
 const MIN_COMPOSER_HEIGHT = 72;
 const MAX_COMPOSER_HEIGHT = 260;
+
+const emptyTokenUsage = (): TokenUsageStats => ({
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  requests: 0
+});
 
 const translations = {
   zh: {
@@ -144,6 +163,8 @@ const translations = {
     provider: "Provider",
     baseUrl: "Base URL",
     model: "Model",
+    summaryModel: "摘要模型",
+    summaryModelPlaceholder: "默认 deepseek-v4-flash；留空则使用主模型",
     apiKey: "API Key",
     apiKeyPlaceholder: "可留空使用环境变量",
     testing: "检测中...",
@@ -179,10 +200,19 @@ const translations = {
     you: "You",
     agent: "Agent",
     thinking: "Agent 正在处理...",
+    writingCode: "Agent 正在写代码",
     composerPlaceholder: "让 agent 检查、修改或运行这个 workspace...",
     uploadFiles: "上传文件",
     send: "发送",
+    plan: "Plan",
     activity: "Activity",
+    activityFilterAll: "全部",
+    activityFilterTool: "工具调用",
+    activityFilterError: "错误",
+    activityFilterApproval: "审批",
+    activityFilterSystem: "系统",
+    activitySearchPlaceholder: "搜索 Activity",
+    planEmpty: "Agent 的计划会显示在这里。",
     needsApproval: "Needs Approval",
     pendingChanges: "Pending Changes",
     commandApprovals: "Command Approvals",
@@ -252,6 +282,8 @@ const translations = {
     provider: "Provider",
     baseUrl: "Base URL",
     model: "Model",
+    summaryModel: "Summary model",
+    summaryModelPlaceholder: "Default deepseek-v4-flash; leave empty to use primary model",
     apiKey: "API Key",
     apiKeyPlaceholder: "Leave empty to use env vars",
     testing: "Testing...",
@@ -287,10 +319,19 @@ const translations = {
     you: "You",
     agent: "Agent",
     thinking: "Agent is working...",
+    writingCode: "Agent is writing code",
     composerPlaceholder: "Ask the agent to inspect, modify, or run this workspace...",
     uploadFiles: "Upload",
     send: "Send",
+    plan: "Plan",
     activity: "Activity",
+    activityFilterAll: "All",
+    activityFilterTool: "Tools",
+    activityFilterError: "Errors",
+    activityFilterApproval: "Approvals",
+    activityFilterSystem: "System",
+    activitySearchPlaceholder: "Search Activity",
+    planEmpty: "Agent plans appear here.",
     needsApproval: "Needs Approval",
     pendingChanges: "Pending Changes",
     commandApprovals: "Command Approvals",
@@ -329,6 +370,7 @@ const defaultConfig: ProviderConfig = {
   provider: "deepseek",
   baseUrl: "https://api.deepseek.com",
   model: "deepseek-v4-pro",
+  summaryModel: "deepseek-v4-flash",
   apiKey: "",
   temperature: 0.2,
   maxTokens: 32768,
@@ -345,8 +387,19 @@ function createBlankSession(workspace = ""): ChatSession {
     title: translations.zh.newChatTitle,
     workspace,
     messages: [],
+    tokenUsage: emptyTokenUsage(),
     createdAt: now,
     updatedAt: now
+  };
+}
+
+function normalizeTokenUsage(value: unknown): TokenUsageStats {
+  const data = value && typeof value === "object" ? value as Partial<TokenUsageStats> : {};
+  return {
+    promptTokens: Number(data.promptTokens) || 0,
+    completionTokens: Number(data.completionTokens) || 0,
+    totalTokens: Number(data.totalTokens) || 0,
+    requests: Number(data.requests) || 0
   };
 }
 
@@ -368,6 +421,7 @@ function loadChatSessions(): ChatSession[] {
                 reasoning: typeof message.reasoning === "string" ? message.reasoning : undefined
               }))
           : [],
+        tokenUsage: normalizeTokenUsage(session.tokenUsage),
         createdAt: Number(session.createdAt) || Date.now(),
         updatedAt: Number(session.updatedAt) || Date.now()
       }))
@@ -404,136 +458,37 @@ function readStoredNumber(key: string, fallback: number, min: number, max: numbe
 }
 
 function MarkdownContent({ content, copyLabel = translations.zh.copy, copiedLabel = translations.zh.copied }: { content: string; copyLabel?: string; copiedLabel?: string }) {
-  const blocks: React.ReactNode[] = [];
-  const lines = String(content ?? "").split(/\r?\n/);
-  let paragraph: string[] = [];
-  let listItems: string[] = [];
-  let listType: "ul" | "ol" | null = null;
-  let codeLines: string[] = [];
-  let codeLanguage = "";
-  let inCode = false;
-
-  const flushParagraph = () => {
-    if (paragraph.length === 0) return;
-    blocks.push(<p key={`p-${blocks.length}`}>{renderInline(paragraph.join("\n"))}</p>);
-    paragraph = [];
-  };
-
-  const flushList = () => {
-    if (!listType || listItems.length === 0) return;
-    const children = listItems.map((item, index) => <li key={index}>{renderInline(item)}</li>);
-    blocks.push(listType === "ol" ? <ol key={`ol-${blocks.length}`}>{children}</ol> : <ul key={`ul-${blocks.length}`}>{children}</ul>);
-    listItems = [];
-    listType = null;
-  };
-
-  const flushCode = () => {
-    blocks.push(
-      <CodeBlock code={codeLines.join("\n")} language={codeLanguage} copyLabel={copyLabel} copiedLabel={copiedLabel} key={`code-${blocks.length}`} />
-    );
-    codeLines = [];
-    codeLanguage = "";
-  };
-
-  for (const line of lines) {
-    const fence = line.match(/^```([\w.-]*)\s*$/);
-    if (fence) {
-      if (inCode) {
-        flushCode();
-        inCode = false;
-      } else {
-        flushParagraph();
-        flushList();
-        inCode = true;
-        codeLanguage = fence[1] || "";
+  const components = useMemo<Components>(() => ({
+    a({ href, children }) {
+      const safe = href ? safeHref(href) : "";
+      return safe ? <a href={safe} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>;
+    },
+    pre({ children }) {
+      const child = React.Children.toArray(children)[0];
+      if (React.isValidElement(child)) {
+        const props = child.props as { className?: string; children?: React.ReactNode };
+        const language = languageFromClassName(props.className || "");
+        const code = extractReactText(props.children).replace(/\n$/, "");
+        return <CodeBlock code={code} language={language} copyLabel={copyLabel} copiedLabel={copiedLabel} />;
       }
-      continue;
+      return <pre>{children}</pre>;
+    },
+    code({ className, children }) {
+      return <code className={className}>{children}</code>;
     }
+  }), [copiedLabel, copyLabel]);
 
-    if (inCode) {
-      codeLines.push(line);
-      continue;
-    }
-
-    if (!line.trim()) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,6})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      flushList();
-      const level = Math.min(heading[1].length, 4);
-      const content = renderInline(heading[2]);
-      if (level === 1) blocks.push(<h1 key={`h-${blocks.length}`}>{content}</h1>);
-      else if (level === 2) blocks.push(<h2 key={`h-${blocks.length}`}>{content}</h2>);
-      else if (level === 3) blocks.push(<h3 key={`h-${blocks.length}`}>{content}</h3>);
-      else blocks.push(<h4 key={`h-${blocks.length}`}>{content}</h4>);
-      continue;
-    }
-
-    if (/^\s*---+\s*$/.test(line)) {
-      flushParagraph();
-      flushList();
-      blocks.push(<hr key={`hr-${blocks.length}`} />);
-      continue;
-    }
-
-    const quote = line.match(/^>\s?(.+)$/);
-    if (quote) {
-      flushParagraph();
-      flushList();
-      blocks.push(<blockquote key={`quote-${blocks.length}`}>{renderInline(quote[1])}</blockquote>);
-      continue;
-    }
-
-    const list = line.match(/^\s*(?:([-*+])|(\d+)\.)\s+(.+)$/);
-    if (list) {
-      flushParagraph();
-      const nextType = list[2] ? "ol" : "ul";
-      if (listType && listType !== nextType) flushList();
-      listType = nextType;
-      listItems.push(list[3]);
-      continue;
-    }
-
-    flushList();
-    paragraph.push(line);
-  }
-
-  if (inCode) flushCode();
-  flushParagraph();
-  flushList();
-
-  return <div className="markdown-content">{blocks.length > 0 ? blocks : <p />}</div>;
-}
-
-function renderInline(text: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  const pattern = /(\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text))) {
-    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
-    const key = nodes.length;
-    if (match[2] && match[3]) {
-      const href = safeHref(match[3]);
-      nodes.push(href ? <a key={key} href={href} target="_blank" rel="noreferrer">{match[2]}</a> : match[2]);
-    } else if (match[4]) {
-      nodes.push(<code key={key}>{match[4]}</code>);
-    } else if (match[5]) {
-      nodes.push(<strong key={key}>{match[5]}</strong>);
-    } else if (match[6]) {
-      nodes.push(<em key={key}>{match[6]}</em>);
-    }
-    lastIndex = pattern.lastIndex;
-  }
-
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
-  return nodes;
+  return (
+    <div className="markdown-content">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={components}
+      >
+        {String(content ?? "")}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function safeHref(value: string) {
@@ -543,6 +498,22 @@ function safeHref(value: string) {
   } catch {
     return "";
   }
+}
+
+function languageFromClassName(className: string) {
+  const match = className.match(/(?:^|\s)language-([^\s]+)/);
+  return match?.[1] || "";
+}
+
+function extractReactText(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractReactText).join("");
+  if (React.isValidElement(node)) {
+    const props = node.props as { children?: React.ReactNode };
+    return extractReactText(props.children);
+  }
+  return "";
 }
 
 function isTreeItemVisible(item: WorkspaceTreeItem, expandedDirs: Set<string>) {
@@ -567,6 +538,50 @@ function getInitialExpandedDirs(items: WorkspaceTreeItem[]) {
 function hasTreeChildren(items: WorkspaceTreeItem[], directoryPath: string) {
   const prefix = `${directoryPath}/`;
   return items.some((item) => item.path.startsWith(prefix));
+}
+
+function estimatePendingInputTokens(messages: ChatMessage[], input: string, attachments: AttachedFile[], currentTokenCount: number) {
+  const hasPendingInput = Boolean(input.trim() || attachments.length > 0 || messages.length === 0);
+  return hasPendingInput ? currentTokenCount : 0;
+}
+
+function formatToolDraftText(value: string) {
+  const raw = String(value || "");
+  if (!raw.trim()) return "";
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.patch === "string") return parsed.patch;
+    if (typeof parsed.content === "string") return parsed.content;
+    if (typeof parsed.command === "string") return parsed.command;
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return raw
+      .replace(/\\r\\n|\\n/g, "\n")
+      .replace(/\\t/g, "\t")
+      .replace(/\\"/g, "\"")
+      .replace(/\\\\/g, "\\");
+  }
+}
+
+function trimActivityEvents(events: EventLogItem[]) {
+  return events.length > MAX_ACTIVITY_EVENTS ? events.slice(-MAX_ACTIVITY_EVENTS) : events;
+}
+
+function filterActivityEvents(events: EventLogItem[], filter: ActivityFilter, query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  return events.filter((event) => {
+    if (!matchesActivityFilter(event, filter)) return false;
+    if (!normalizedQuery) return true;
+    return `${event.title}\n${event.body}\n${event.kind}`.toLowerCase().includes(normalizedQuery);
+  });
+}
+
+function matchesActivityFilter(event: EventLogItem, filter: ActivityFilter) {
+  if (filter === "all") return true;
+  if (filter === "tool") return event.kind === "tool";
+  if (filter === "error") return event.kind === "error";
+  if (filter === "approval") return event.kind === "patch";
+  return event.kind === "status" || event.kind === "model";
 }
 
 function CodeBlock({ code, language, copyLabel, copiedLabel }: { code: string; language: string; copyLabel: string; copiedLabel: string }) {
@@ -661,9 +676,13 @@ function App() {
   const [renamingTitle, setRenamingTitle] = useState("");
   const [reasoningViews, setReasoningViews] = useState<Record<string, ReasoningView>>({});
   const [events, setEvents] = useState<EventLogItem[]>([]);
+  const [rightSidebarSection, setRightSidebarSection] = useState<RightSidebarSection>("plan");
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all");
+  const [activitySearch, setActivitySearch] = useState("");
   const [patches, setPatches] = useState<PatchItem[]>([]);
   const [commands, setCommands] = useState<CommandItem[]>([]);
   const [questions, setQuestions] = useState<UserQuestionItem[]>([]);
+  const [toolDraft, setToolDraft] = useState<ToolDraft | null>(null);
   const [tree, setTree] = useState<WorkspaceTreeItem[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set());
   const [fileSearch, setFileSearch] = useState("");
@@ -678,12 +697,7 @@ function App() {
   const [testingApi, setTestingApi] = useState(false);
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [balanceResult, setBalanceResult] = useState<ProviderBalanceResult | null>(null);
-  const [tokenUsage, setTokenUsage] = useState<TokenUsageStats>({
-    promptTokens: 0,
-    completionTokens: 0,
-    totalTokens: 0,
-    requests: 0
-  });
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageStats>(() => emptyTokenUsage());
   const [commandAutoApproval, setCommandAutoApproval] = useState(false);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>("default");
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
@@ -694,6 +708,7 @@ function App() {
   const streamingMessageActive = useRef(false);
   const reasoningMessageActive = useRef(false);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const activityListRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const followOutputRef = useRef(true);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -755,6 +770,7 @@ function App() {
     setSessions(nextSessions);
     setActiveSessionId(initialSession.id);
     setMessages(initialSession.messages);
+    setTokenUsage(initialSession.tokenUsage);
     if (initialSession.workspace) {
       setWorkspace(initialSession.workspace);
       refreshWorkspace(initialSession.workspace);
@@ -797,6 +813,7 @@ function App() {
             title: deriveSessionTitle(messages, session.title),
             workspace,
             messages,
+            tokenUsage,
             updatedAt: Date.now()
           };
         })
@@ -805,7 +822,7 @@ function App() {
       saveChatSessions(next);
       return next;
     });
-  }, [activeSessionId, messages, sessionsLoaded, workspace]);
+  }, [activeSessionId, messages, sessionsLoaded, tokenUsage, workspace]);
 
 
   useEffect(() => {
@@ -822,12 +839,24 @@ function App() {
     list.scrollTop = list.scrollHeight;
   }, [messages, events, patches, commands, questions, busy]);
 
+  useEffect(() => {
+    if (rightSidebarSection !== "activity") return;
+    const list = activityListRef.current;
+    if (!list) return;
+    list.scrollTop = list.scrollHeight;
+  }, [events, activityFilter, activitySearch, rightSidebarSection]);
+
   const providerHint = useMemo(() => {
     if (config.provider === "deepseek") return t.providerHintDeepSeek;
     return t.providerHintCompatible;
   }, [config.provider, t]);
 
-  const contextPercent = Math.min(100, Math.round((contextTokenCount / Math.max(config.contextTokens, 1)) * 100));
+  const liveInputTokenEstimate = useMemo(
+    () => estimatePendingInputTokens(messages, input, attachedFiles, contextTokenCount),
+    [messages, input, attachedFiles, contextTokenCount]
+  );
+  const sessionContextTokenCount = tokenUsage.totalTokens + liveInputTokenEstimate;
+  const contextPercent = Math.min(100, Math.round((sessionContextTokenCount / Math.max(config.contextTokens, 1)) * 100));
   const contextUsageLabel = `${contextPercent}%`;
 
   const visibleTree = useMemo(
@@ -850,6 +879,11 @@ function App() {
     [questions]
   );
 
+  const filteredEvents = useMemo(
+    () => filterActivityEvents(events, activityFilter, activitySearch),
+    [events, activityFilter, activitySearch]
+  );
+
   function handleAgentEvent(event: AgentEvent) {
     if (event.type === "done") {
       setPlanItems((current) => current.map((item) => item.status === "in_progress" ? { ...item, status: "completed" } : item));
@@ -857,6 +891,7 @@ function App() {
       activeRequest.current = null;
       streamingMessageActive.current = false;
       reasoningMessageActive.current = false;
+      setToolDraft(null);
       return;
     }
 
@@ -887,6 +922,14 @@ function App() {
       return;
     }
 
+    if (event.type === "tool_call_delta") {
+      setToolDraft((current) => ({
+        name: event.name || current?.name || "tool_call",
+        text: `${current?.text || ""}${event.text}`
+      }));
+      return;
+    }
+
     if (event.type === "plan_update") {
       setPlanItems(event.items);
       return;
@@ -911,22 +954,18 @@ function App() {
       streamingMessageActive.current = false;
       reasoningMessageActive.current = false;
       recordTokenUsage(event.usage);
-      setEvents((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          title: `${event.provider} / ${event.model}${event.finishReason ? ` / ${event.finishReason}` : ""}`,
-          body: JSON.stringify(
-            {
-              usage: event.usage ?? null,
-              reasoning_preview: event.reasoning ? event.reasoning.slice(0, 1200) : ""
-            },
-            null,
-            2
-          ),
-          kind: "model"
-        }
-      ]);
+      appendEvent(
+        "model",
+        `${event.provider} / ${event.model}${event.finishReason ? ` / ${event.finishReason}` : ""}`,
+        JSON.stringify(
+          {
+            usage: event.usage ?? null,
+            reasoning_preview: event.reasoning ? event.reasoning.slice(0, 1200) : ""
+          },
+          null,
+          2
+        )
+      );
       return;
     }
 
@@ -976,7 +1015,7 @@ function App() {
         { id: event.commandId, command: event.command, reason: event.reason, highRisk: Boolean(event.highRisk), status: "pending" },
         ...current
       ]);
-      appendEvent("tool", "命令等待确认", event.command);
+      appendEvent("patch", "命令等待确认", event.command);
       return;
     }
 
@@ -985,7 +1024,7 @@ function App() {
         { id: crypto.randomUUID(), question: event.question, context: event.context, status: "pending" },
         ...current
       ]);
-      appendEvent("tool", "Agent 请求用户输入", event.question);
+      appendEvent("patch", "Agent 请求用户输入", event.question);
       return;
     }
 
@@ -996,6 +1035,7 @@ function App() {
       activeRequest.current = null;
       streamingMessageActive.current = false;
       reasoningMessageActive.current = false;
+      setToolDraft(null);
     }
 
     if (event.type === "cancelled") {
@@ -1005,11 +1045,12 @@ function App() {
       activeRequest.current = null;
       streamingMessageActive.current = false;
       reasoningMessageActive.current = false;
+      setToolDraft(null);
     }
   }
 
   function appendEvent(kind: EventLogItem["kind"], title: string, body: string) {
-    setEvents((current) => [...current, { id: crypto.randomUUID(), title, body, kind }]);
+    setEvents((current) => trimActivityEvents([...current, { id: crypto.randomUUID(), title, body, kind }]));
   }
 
   function updateOutputFollowState() {
@@ -1060,8 +1101,32 @@ function App() {
     setSearchResults([]);
     setFileSearch("");
     setReasoningViews({});
+    setToolDraft(null);
     streamingMessageActive.current = false;
     reasoningMessageActive.current = false;
+  }
+
+  function resetSessionTokenUsage() {
+    setTokenUsage(emptyTokenUsage());
+  }
+
+  function persistActiveSession(updates: Partial<ChatSession>) {
+    if (!activeSessionId) return;
+    setSessions((current) => {
+      const next = current.map((session) => {
+        if (session.id !== activeSessionId) return session;
+        return {
+          ...session,
+          ...updates,
+          messages: updates.messages ?? messages,
+          tokenUsage: updates.tokenUsage ?? tokenUsage,
+          workspace: updates.workspace ?? workspace,
+          updatedAt: Date.now()
+        };
+      });
+      saveChatSessions(next);
+      return next;
+    });
   }
 
   function startNewSession() {
@@ -1074,15 +1139,18 @@ function App() {
     });
     setActiveSessionId(session.id);
     setMessages([]);
+    resetSessionTokenUsage();
     resetTransientState();
   }
 
   async function selectSession(sessionId: string) {
     if (busy || sessionId === activeSessionId) return;
+    persistActiveSession({ workspace, messages, tokenUsage });
     const session = sessions.find((item) => item.id === sessionId);
     if (!session) return;
     setActiveSessionId(session.id);
     setMessages(session.messages);
+    setTokenUsage(session.tokenUsage);
     setWorkspace(session.workspace);
     resetTransientState();
     if (session.workspace) {
@@ -1130,6 +1198,7 @@ function App() {
       if (sessionId === activeSessionId) {
         setActiveSessionId(fallback.id);
         setMessages(fallback.messages);
+        setTokenUsage(fallback.tokenUsage);
         setWorkspace(fallback.workspace);
         resetTransientState();
         if (fallback.workspace) {
@@ -1147,6 +1216,7 @@ function App() {
   function clearCurrentSession() {
     if (busy) return;
     setMessages([]);
+    resetSessionTokenUsage();
     resetTransientState();
   }
 
@@ -1154,6 +1224,7 @@ function App() {
     const selected = await window.agentWindow.chooseWorkspace();
     if (selected) {
       setWorkspace(selected);
+      persistActiveSession({ workspace: selected, messages, tokenUsage });
       setAttachedFiles([]);
       setPreviewFile(null);
       setSearchResults([]);
@@ -1279,6 +1350,7 @@ function App() {
     activeRequest.current = requestId;
     streamingMessageActive.current = false;
     reasoningMessageActive.current = false;
+    setToolDraft(null);
     followOutputRef.current = true;
     setBusy(true);
     if (clearInput) setInput("");
@@ -1467,8 +1539,8 @@ function App() {
   function updateProvider(provider: ProviderConfig["provider"]) {
     const nextDefaults =
       provider === "deepseek"
-        ? { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro", thinkingMode: "enabled" as const, reasoningEffort: "max" as const, contextTokens: 1000000, maxTokens: 32768 }
-        : { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", thinkingMode: "disabled" as const, reasoningEffort: "medium" as const, contextTokens: 128000, maxTokens: 4096 };
+        ? { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro", summaryModel: "deepseek-v4-flash", thinkingMode: "enabled" as const, reasoningEffort: "max" as const, contextTokens: 1000000, maxTokens: 32768 }
+        : { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", summaryModel: "", thinkingMode: "disabled" as const, reasoningEffort: "medium" as const, contextTokens: 128000, maxTokens: 4096 };
     setConfig((current) => ({ ...current, provider, ...nextDefaults }));
   }
 
@@ -1680,6 +1752,14 @@ function App() {
                 <input value={config.model} onChange={(event) => setConfig({ ...config, model: event.target.value })} />
               </label>
               <label>
+                {t.summaryModel}
+                <input
+                  value={config.summaryModel}
+                  placeholder={t.summaryModelPlaceholder}
+                  onChange={(event) => setConfig({ ...config, summaryModel: event.target.value })}
+                />
+              </label>
+              <label>
                 {t.apiKey}
                 <input
                   type="password"
@@ -1821,35 +1901,18 @@ function App() {
               </select>
             </label>
             {busy && <button className="secondary danger" onClick={cancelActiveRequest}>{t.stop}</button>}
-            <button className="secondary" onClick={clearCurrentSession} disabled={busy}>{t.clear}</button>
           </div>
         </header>
 
-        {(attachedFiles.length > 0 || previewFile || planItems.length > 0) && (
+        {previewFile && (
           <section className="context-strip">
-            {planItems.length > 0 && (
-              <div className="plan-view">
-                {planItems.map((item, index) => (
-                  <span className={`plan-chip ${item.status}`} key={`${item.step}-${index}`}>{item.step}</span>
-                ))}
-              </div>
-            )}
-            {attachedFiles.length > 0 && (
-              <div className="attachments">
-                {attachedFiles.map((file) => (
-                  <button key={file.path} onClick={() => detachFile(file.path)} title={t.removeContextTitle}>{file.path} ×</button>
-                ))}
-              </div>
-            )}
-            {previewFile && (
-              <details className="file-preview">
-                <summary>
-                  <span>{previewFile.path}</span>
-                  <button onClick={(event) => { event.preventDefault(); attachFile(previewFile.path); }}>{t.addContext}</button>
-                </summary>
-                <pre>{previewFile.content}</pre>
-              </details>
-            )}
+            <details className="file-preview">
+              <summary>
+                <span>{previewFile.path}</span>
+                <button onClick={(event) => { event.preventDefault(); attachFile(previewFile.path); }}>{t.addContext}</button>
+              </summary>
+              <pre>{previewFile.content}</pre>
+            </details>
           </section>
         )}
 
@@ -1882,8 +1945,10 @@ function App() {
                           type="button"
                           className="reasoning-title"
                           onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "preview" : "collapsed")}
+                          title={t.reasoning}
+                          aria-label={t.reasoning}
                         >
-                          {t.reasoning}
+                          💡
                         </button>
                         <div className="reasoning-actions">
                           {reasoningView === "full" ? (
@@ -1909,6 +1974,18 @@ function App() {
               </article>
             );
           })}
+          {toolDraft && busy && (
+            <article className="message assistant tool-draft-message">
+              <div className="message-meta">
+                <div className="role">{t.writingCode}{toolDraft.name ? ` · ${toolDraft.name}` : ""}</div>
+              </div>
+              <div className="message-body">
+                <div className="markdown-content">
+                  <CodeBlock code={formatToolDraftText(toolDraft.text)} language="json" copyLabel={t.copy} copiedLabel={t.copied} />
+                </div>
+              </div>
+            </article>
+          )}
           {(activePatches.length > 0 || activeCommands.length > 0 || activeQuestions.length > 0) && (
             <section className="conversation-approvals" aria-live="polite">
               <div className="role">{t.needsApproval}</div>
@@ -1987,13 +2064,24 @@ function App() {
             onPointerDown={startComposerResize}
           />
           <div className="composer-surface">
+            {attachedFiles.length > 0 && (
+              <div className="composer-attachments">
+                {attachedFiles.map((file) => (
+                  <button key={file.path} type="button" onClick={() => detachFile(file.path)} title={t.removeContextTitle}>{file.path} ×</button>
+                ))}
+              </div>
+            )}
             <textarea
               ref={composerInputRef}
               value={input}
               placeholder={t.composerPlaceholder}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) send();
+                if (event.nativeEvent.isComposing) return;
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  send();
+                }
               }}
             />
             <div className="composer-controls">
@@ -2006,7 +2094,7 @@ function App() {
               </label>
               <div className="composer-actions">
                 {!isOnline && <span className="offline-pill">{t.offlineTitle}</span>}
-                <span className={`context-meter ${contextPercent >= 90 ? "danger" : contextPercent >= 70 ? "warn" : ""}`} title={`${t.contextUsage}: ${contextTokenCount.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} / ${config.contextTokens.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} tokens`}>
+                <span className={`context-meter ${contextPercent >= 90 ? "danger" : contextPercent >= 70 ? "warn" : ""}`} title={`${t.contextUsage}: ${sessionContextTokenCount.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} / ${config.contextTokens.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} tokens`}>
                   {contextUsageLabel}
                 </span>
                 <button className="composer-icon" type="button" disabled={busy} onClick={uploadAttachmentFiles} title={t.uploadFiles} aria-label={t.uploadFiles}>+</button>
@@ -2027,16 +2115,65 @@ function App() {
       />
 
       <aside className="activity">
-        <div className="activity-header">{t.activity}</div>
-        <div className="event-list">
-          {events.length === 0 && <div className="muted">{t.activityEmpty}</div>}
-          {events.map((event) => (
-            <details className={`event ${event.kind}`} key={event.id} open={event.kind === "error"}>
-              <summary>{event.title}</summary>
-              <pre>{event.body}</pre>
-            </details>
-          ))}
-        </div>
+        <nav className="right-tabs" aria-label={language === "zh" ? "右侧栏页面" : "Right sidebar sections"}>
+          <button className={rightSidebarSection === "plan" ? "active" : ""} onClick={() => setRightSidebarSection("plan")}>{t.plan}</button>
+          <button className={rightSidebarSection === "activity" ? "active" : ""} onClick={() => setRightSidebarSection("activity")}>{t.activity}</button>
+        </nav>
+
+        {rightSidebarSection === "plan" && (
+          <div className="right-panel plan-panel">
+            {planItems.length === 0 && <div className="muted">{t.planEmpty}</div>}
+            {planItems.length > 0 && (
+              <ol className="plan-list">
+                {planItems.map((item, index) => (
+                  <li className={`plan-row ${item.status}`} key={`${item.step}-${index}`}>
+                    <span className="plan-check">{item.status === "completed" ? "✓" : item.status === "in_progress" ? "•" : ""}</span>
+                    <span>{item.step}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
+
+        {rightSidebarSection === "activity" && (
+          <>
+            <div className="activity-controls">
+              <div className="activity-filter-tabs" role="tablist" aria-label={t.activity}>
+                {([
+                  ["all", t.activityFilterAll],
+                  ["tool", t.activityFilterTool],
+                  ["error", t.activityFilterError],
+                  ["approval", t.activityFilterApproval],
+                  ["system", t.activityFilterSystem]
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={activityFilter === value ? "active" : ""}
+                    type="button"
+                    onClick={() => setActivityFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <input
+                value={activitySearch}
+                onChange={(event) => setActivitySearch(event.target.value)}
+                placeholder={t.activitySearchPlaceholder}
+              />
+            </div>
+            <div className="event-list" ref={activityListRef}>
+              {filteredEvents.length === 0 && <div className="muted">{events.length === 0 ? t.activityEmpty : t.activitySearchPlaceholder}</div>}
+              {filteredEvents.map((event) => (
+                <details className={`event ${event.kind}`} key={event.id} open={event.kind === "error"}>
+                  <summary>{event.title}</summary>
+                  <pre>{event.body}</pre>
+                </details>
+              ))}
+            </div>
+          </>
+        )}
       </aside>
     </div>
   );

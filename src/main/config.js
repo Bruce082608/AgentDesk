@@ -3,12 +3,15 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { app, safeStorage } from "electron";
 
-const CONFIG_PATH = path.join(process.cwd(), "agent-config.json");
+const CONFIG_FILE_NAME = "agent-config.json";
+const SECRETS_FILE_NAME = "secrets.json";
+const LEGACY_CONFIG_PATH = path.join(process.cwd(), CONFIG_FILE_NAME);
 
 const DEFAULT_CONFIG = {
   provider: "deepseek",
   baseUrl: "https://api.deepseek.com",
   model: "deepseek-v4-pro",
+  summaryModel: "deepseek-v4-flash",
   contextTokens: 1000000,
   maxTokens: 32768,
   maxAgentSteps: 64,
@@ -18,40 +21,50 @@ const DEFAULT_CONFIG = {
 };
 
 export async function loadAppConfig() {
-  const apiKey = await loadApiKey();
+  const apiKeyState = await loadApiKey();
+  const apiKey = apiKeyState.apiKey;
+  const configPath = getConfigPath();
 
   try {
-    const raw = await fs.readFile(CONFIG_PATH, "utf8");
+    const raw = await readConfigFile();
     const trimmed = raw.trim();
     if (!trimmed) {
       await saveAppConfig(DEFAULT_CONFIG);
-      return { ...DEFAULT_CONFIG, apiKey };
+      return { ...DEFAULT_CONFIG, apiKey, ...getSafeStorageStatus(), apiKeyStorage: apiKeyState.storage };
     }
-    return { ...DEFAULT_CONFIG, ...JSON.parse(trimmed), apiKey };
+    const parsed = normalizeConfig(JSON.parse(trimmed));
+    if (configPath !== LEGACY_CONFIG_PATH) {
+      await writeConfigFile({ ...DEFAULT_CONFIG, ...parsed });
+    }
+    return { ...DEFAULT_CONFIG, ...parsed, apiKey, ...getSafeStorageStatus(), apiKeyStorage: apiKeyState.storage };
   } catch (error) {
     if (error?.code === "ENOENT") {
       await saveAppConfig(DEFAULT_CONFIG);
-      return { ...DEFAULT_CONFIG, apiKey };
+      return { ...DEFAULT_CONFIG, apiKey, ...getSafeStorageStatus(), apiKeyStorage: apiKeyState.storage };
     }
 
     await saveAppConfig(DEFAULT_CONFIG);
     return {
       ...DEFAULT_CONFIG,
       apiKey,
+      ...getSafeStorageStatus(),
+      apiKeyStorage: apiKeyState.storage,
       recoveredFromError: error instanceof Error ? error.message : String(error)
     };
   }
 }
 
 export async function saveAppConfig(config) {
+  let apiKeyStorage = "unchanged";
   if (Object.prototype.hasOwnProperty.call(config, "apiKey")) {
-    await saveApiKey(config.apiKey);
+    apiKeyStorage = await saveApiKey(config.apiKey);
   }
 
   const persisted = {
     provider: config.provider,
     baseUrl: config.baseUrl,
     model: config.model,
+    summaryModel: normalizeSummaryModel(config),
     contextTokens: Number(config.contextTokens),
     maxTokens: Number(config.maxTokens),
     maxAgentSteps: clampInteger(config.maxAgentSteps, DEFAULT_CONFIG.maxAgentSteps, 8, 256),
@@ -60,27 +73,45 @@ export async function saveAppConfig(config) {
     temperature: Number(config.temperature)
   };
 
-  const tempPath = `${CONFIG_PATH}.${randomUUID()}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
-  await fs.rename(tempPath, CONFIG_PATH);
-  return { ok: true, path: CONFIG_PATH };
+  await writeConfigFile(persisted);
+  return { ok: true, path: getConfigPath(), apiKeyStorage, ...getSafeStorageStatus() };
+}
+
+function normalizeConfig(config) {
+  return {
+    ...config,
+    summaryModel: normalizeSummaryModel(config)
+  };
+}
+
+function normalizeSummaryModel(config) {
+  const value = typeof config?.summaryModel === "string" ? config.summaryModel.trim() : "";
+  if (value) return value;
+  return config?.provider === "openai-compatible" ? "" : DEFAULT_CONFIG.summaryModel;
 }
 
 export function getConfigPath() {
-  return CONFIG_PATH;
+  return path.join(app.getPath("userData"), CONFIG_FILE_NAME);
 }
 
 async function loadApiKey() {
   try {
     const raw = await fs.readFile(getSecretsPath(), "utf8");
     const data = JSON.parse(raw);
-    if (!data.apiKey) return "";
+    if (!data.apiKey) return { apiKey: "", storage: "empty" };
     if (data.storage === "safeStorage") {
-      return safeStorage.decryptString(Buffer.from(data.apiKey, "base64"));
+      if (!safeStorage.isEncryptionAvailable()) {
+        return { apiKey: "", storage: "safeStorage-unavailable" };
+      }
+      return {
+        apiKey: safeStorage.decryptString(Buffer.from(data.apiKey, "base64")),
+        storage: "safeStorage"
+      };
     }
-    return "";
-  } catch {
-    return "";
+    return { apiKey: "", storage: "unknown" };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { apiKey: "", storage: "empty" };
+    return { apiKey: "", storage: "unreadable" };
   }
 }
 
@@ -91,21 +122,66 @@ async function saveApiKey(apiKey) {
 
   if (!value) {
     await fs.rm(secretsPath, { force: true }).catch(() => {});
-    return;
+    return "empty";
   }
 
   if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error("当前系统不支持 Electron safeStorage，API key 未保存。请改用环境变量。");
+    await fs.rm(secretsPath, { force: true }).catch(() => {});
+    return "safeStorage-unavailable";
   }
 
   const encrypted = safeStorage.encryptString(value).toString("base64");
   const tempPath = `${secretsPath}.${randomUUID()}.tmp`;
   await fs.writeFile(tempPath, `${JSON.stringify({ storage: "safeStorage", apiKey: encrypted }, null, 2)}\n`, "utf8");
   await fs.rename(tempPath, secretsPath);
+  return "safeStorage";
 }
 
 function getSecretsPath() {
-  return path.join(app.getPath("userData"), "secrets.json");
+  return path.join(app.getPath("userData"), SECRETS_FILE_NAME);
+}
+
+async function readConfigFile() {
+  try {
+    return await fs.readFile(getConfigPath(), "utf8");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    return await fs.readFile(LEGACY_CONFIG_PATH, "utf8");
+  }
+}
+
+async function writeConfigFile(config) {
+  const configPath = getConfigPath();
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  const tempPath = `${configPath}.${randomUUID()}.tmp`;
+  await fs.writeFile(tempPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  await fs.rename(tempPath, configPath);
+}
+
+function getSafeStorageStatus() {
+  const available = safeStorage.isEncryptionAvailable();
+  return {
+    safeStorageAvailable: available,
+    safeStorageBackend: getSafeStorageBackend(),
+    platform: process.platform
+  };
+}
+
+function getSafeStorageBackend() {
+  try {
+    if (typeof safeStorage.getSelectedStorageBackend === "function") {
+      return safeStorage.getSelectedStorageBackend();
+    }
+  } catch {
+    return "unknown";
+  }
+  return process.platform === "darwin" ? "keychain" : availableBackendFallback();
+}
+
+function availableBackendFallback() {
+  if (process.platform === "win32") return "dpapi";
+  if (process.platform === "linux") return "secret-service";
+  return "unknown";
 }
 
 function clampInteger(value, fallback, min, max) {
