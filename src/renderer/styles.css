@@ -1611,7 +1611,7 @@ body[data-theme="dark"] .markdown-code-language {
 .composer-surface {
   position: relative;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   max-width: 980px;
   width: 100%;
@@ -1633,29 +1633,37 @@ body[data-theme="dark"] .composer-surface {
   height: 100%;
   min-height: 0;
   margin-top: 0;
-  padding: 14px 16px 8px;
+  padding: 14px 16px 54px;
   resize: none;
   background: transparent;
   box-shadow: none;
 }
 
 .composer-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   padding: 6px 8px 8px 12px;
+  border-top: 1px solid var(--border-row);
+  background: var(--surface-glass-max);
+  z-index: 2;
 }
 
 /* ===== Permission inline ===== */
 .permission-inline {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
+  flex: 0 1 auto;
   min-width: 0;
   margin: 0;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -1663,14 +1671,58 @@ body[data-theme="dark"] .composer-surface {
   white-space: nowrap;
 }
 
-.permission-inline select {
-  width: auto;
-  min-width: 112px;
-  height: 30px;
+.permission-toggle {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  height: 28px;
+  min-width: 42px;
   margin: 0;
-  padding: 0 28px 0 9px;
+  padding: 0 8px;
+  border: 1px solid var(--border-row);
   border-radius: 999px;
-  font-size: 12px;
+  background: var(--surface-dim);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.permission-toggle input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.permission-toggle span {
+  font-size: 11px;
+  font-weight: 850;
+  pointer-events: none;
+}
+
+.permission-toggle:hover {
+  border-color: var(--primary-border);
+  color: var(--primary-text);
+}
+
+.permission-toggle.active {
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+  color: var(--primary-text);
+}
+
+.permission-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 11px;
   font-weight: 800;
 }
 
@@ -1680,6 +1732,7 @@ body[data-theme="dark"] .composer-surface {
   align-items: center;
   justify-content: flex-end;
   gap: 7px;
+  margin-left: auto;
   flex: 0 0 auto;
 }
 

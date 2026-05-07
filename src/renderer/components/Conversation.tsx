@@ -108,6 +108,17 @@ export function Conversation({
   updateReasoningView,
   uploadAttachmentFiles
 }: ConversationProps) {
+  const hasAutoPermissions = commandAutoApproval || patchAutoApproval;
+  const autoPermissionTitle = [
+    language === "zh" ? "自动权限仅限当前会话和 workspace，最长 30 分钟。" : "Auto permissions are scoped to this chat and workspace for up to 30 minutes.",
+    commandAutoApproval && commandAutoApprovalExpiresAt
+      ? `${language === "zh" ? "命令到期" : "Commands expire"} ${new Date(commandAutoApprovalExpiresAt).toLocaleTimeString()}.`
+      : "",
+    patchAutoApproval && patchAutoApprovalExpiresAt
+      ? `${language === "zh" ? "Patch 到期" : "Patches expire"} ${new Date(patchAutoApprovalExpiresAt).toLocaleTimeString()}.`
+      : ""
+  ].filter(Boolean).join(" ");
+
   return (
     <main className="conversation">
       <header className="topbar">
@@ -273,25 +284,38 @@ export function Conversation({
             }}
           />
           <div className="composer-controls">
-            <div className="permission-inline" title={t.defaultPermissionHint}>
-              <span>{t.permissionMode}</span>
-              <label>
+            <div className="permission-inline" title={t.defaultPermissionHint} aria-label={t.permissionMode}>
+              <span>{language === "zh" ? "权限" : "Perms"}</span>
+              <label
+                className={`permission-toggle ${commandAutoApproval ? "active" : ""}`}
+                title={language === "zh" ? "命令自动执行" : "Auto-run commands"}
+                aria-label={language === "zh" ? "命令自动执行" : "Auto-run commands"}
+              >
                 <input
                   type="checkbox"
                   checked={commandAutoApproval}
                   onChange={(event) => updateCommandAutoApproval(event.target.checked)}
                 />
-                {language === "zh" ? "命令自动执行" : "Auto-run commands"}
+                <span aria-hidden="true">{language === "zh" ? "命令" : "Cmd"}</span>
               </label>
-              <label>
+              <label
+                className={`permission-toggle ${patchAutoApproval ? "active" : ""}`}
+                title={language === "zh" ? "Patch 自动应用" : "Auto-apply patches"}
+                aria-label={language === "zh" ? "Patch 自动应用" : "Auto-apply patches"}
+              >
                 <input
                   type="checkbox"
                   checked={patchAutoApproval}
                   onChange={(event) => updatePatchAutoApproval(event.target.checked)}
                 />
-                {language === "zh" ? "Patch 自动应用" : "Auto-apply patches"}
+                <span aria-hidden="true">Patch</span>
               </label>
             </div>
+            {hasAutoPermissions && (
+              <span className="permission-status" title={autoPermissionTitle}>
+                {language === "zh" ? "自动权限 30 分钟" : "Auto permissions 30m"}
+              </span>
+            )}
             <div className="composer-actions">
               {!isOnline && <span className="offline-pill">{t.offlineTitle}</span>}
               <span className={`context-meter ${contextPercent >= 90 ? "danger" : contextPercent >= 70 ? "warn" : ""}`} title={`${t.contextUsage}: ${sessionContextTokenCount.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} / ${configContextTokens.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} tokens`}>
@@ -302,13 +326,6 @@ export function Conversation({
               <button className="send composer-send" type="button" disabled={busy || !input.trim()} onClick={send} title={t.send} aria-label={t.send}>↑</button>
             </div>
           </div>
-          {(commandAutoApproval || patchAutoApproval) && (
-            <div className="approval-banner">
-              {language === "zh" ? "自动权限仅限当前会话和 workspace，最长 30 分钟。" : "Auto permissions are scoped to this chat and workspace for up to 30 minutes."}
-              {commandAutoApproval && commandAutoApprovalExpiresAt ? ` ${language === "zh" ? "命令到期" : "Commands expire"} ${new Date(commandAutoApprovalExpiresAt).toLocaleTimeString()}.` : ""}
-              {patchAutoApproval && patchAutoApprovalExpiresAt ? ` ${language === "zh" ? "Patch 到期" : "Patches expire"} ${new Date(patchAutoApprovalExpiresAt).toLocaleTimeString()}.` : ""}
-            </div>
-          )}
         </div>
       </footer>
     </main>
