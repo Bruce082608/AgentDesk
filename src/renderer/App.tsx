@@ -60,6 +60,7 @@ function App() {
     nextMessages: ChatMessage[];
   }>(null);
   const [contextTokenCount, setContextTokenCount] = useState(0);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved === "dark" || saved === "light" || saved === "system") return saved;
@@ -199,8 +200,25 @@ function App() {
     if (!followOutputRef.current) return;
     const list = messageListRef.current;
     if (!list) return;
-    list.scrollTop = list.scrollHeight;
+    requestAnimationFrame(() => {
+      list.scrollTo({ top: list.scrollHeight, behavior: "instant" });
+    });
   }, [messages, events, agentState.patches, agentState.commands, agentState.questions, agentState.activeToolRuns, agentState.busy]);
+
+  useEffect(() => {
+    const list = messageListRef.current;
+    if (!list) return;
+
+    const onUserScroll = () => {
+      const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+      followOutputRef.current = distanceToBottom < 32;
+      const shouldShow = !followOutputRef.current;
+      setShowScrollToBottom(prev => prev !== shouldShow ? shouldShow : prev);
+    };
+
+    list.addEventListener("scroll", onUserScroll, { passive: true });
+    return () => list.removeEventListener("scroll", onUserScroll);
+  }, [agentState.busy]);
 
   useEffect(() => {
     if (rightSidebarSection !== "activity") return;
@@ -229,11 +247,12 @@ function App() {
   const contextPercent = Math.min(100, Math.round((contextTokenCount / Math.max(inputBudgetTokens, 1)) * 100));
   const contextUsageLabel = `${contextPercent}%`;
 
-  function updateOutputFollowState() {
+  function scrollToBottom() {
     const list = messageListRef.current;
     if (!list) return;
-    const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
-    followOutputRef.current = distanceToBottom < 32;
+    list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+    followOutputRef.current = true;
+    setShowScrollToBottom(false);
   }
 
   async function startAgentRequest({
@@ -261,6 +280,7 @@ function App() {
     const requestId = crypto.randomUUID();
     agentState.beginRequest(requestId, t.waitingPlan);
     followOutputRef.current = true;
+    setShowScrollToBottom(false);
     if (clearInput) setInput("");
     setMessages(nextMessages);
 
@@ -513,7 +533,8 @@ function App() {
         t={t}
         theme={theme}
         toolDraft={agentState.toolDraft}
-        updateOutputFollowState={updateOutputFollowState}
+        showScrollToBottom={showScrollToBottom}
+        scrollToBottom={scrollToBottom}
         updateCommandAutoApproval={updateCommandAutoApproval}
         updatePatchAutoApproval={updatePatchAutoApproval}
         updateReasoningView={updateReasoningView}

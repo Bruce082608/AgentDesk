@@ -2368,3 +2368,36 @@ body[data-theme="dark"] .question-text {
 .hljs-quote {
   color: var(--hljs-comment);
 }
+
+/* ===== Scroll-to-bottom floating button ===== */
+.scroll-to-bottom {
+  position: sticky;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--primary-border);
+  border-radius: 999px;
+  background: var(--surface-glass-max);
+  color: var(--primary);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 6px 20px var(--primary-shadow);
+  cursor: pointer;
+  z-index: 10;
+  animation: scroll-hint-fade-in 180ms ease;
+}
+
+.scroll-to-bottom:hover {
+  transform: translateX(-50%) translateY(-2px);
+  box-shadow: 0 10px 28px var(--primary-focus-ring);
+}
+
+@keyframes scroll-hint-fade-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

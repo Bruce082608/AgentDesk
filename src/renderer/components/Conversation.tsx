@@ -55,7 +55,8 @@ type ConversationProps = {
   t: Translation;
   theme: "light" | "dark" | "system";
   toolDraft: ToolDraft | null;
-  updateOutputFollowState: () => void;
+  showScrollToBottom: boolean;
+  scrollToBottom: () => void;
   updateCommandAutoApproval: (enabled: boolean) => void;
   updatePatchAutoApproval: (enabled: boolean) => void;
   updateReasoningView: (key: string, view: ReasoningView) => void;
@@ -112,7 +113,8 @@ export function Conversation({
   t,
   theme,
   toolDraft,
-  updateOutputFollowState,
+  showScrollToBottom,
+  scrollToBottom,
   updateCommandAutoApproval,
   updatePatchAutoApproval,
   updateReasoningView,
@@ -171,7 +173,7 @@ export function Conversation({
         </section>
       )}
 
-      <div className="message-list" ref={messageListRef} onScroll={updateOutputFollowState}>
+      <div className="message-list" ref={messageListRef}>
         {messages.length === 0 && (
           <div className="empty-state">
             <h2>{t.emptyTitle}</h2>
@@ -301,6 +303,17 @@ export function Conversation({
             <span>{t.networkRestoredBody}</span>
             <button type="button" className="secondary tiny" disabled={busy} onClick={retryLastRequest}>{t.retryLastRequest}</button>
           </div>
+        )}
+        {showScrollToBottom && (
+          <button
+            type="button"
+            className="scroll-to-bottom"
+            onClick={scrollToBottom}
+            title={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
+            aria-label={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
+          >
+            ↓
+          </button>
         )}
         {busy && <div className="thinking">{t.thinking}</div>}
       </div>
