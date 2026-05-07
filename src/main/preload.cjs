@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld("agentWindow", {
   testProvider: (config) => ipcRenderer.invoke("provider:test", config),
   getBalance: (config) => ipcRenderer.invoke("provider:balance", config),
   countTokens: (payload) => ipcRenderer.invoke("tokens:count", payload),
-  applyPatch: (patchId) => ipcRenderer.invoke("patch:apply", patchId),
+  applyPatch: (payload) => ipcRenderer.invoke("patch:apply", payload),
   discardPatch: (patchId) => ipcRenderer.invoke("patch:discard", patchId),
   approveCommand: (payload) => ipcRenderer.invoke("command:approve", payload),
   discardCommand: (commandId) => ipcRenderer.invoke("command:discard", commandId),

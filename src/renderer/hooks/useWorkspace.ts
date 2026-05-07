@@ -1,13 +1,17 @@
 import { useCallback, useMemo, useState } from "react";
+import { translations } from "../i18n";
 import type { EventLogItem, SearchMatch, WorkspaceTreeItem } from "../types";
 import type { AttachedFile, GitSummary } from "../global";
 import { getInitialExpandedDirs, isTreeItemVisible } from "../utils";
 
+type Translation = typeof translations[keyof typeof translations];
+
 type UseWorkspaceParams = {
   appendEvent: (kind: EventLogItem["kind"], title: string, body: string) => void;
+  t: Translation;
 };
 
-export function useWorkspace({ appendEvent }: UseWorkspaceParams) {
+export function useWorkspace({ appendEvent, t }: UseWorkspaceParams) {
   const [workspace, setWorkspace] = useState("");
   const [tree, setTree] = useState<WorkspaceTreeItem[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set());
@@ -30,9 +34,9 @@ export function useWorkspace({ appendEvent }: UseWorkspaceParams) {
       setTree(result.items);
       setExpandedDirs(getInitialExpandedDirs(result.items));
     } catch (error) {
-      appendEvent("error", "文件树读取失败", error instanceof Error ? error.message : String(error));
+      appendEvent("error", t.fileTreeReadFailed, error instanceof Error ? error.message : String(error));
     }
-  }, [appendEvent, workspace]);
+  }, [appendEvent, t, workspace]);
 
   const refreshGit = useCallback(async (target = workspace) => {
     if (!target) return;
@@ -40,9 +44,9 @@ export function useWorkspace({ appendEvent }: UseWorkspaceParams) {
       setGitSummary(await window.agentWindow.getGitSummary(target));
     } catch (error) {
       setGitSummary(null);
-      appendEvent("error", "Git 状态读取失败", error instanceof Error ? error.message : String(error));
+      appendEvent("error", t.gitStatusReadFailed, error instanceof Error ? error.message : String(error));
     }
-  }, [appendEvent, workspace]);
+  }, [appendEvent, t, workspace]);
 
   const chooseWorkspace = useCallback(async (onSelected?: (selected: string) => void) => {
     const selected = await window.agentWindow.chooseWorkspace();
@@ -70,11 +74,11 @@ export function useWorkspace({ appendEvent }: UseWorkspaceParams) {
     if (!workspace) return;
     try {
       const { diff } = await window.agentWindow.getGitDiff(workspace);
-      appendEvent("tool", "git diff", diff || "No unstaged diff.");
+      appendEvent("tool", "git diff", diff || t.noUnstagedDiff);
     } catch (error) {
-      appendEvent("error", "git diff 失败", error instanceof Error ? error.message : String(error));
+      appendEvent("error", t.gitDiffFailed, error instanceof Error ? error.message : String(error));
     }
-  }, [appendEvent, workspace]);
+  }, [appendEvent, t, workspace]);
 
   const openFile = useCallback(async (path: string) => {
     if (!workspace) return;
@@ -82,9 +86,9 @@ export function useWorkspace({ appendEvent }: UseWorkspaceParams) {
       const file = await window.agentWindow.readFile({ workspace, path });
       setPreviewFile(file);
     } catch (error) {
-      appendEvent("error", "文件读取失败", error instanceof Error ? error.message : String(error));
+      appendEvent("error", t.fileReadFailed, error instanceof Error ? error.message : String(error));
     }
-  }, [appendEvent, workspace]);
+  }, [appendEvent, t, workspace]);
 
   const attachFile = useCallback(async (path: string) => {
     if (!workspace) return;
@@ -93,9 +97,9 @@ export function useWorkspace({ appendEvent }: UseWorkspaceParams) {
       const file = await window.agentWindow.readFile({ workspace, path });
       setAttachedFiles((current) => [...current, file]);
     } catch (error) {
-      appendEvent("error", "文件加入上下文失败", error instanceof Error ? error.message : String(error));
+      appendEvent("error", t.fileAttachFailed, error instanceof Error ? error.message : String(error));
     }
-  }, [appendEvent, attachedFiles, workspace]);
+  }, [appendEvent, attachedFiles, t, workspace]);
 
   const detachFile = useCallback((path: string) => {
     setAttachedFiles((current) => current.filter((file) => file.path !== path));
@@ -109,11 +113,11 @@ export function useWorkspace({ appendEvent }: UseWorkspaceParams) {
         const seen = new Set(current.map((file) => file.path));
         return [...current, ...files.filter((file) => !seen.has(file.path))];
       });
-      appendEvent("tool", "文件已上传", JSON.stringify(files.map((file) => ({ path: file.path, chars: file.content.length })), null, 2));
+      appendEvent("tool", t.fileUploaded, JSON.stringify(files.map((file) => ({ path: file.path, chars: file.content.length })), null, 2));
     } catch (error) {
-      appendEvent("error", "文件上传失败", error instanceof Error ? error.message : String(error));
+      appendEvent("error", t.fileUploadFailed, error instanceof Error ? error.message : String(error));
     }
-  }, [appendEvent]);
+  }, [appendEvent, t]);
 
   const searchWorkspace = useCallback(async () => {
     const query = fileSearch.trim();
@@ -122,13 +126,13 @@ export function useWorkspace({ appendEvent }: UseWorkspaceParams) {
     try {
       const result = await window.agentWindow.searchFiles({ workspace, query, maxResults: 50 });
       setSearchResults(result.results);
-      appendEvent("tool", "文件搜索", JSON.stringify({ query, matches: result.results.length, engine: result.engine, truncated: result.truncated }, null, 2));
+      appendEvent("tool", t.fileSearchEvent, JSON.stringify({ query, matches: result.results.length, engine: result.engine, truncated: result.truncated }, null, 2));
     } catch (error) {
-      appendEvent("error", "文件搜索失败", error instanceof Error ? error.message : String(error));
+      appendEvent("error", t.fileSearchFailed, error instanceof Error ? error.message : String(error));
     } finally {
       setSearchingFiles(false);
     }
-  }, [appendEvent, fileSearch, searchingFiles, workspace]);
+  }, [appendEvent, fileSearch, searchingFiles, t, workspace]);
 
   const resetWorkspaceTransientState = useCallback(() => {
     setAttachedFiles([]);

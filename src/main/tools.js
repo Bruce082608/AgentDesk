@@ -4,6 +4,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
+import { normalizeLanguage, t } from "./i18n.js";
 
 const execFileAsync = promisify(execFile);
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".vite", "coverage"]);
@@ -185,15 +186,15 @@ export const toolDefinitions = [
 
 export async function executeToolCall(toolCall, context) {
   const name = toolCall.function?.name;
+  const toolContext = normalizeToolContext(context);
   let args = {};
 
   try {
-    args = parseToolArgs(toolCall.function?.arguments);
-    const toolContext = normalizeToolContext(context);
+    args = parseToolArgs(toolCall.function?.arguments, toolContext.language);
     const result = await executeToolImplementation(name, args, toolContext);
     return formatToolSuccess(name, result);
   } catch (error) {
-    return formatToolFailure(name, error, args);
+    return formatToolFailure(name, error, args, toolContext.language);
   }
 }
 
@@ -201,27 +202,27 @@ async function executeToolImplementation(name, args, context) {
   const workspace = context.workspace;
   switch (name) {
     case "list_files":
-      return listFiles(workspace, args.directory || "", args.max_files || 120);
+      return listFiles(workspace, args.directory || "", args.max_files || 120, context.language);
     case "read_file":
-      return readFile(workspace, args.path);
+      return readFile(workspace, args.path, context.language);
     case "write_file":
       return writeFile(context, args.path, args.content, args.summary);
     case "delete_file":
       return deleteFile(context, args.path, args.summary);
     case "ask_user":
-      return askUser(args.question, args.context, args.options);
+      return askUser(args.question, args.context, args.options, context.language);
     case "apply_patch":
       return proposePatch(context, args.patch, args.summary);
     case "search_files":
-      return searchFiles(workspace, args.query, args.max_results || 50);
+      return searchFiles(workspace, args.query, args.max_results || 50, context.language);
     case "web_search":
-      return webSearch(args.query, args.max_results || 5);
+      return webSearch(args.query, args.max_results || 5, context.language);
     case "run_command":
       return runCommand(context, args.command, args.timeout_ms || 30_000);
     case "update_plan":
       return JSON.stringify({ ok: true, items: Array.isArray(args.items) ? args.items : [] });
     default:
-      throw new Error(`未知工具：${name}`);
+      throw localizedError(context.language, "tools.unknownTool", { name });
   }
 }
 
@@ -233,15 +234,16 @@ function formatToolSuccess(name, result) {
   return JSON.stringify({ ok: true, tool: name, result: String(result ?? "") }, null, 2);
 }
 
-function formatToolFailure(name, error, args) {
+function formatToolFailure(name, error, args, fallbackLanguage = "zh") {
   const classified = classifyToolError(error);
+  const language = normalizeLanguage(error?.language || fallbackLanguage);
   return JSON.stringify(
     {
       ok: false,
       tool: name || "unknown",
-      error: classified.message,
+      error: t(language, `tools.toolErrors.${classified.type}`),
       errorType: classified.type,
-      detail: classified.detail,
+      detail: [classified.message, classified.detail].filter(Boolean).join("\n").trim(),
       recoverable: classified.recoverable,
       args: sanitizeArgsForError(args)
     },
@@ -302,9 +304,9 @@ function sanitizeArgsForError(args) {
   return sanitized;
 }
 
-async function webSearch(query, maxResults) {
+async function webSearch(query, maxResults, language) {
   const searchQuery = String(query ?? "").trim();
-  if (!searchQuery) throw new Error("query 不能为空。");
+  if (!searchQuery) throw localizedError(language, "tools.emptyQuery");
   const limit = Math.min(Math.max(Number(maxResults) || 5, 1), 10);
   const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`;
   const { signal, cleanup } = createTimeoutSignal(20000);
@@ -318,7 +320,7 @@ async function webSearch(query, maxResults) {
       signal
     });
     if (!response.ok) {
-      throw new Error(`搜索请求失败 ${response.status}: ${response.statusText}`);
+      throw localizedError(language, "tools.searchFailed", { status: response.status, message: response.statusText });
     }
     const html = await response.text();
     const results = parseDuckDuckGoResults(html, limit);
@@ -333,25 +335,25 @@ async function webSearch(query, maxResults) {
       2
     );
   } catch (error) {
-    if (error?.name === "AbortError") throw new Error("搜索请求超时（20 秒）。");
+    if (error?.name === "AbortError") throw localizedError(language, "tools.searchTimeout");
     throw error;
   } finally {
     cleanup();
   }
 }
 
-function parseToolArgs(raw) {
+function parseToolArgs(raw, language) {
   if (!raw) return {};
   if (typeof raw === "object") return raw;
   try {
     return JSON.parse(raw);
   } catch {
-    throw new Error(`工具参数不是合法 JSON：${raw}`);
+    throw localizedError(language, "tools.invalidJson", { raw });
   }
 }
 
-async function listFiles(workspace, directory, maxFiles) {
-  const root = resolveInsideWorkspace(workspace, directory || ".");
+async function listFiles(workspace, directory, maxFiles, language) {
+  const root = resolveInsideWorkspace(workspace, directory || ".", language);
   const limit = Math.min(Number(maxFiles) || 120, 500);
   const files = [];
 
@@ -375,23 +377,23 @@ async function listFiles(workspace, directory, maxFiles) {
   return JSON.stringify({ files, truncated: files.length >= limit }, null, 2);
 }
 
-async function readFile(workspace, filePath) {
-  const absolute = resolveInsideWorkspace(workspace, filePath);
+async function readFile(workspace, filePath, language) {
+  const absolute = resolveInsideWorkspace(workspace, filePath, language);
   const stat = await fs.stat(absolute);
-  if (!stat.isFile()) throw new Error(`${filePath} 不是文件。`);
+  if (!stat.isFile()) throw localizedError(language, "tools.notFile", { path: filePath });
   if (stat.size > MAX_FILE_BYTES) {
-    throw new Error(`${filePath} 太大（${stat.size} bytes），demo 限制为 ${MAX_FILE_BYTES} bytes。`);
+    throw localizedError(language, "tools.fileTooLarge", { path: filePath, size: stat.size, limit: MAX_FILE_BYTES });
   }
   return await fs.readFile(absolute, "utf8");
 }
 
 async function writeFile(context, filePath, content, summary = "") {
   const workspace = context.workspace;
-  const normalizedPath = normalizeWorkspacePath(filePath);
-  const absolute = resolveInsideWorkspace(workspace, normalizedPath);
+  const normalizedPath = normalizeWorkspacePath(filePath, context.language);
+  const absolute = resolveInsideWorkspace(workspace, normalizedPath, context.language);
   const nextContent = String(content ?? "");
   if (Buffer.byteLength(nextContent, "utf8") > MAX_FILE_BYTES * 2) {
-    throw new Error(`${normalizedPath} 内容太大，write_file 限制为 ${MAX_FILE_BYTES * 2} bytes。`);
+    throw localizedError(context.language, "tools.contentTooLarge", { path: normalizedPath, limit: MAX_FILE_BYTES * 2 });
   }
 
   if (isAutoApprovalEnabled("patch", context)) {
@@ -411,10 +413,10 @@ async function writeFile(context, filePath, content, summary = "") {
 
 async function deleteFile(context, filePath, summary = "") {
   const workspace = context.workspace;
-  const normalizedPath = normalizeWorkspacePath(filePath);
-  const absolute = resolveInsideWorkspace(workspace, normalizedPath);
+  const normalizedPath = normalizeWorkspacePath(filePath, context.language);
+  const absolute = resolveInsideWorkspace(workspace, normalizedPath, context.language);
   const stat = await fs.stat(absolute);
-  if (!stat.isFile()) throw new Error(`${normalizedPath} 不是文件。`);
+  if (!stat.isFile()) throw localizedError(context.language, "tools.notFile", { path: normalizedPath });
 
   if (isAutoApprovalEnabled("patch", context)) {
     await fs.rm(absolute, { force: true });
@@ -427,9 +429,9 @@ async function deleteFile(context, filePath, summary = "") {
   return JSON.stringify({ ...result, patch }, null, 2);
 }
 
-function askUser(question, context = "", options = []) {
+function askUser(question, context = "", options = [], language) {
   const text = String(question ?? "").trim();
-  if (!text) throw new Error("question 不能为空。");
+  if (!text) throw localizedError(language, "tools.emptyQuestion");
   const choices = normalizeQuestionOptions(options, text);
   return JSON.stringify(
     {
@@ -454,10 +456,10 @@ function normalizeQuestionOptions(options, question) {
   return /[\u3400-\u9fff]/.test(String(question)) ? ["是", "否"] : ["Yes", "No"];
 }
 
-async function searchFiles(workspace, query, maxResults) {
+async function searchFiles(workspace, query, maxResults, language) {
   const needle = String(query ?? "");
-  if (!needle) throw new Error("query 不能为空。");
-  const rgResults = await searchFilesWithRg(workspace, needle, maxResults).catch(() => null);
+  if (!needle) throw localizedError(language, "tools.emptyQuery");
+  const rgResults = await searchFilesWithRg(workspace, needle, maxResults, language).catch(() => null);
   if (rgResults) return rgResults;
 
   const filesJson = await listFiles(workspace, ".", 400);
@@ -468,7 +470,7 @@ async function searchFiles(workspace, query, maxResults) {
   for (const file of files) {
     if (results.length >= limit) break;
     try {
-      const content = await readFile(workspace, file);
+      const content = await readFile(workspace, file, language);
       const lines = content.split(/\r?\n/);
       for (let index = 0; index < lines.length; index += 1) {
         if (lines[index].includes(needle)) {
@@ -487,8 +489,8 @@ async function searchFiles(workspace, query, maxResults) {
 async function proposePatch(context, patch, summary = "") {
   const workspace = context.workspace;
   const patchText = ensureTrailingNewline(stripMarkdownFence(String(patch ?? "")));
-  if (!patchText.trim()) throw new Error("patch 不能为空。");
-  validatePatchPaths(workspace, patchText);
+  if (!patchText.trim()) throw localizedError(context.language, "tools.emptyPatch");
+  validatePatchPaths(workspace, patchText, context.language);
   const resolvedWorkspace = path.resolve(workspace);
 
   if (isAutoApprovalEnabled("patch", context)) {
@@ -496,7 +498,8 @@ async function proposePatch(context, patch, summary = "") {
       id: randomUUID(),
       workspace: resolvedWorkspace,
       patch: patchText,
-      summary: String(summary || "Proposed patch")
+      summary: String(summary || "Proposed patch"),
+      language: context.language
     });
     return JSON.stringify({
       ok: true,
@@ -505,7 +508,7 @@ async function proposePatch(context, patch, summary = "") {
       patchId: result.patchId,
       summary: result.summary,
       strategy: result.strategy,
-      message: "Patch applied automatically because scoped patch auto-approval is enabled."
+      message: t(context.language, "tools.patchAppliedAuto")
     });
   }
 
@@ -517,6 +520,7 @@ async function proposePatch(context, patch, summary = "") {
     sessionId: context.sessionId,
     patch: patchText,
     summary: String(summary || "Proposed patch"),
+    language: context.language,
     createdAt: Date.now()
   });
 
@@ -525,7 +529,7 @@ async function proposePatch(context, patch, summary = "") {
     pending: true,
     patchId,
     summary: String(summary || "Proposed patch"),
-    message: "Patch queued for user review. It has not been applied yet."
+    message: t(context.language, "tools.patchQueued")
   });
 }
 
@@ -543,9 +547,10 @@ export function getPendingPatch(patchId) {
   return pendingPatches.get(patchId) ?? null;
 }
 
-export async function applyPendingPatch(patchId) {
+export async function applyPendingPatch(patchId, options = {}) {
+  const language = normalizeLanguage(options.language);
   const pending = pendingPatches.get(patchId);
-  if (!pending) throw new Error("待应用 patch 不存在或已处理。");
+  if (!pending) throw localizedError(language, "tools.pendingPatchMissing");
 
   const result = await applyPatchText(pending);
   pendingPatches.delete(patchId);
@@ -560,7 +565,7 @@ export function discardPendingPatch(patchId) {
 async function runCommand(context, command, timeoutMs) {
   const workspace = context.workspace;
   const commandText = String(command ?? "").trim();
-  if (!commandText) throw new Error("command 不能为空。");
+  if (!commandText) throw localizedError(context.language, "tools.emptyCommand");
   const highRisk = isDangerousCommand(commandText);
   if (!isAutoApprovalEnabled("command", context) && (highRisk || !isAutoAllowedCommand(commandText))) {
     const commandId = randomUUID();
@@ -572,6 +577,7 @@ async function runCommand(context, command, timeoutMs) {
       command: commandText,
       highRisk,
       timeoutMs,
+      language: context.language,
       createdAt: Date.now()
     });
     return JSON.stringify({
@@ -581,7 +587,7 @@ async function runCommand(context, command, timeoutMs) {
       command: commandText,
       highRisk,
       risk: highRisk ? "high" : "normal",
-      message: "Command queued for user approval. It has not been executed yet."
+      message: t(context.language, "tools.commandQueued")
     });
   }
 
@@ -614,8 +620,9 @@ function getShellInvocation(commandText) {
 }
 
 export async function approvePendingCommand(commandId, options = {}) {
+  const language = normalizeLanguage(options.language);
   const pending = pendingCommands.get(commandId);
-  if (!pending) throw new Error("待确认命令不存在或已处理。");
+  if (!pending) throw localizedError(language, "tools.pendingCommandMissing");
   pendingCommands.delete(commandId);
   let permissionState = getAutoApprovalState(pending);
   if (options.allowFuture) {
@@ -656,13 +663,13 @@ export function setPatchAutoApproval(payload) {
 }
 
 async function applyPatchText(pending) {
-  validatePatchPaths(pending.workspace, pending.patch);
+  validatePatchPaths(pending.workspace, pending.patch, pending.language);
   const tempPath = path.join(os.tmpdir(), `agent-window-${pending.id}.diff`);
 
   try {
     await fs.writeFile(tempPath, pending.patch, "utf8");
-    await runGitApply(pending.workspace, ["apply", "--check", "--recount", "--whitespace=nowarn", tempPath]);
-    await runGitApply(pending.workspace, ["apply", "--recount", "--whitespace=nowarn", tempPath]);
+    await runGitApply(pending.workspace, ["apply", "--check", "--recount", "--whitespace=nowarn", tempPath], pending.language);
+    await runGitApply(pending.workspace, ["apply", "--recount", "--whitespace=nowarn", tempPath], pending.language);
     return {
       ok: true,
       patchId: pending.id,
@@ -674,22 +681,22 @@ async function applyPatchText(pending) {
   }
 }
 
-function resolveInsideWorkspace(workspace, targetPath) {
-  if (!workspace) throw new Error("请先选择 workspace。");
+function resolveInsideWorkspace(workspace, targetPath, language) {
+  if (!workspace) throw localizedError(language, "tools.missingWorkspace");
   const absoluteWorkspace = path.resolve(workspace);
   const absoluteTarget = path.resolve(absoluteWorkspace, String(targetPath || "."));
   const relative = path.relative(absoluteWorkspace, absoluteTarget);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`路径越界：${targetPath}`);
+    throw localizedError(language, "tools.outsideWorkspace", { path: targetPath });
   }
   return absoluteTarget;
 }
 
-function normalizeWorkspacePath(filePath) {
+function normalizeWorkspacePath(filePath, language) {
   const normalized = String(filePath ?? "").replaceAll("\\", "/").trim();
-  if (!normalized) throw new Error("path 不能为空。");
+  if (!normalized) throw localizedError(language, "tools.emptyPath");
   if (normalized.startsWith("/") || normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
-    throw new Error(`路径不安全：${filePath}`);
+    throw localizedError(language, "tools.unsafePath", { path: filePath });
   }
   return normalized;
 }
@@ -725,30 +732,30 @@ function formatDiffRange(count) {
   return count > 0 ? `1,${count}` : "0,0";
 }
 
-function validatePatchPaths(workspace, patchText) {
-  const paths = extractPatchPaths(patchText);
+function validatePatchPaths(workspace, patchText, language) {
+  const paths = extractPatchPaths(patchText, language);
   if (paths.length === 0) {
-    throw new Error("patch 不是可识别的 unified diff。请包含 diff --git 或 ---/+++ 文件头。");
+    throw localizedError(language, "tools.invalidPatch");
   }
 
   for (const filePath of paths) {
-    resolveInsideWorkspace(workspace, filePath);
+    resolveInsideWorkspace(workspace, filePath, language);
   }
 }
 
-function extractPatchPaths(patchText) {
+function extractPatchPaths(patchText, language = "zh") {
   const paths = new Set();
   for (const line of patchText.split(/\r?\n/)) {
     const gitMatch = line.match(/^diff --git a\/(.+) b\/(.+)$/);
     if (gitMatch) {
-      addPatchPath(paths, gitMatch[1]);
-      addPatchPath(paths, gitMatch[2]);
+      addPatchPath(paths, gitMatch[1], language);
+      addPatchPath(paths, gitMatch[2], language);
       continue;
     }
 
     const fileMatch = line.match(/^(---|\+\+\+) (.+)$/);
     if (fileMatch) {
-      addPatchPath(paths, normalizeDiffPath(fileMatch[2]));
+      addPatchPath(paths, normalizeDiffPath(fileMatch[2]), language);
     }
   }
   return [...paths];
@@ -761,11 +768,11 @@ function normalizeDiffPath(rawPath) {
   return clean;
 }
 
-function addPatchPath(paths, filePath) {
+function addPatchPath(paths, filePath, language) {
   const normalized = normalizeDiffPath(filePath).replaceAll("\\", "/");
   if (!normalized) return;
   if (normalized.startsWith("/") || normalized.includes("../") || normalized === ".." || normalized.startsWith("../")) {
-    throw new Error(`patch 路径不安全：${filePath}`);
+    throw localizedError(language, "tools.unsafePatchPath", { path: filePath });
   }
   paths.add(normalized);
 }
@@ -812,7 +819,7 @@ function isAutoAllowedCommand(command) {
   ].some((pattern) => pattern.test(lowered));
 }
 
-async function searchFilesWithRg(workspace, needle, maxResults) {
+async function searchFilesWithRg(workspace, needle, maxResults, language) {
   const limit = Math.min(Number(maxResults) || 50, 100);
   const results = [];
   let stdout = "";
@@ -831,7 +838,7 @@ async function searchFilesWithRg(workspace, needle, maxResults) {
         "."
       ],
       {
-        cwd: resolveInsideWorkspace(workspace, "."),
+        cwd: resolveInsideWorkspace(workspace, ".", language),
         windowsHide: true,
         maxBuffer: 1_000_000
       }
@@ -919,7 +926,7 @@ function createTimeoutSignal(timeoutMs) {
   };
 }
 
-async function runGitApply(workspace, args) {
+async function runGitApply(workspace, args, language = "zh") {
   try {
     return await execFileAsync("git", args, {
       cwd: workspace,
@@ -928,7 +935,7 @@ async function runGitApply(workspace, args) {
     });
   } catch (error) {
     const detail = [error?.message, error?.stderr, error?.stdout].filter(Boolean).join("\n").trim();
-    throw new Error(detail || "git apply failed");
+    throw new Error(detail || t(language, "tools.gitApplyFailed"));
   }
 }
 
@@ -939,7 +946,8 @@ function normalizeToolContext(context) {
   return {
     workspace: context?.workspace || process.cwd(),
     requestId: String(context?.requestId || ""),
-    sessionId: String(context?.sessionId || "")
+    sessionId: String(context?.sessionId || ""),
+    language: normalizeLanguage(context?.language)
   };
 }
 
@@ -954,6 +962,12 @@ function normalizeApprovalPayload(payload, kind) {
     kind,
     enabled: Boolean(payload?.enabled)
   };
+}
+
+function localizedError(language, key, values = {}) {
+  const error = new Error(t(language, key, values));
+  error.language = normalizeLanguage(language);
+  return error;
 }
 
 function permissionScopeKey(context) {

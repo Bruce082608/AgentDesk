@@ -2,7 +2,6 @@ import type { Language, translations } from "../i18n";
 import type {
   ActivityFilter,
   ChatSession,
-  GitSummary,
   ProviderBalanceResult,
   ProviderConfig,
   SearchMatch,
@@ -27,12 +26,10 @@ type SidebarProps = {
   deleteSession: (sessionId: string) => void;
   expandedDirs: Set<string>;
   fileSearch: string;
-  gitSummary: GitSummary | null;
   language: Language;
   openFile: (path: string) => void;
   providerHint: string;
   queryBalance: () => void;
-  refreshGit: () => void;
   renamingSessionId: string;
   renamingTitle: string;
   searchResults: SearchMatch[];
@@ -44,7 +41,6 @@ type SidebarProps = {
   setFileSearch: (value: string) => void;
   setRenamingTitle: (value: string) => void;
   setSidebarSection: (section: SidebarSection) => void;
-  showGitDiff: () => void;
   sidebarSection: SidebarSection;
   startNewSession: () => void;
   startRenameSession: (sessionId: string) => void;
@@ -75,12 +71,10 @@ export function Sidebar({
   deleteSession,
   expandedDirs,
   fileSearch,
-  gitSummary,
   language,
   openFile,
   providerHint,
   queryBalance,
-  refreshGit,
   renamingSessionId,
   renamingTitle,
   searchResults,
@@ -92,7 +86,6 @@ export function Sidebar({
   setFileSearch,
   setRenamingTitle,
   setSidebarSection,
-  showGitDiff,
   sidebarSection,
   startNewSession,
   startRenameSession,
@@ -121,7 +114,7 @@ export function Sidebar({
       <section className="panel">
         <div className="panel-title row-title">
           <span>{t.chats}</span>
-          <button className="secondary tiny" onClick={startNewSession} disabled={busy}>{t.newChat}</button>
+          <button className="icon-button new-chat-button" onClick={startNewSession} disabled={busy} title={t.newChat} aria-label={t.newChat}>+</button>
         </div>
         <div className="session-list">
           {sessions.map((session) => (
@@ -173,8 +166,8 @@ export function Sidebar({
       </section>
 
       <nav className="section-tabs" aria-label={t.sidebarNav}>
-        <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")}>{t.files}</button>
-        <button className={sidebarSection === "advanced" ? "active" : ""} onClick={() => setSidebarSection("advanced")}>{t.advanced}</button>
+        <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")} title={t.files} aria-label={t.files}>▦</button>
+        <button className={sidebarSection === "advanced" ? "active" : ""} onClick={() => setSidebarSection("advanced")} title={t.advanced} aria-label={t.advanced}>⚙</button>
       </nav>
 
       {sidebarSection === "files" && (
@@ -223,31 +216,8 @@ export function Sidebar({
       )}
 
       {sidebarSection === "advanced" && (
-        <>
-          <section className="panel compact-panel">
-            <div className="panel-title">{t.git}</div>
-            {gitSummary ? (
-              <>
-                <div className="metric">{t.branch} <strong>{gitSummary.branch}</strong></div>
-                <button className="secondary full" onClick={showGitDiff}>{t.viewGitDiff}</button>
-                <button className="secondary full" onClick={refreshGit} disabled={!workspace}>{t.refreshGit}</button>
-                <div className="commit-draft">{gitSummary.commitDraft}</div>
-                <div className="changed-list">
-                  {gitSummary.changedFiles.length === 0 && <span className="muted">{t.noChanges}</span>}
-                  {gitSummary.changedFiles.map((file) => (
-                    <button key={`${file.status}-${file.path}`} onClick={() => openFile(file.path.replace(/^"|"$/g, ""))}>
-                      <span>{file.status}</span>{file.path}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="hint">{t.gitHint}</p>
-            )}
-          </section>
-
           <section className="panel">
-            <div className="panel-title">{t.provider}</div>
+            <div className="panel-title">{t.advanced}</div>
             <select value={config.provider} onChange={(event) => updateProvider(event.target.value as ProviderConfig["provider"])}>
               <option value="deepseek">DeepSeek</option>
               <option value="openai-compatible">OpenAI-compatible</option>
@@ -385,7 +355,6 @@ export function Sidebar({
             <p className="hint">{providerHint}</p>
             {configPath && <p className="hint file-hint">{t.config}: {configPath}</p>}
           </section>
-        </>
       )}
     </aside>
   );

@@ -1,5 +1,6 @@
 import { completeChat, normalizeProviderConfig, streamWithTools } from "./providers.js";
 import { executeToolCall, toolDefinitions } from "./tools.js";
+import { normalizeLanguage, t } from "./i18n.js";
 import { getDynamicSafetyMarginTokens, getInputBudgetTokens } from "../shared/contextBudget.js";
 import { countChatMessageTokens, countChatMessagesTokens, countTextTokens } from "../shared/tokenCounter.js";
 
@@ -16,14 +17,15 @@ export async function runAgentTurn(payload, emit) {
   const priorMessages = Array.isArray(payload.messages) ? payload.messages : [];
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   const normalizedProviderConfig = normalizeProviderConfig(providerConfig);
+  const language = normalizeLanguage(payload.language);
   const contextTokens = normalizedProviderConfig.contextTokens;
   const maxOutputTokens = normalizedProviderConfig.maxTokens;
   const inputBudgetTokens = getInputBudgetTokens(contextTokens, maxOutputTokens);
   const maxAgentSteps = getMaxAgentSteps(providerConfig.maxAgentSteps);
   const signal = payload.signal;
 
-  if (!userInput) throw new Error("消息不能为空。");
-  if (!workspace) throw new Error("请先选择 workspace。");
+  if (!userInput) throw new Error(t(language, "agent.emptyInput"));
+  if (!workspace) throw new Error(t(language, "agent.missingWorkspace"));
 
   const systemMessage = {
     role: "system",
@@ -57,6 +59,7 @@ export async function runAgentTurn(payload, emit) {
     userInput,
     contextTokens,
     providerConfig,
+    language,
     signal,
     emit
   });
@@ -64,8 +67,8 @@ export async function runAgentTurn(payload, emit) {
   emit({
     type: "status",
     message: compressed
-      ? `发送给模型，上下文窗口 ${contextTokens.toLocaleString("en-US")} tokens；可用输入预算 ${inputBudgetTokens.toLocaleString("en-US")} tokens；已注入早期对话摘要。`
-      : `发送给模型，上下文窗口 ${contextTokens.toLocaleString("en-US")} tokens；可用输入预算 ${inputBudgetTokens.toLocaleString("en-US")} tokens...`
+      ? t(language, "agent.sendCompressed", { context: formatTokens(contextTokens), input: formatTokens(inputBudgetTokens) })
+      : t(language, "agent.sendNormal", { context: formatTokens(contextTokens), input: formatTokens(inputBudgetTokens) })
   });
   const toolFailures = new Map();
   let lastFailedToolName = "";
@@ -73,9 +76,9 @@ export async function runAgentTurn(payload, emit) {
   let streamRecoveryAttempts = 0;
 
   for (let step = 0; step < maxAgentSteps; step += 1) {
-    throwIfAborted(signal);
+    throwIfAborted(signal, language);
     if (step > 0) {
-      emit({ type: "status", message: `继续执行工具循环 ${step + 1}/${maxAgentSteps}...` });
+      emit({ type: "status", message: t(language, "agent.toolLoop", { step: step + 1, max: maxAgentSteps }) });
     }
     const { message, usage, provider, finishReason, interrupted, streamError } = await streamWithTools({
       config: providerConfig,
@@ -104,11 +107,16 @@ export async function runAgentTurn(payload, emit) {
 
     if (interrupted) {
       streamRecoveryAttempts += 1;
+      const reason = streamError ? t(language, "agent.streamReason", { reason: streamError }) : "";
+      const recoveryMessage = streamRecoveryAttempts <= MAX_STREAM_RECOVERY_ATTEMPTS
+        ? t(language, "agent.streamRecovery", { attempt: streamRecoveryAttempts, max: MAX_STREAM_RECOVERY_ATTEMPTS, reason })
+        : t(language, "agent.streamRecoveryExhausted", { reason });
       emit({
-        type: "status",
-        message: streamRecoveryAttempts <= MAX_STREAM_RECOVERY_ATTEMPTS
-          ? `模型流式连接中断，已保留当前输出并尝试从断点继续 (${streamRecoveryAttempts}/${MAX_STREAM_RECOVERY_ATTEMPTS})。${streamError ? `原因：${streamError}` : ""}`
-          : `模型流式连接中断，已保留当前输出；自动续接次数已用尽。${streamError ? `原因：${streamError}` : ""}`
+        type: "stream_recovery",
+        message: recoveryMessage,
+        attempt: streamRecoveryAttempts,
+        maxAttempts: MAX_STREAM_RECOVERY_ATTEMPTS,
+        recovering: streamRecoveryAttempts <= MAX_STREAM_RECOVERY_ATTEMPTS
       });
 
       if (streamRecoveryAttempts <= MAX_STREAM_RECOVERY_ATTEMPTS) {
@@ -125,7 +133,7 @@ export async function runAgentTurn(payload, emit) {
       if (!String(message.content || "").trim()) {
         emit({
           type: "model",
-          message: `模型本轮没有返回正文。finish_reason=${finishReason ?? "unknown"}。请查看右侧 Activity 的接口用量或错误信息。`,
+          message: t(language, "agent.emptyModelResponse", { finishReason: finishReason ?? "unknown" }),
           provider: provider.label,
           model: provider.model,
           finishReason,
@@ -139,7 +147,7 @@ export async function runAgentTurn(payload, emit) {
     let shouldWaitForUserAnswer = false;
 
     for (const toolCall of toolCalls) {
-      throwIfAborted(signal);
+      throwIfAborted(signal, language);
       const name = toolCall.function?.name ?? "unknown";
       const rawArgs = toolCall.function?.arguments ?? "{}";
       emit({ type: "tool_start", name, args: rawArgs });
@@ -150,7 +158,8 @@ export async function runAgentTurn(payload, emit) {
         result = await executeToolCall(toolCall, {
           workspace,
           requestId: payload.requestId || "",
-          sessionId: payload.sessionId || ""
+          sessionId: payload.sessionId || "",
+          language
         });
         parsed = parseToolResult(result);
       } catch (error) {
@@ -188,7 +197,7 @@ export async function runAgentTurn(payload, emit) {
         if (consecutiveFailedToolCount >= 3) {
           emit({
             type: "status",
-            message: `工具 ${name} 已连续失败 ${consecutiveFailedToolCount} 次，已把 stderr/stdout 写入上下文；下一轮必须换策略，而不是中断。`
+            message: t(language, "agent.repeatedToolFailure", { name, count: consecutiveFailedToolCount })
           });
         }
         continue;
@@ -248,9 +257,7 @@ export async function runAgentTurn(payload, emit) {
               commandId: parsed.commandId,
               command: parsed.command,
               highRisk: Boolean(parsed.highRisk),
-              reason: parsed.highRisk
-                ? "这个命令属于高危操作，可能删除文件、重置 Git、修改权限或影响系统，需要确认后执行。"
-                : "这个命令可能修改环境、安装依赖、访问网络或产生副作用，需要确认后执行。"
+              reason: commandApprovalReason(parsed.highRisk, language)
             });
           }
         }
@@ -269,7 +276,7 @@ export async function runAgentTurn(payload, emit) {
         const messageText = error instanceof Error ? error.message : String(error);
         emit({
           type: "status",
-          message: `工具 ${name} 已返回结果，但 UI 事件处理失败：${messageText}`
+          message: t(language, "agent.toolEventFailed", { name, message: messageText })
         });
       }
     }
@@ -278,17 +285,17 @@ export async function runAgentTurn(payload, emit) {
       messages.push(...recoveryMessages);
       emit({
         type: "status",
-        message: "工具失败信息已结构化写入上下文；下一轮会按错误类型选择恢复策略。"
+        message: t(language, "agent.toolFailuresRecorded")
       });
     }
 
     if (shouldWaitForUserAnswer) {
-      emit({ type: "status", message: "Agent 正在等待用户选择后继续。" });
+      emit({ type: "status", message: t(language, "agent.waitingUser") });
       return;
     }
   }
 
-  throw new Error(`agent 超过最大工具循环次数 ${maxAgentSteps}，已停止。可以在进阶菜单调高工具调用次数限制后重试。`);
+  throw new Error(t(language, "agent.maxSteps", { max: maxAgentSteps }));
 }
 
 function buildAttachmentMessage(attachments) {
@@ -309,6 +316,7 @@ async function buildMessages({
   userInput,
   contextTokens,
   providerConfig,
+  language,
   signal,
   emit
 }) {
@@ -344,7 +352,13 @@ async function buildMessages({
 
   emit({
     type: "status",
-    message: `历史上下文接近可用输入预算（${fullInputTokens.toLocaleString("en-US")} / ${inputBudgetTokens.toLocaleString("en-US")} tokens；已预留输出 ${maxOutputTokens.toLocaleString("en-US")} tokens，安全余量 ${safetyMarginTokens.toLocaleString("en-US")} tokens），正在压缩 ${earlyMessages.length} 条早期消息...`
+    message: t(language, "agent.compressionStart", {
+      full: formatTokens(fullInputTokens),
+      input: formatTokens(inputBudgetTokens),
+      output: formatTokens(maxOutputTokens),
+      margin: formatTokens(safetyMarginTokens),
+      count: earlyMessages.length
+    })
   });
 
   try {
@@ -352,6 +366,7 @@ async function buildMessages({
       messages: earlyMessages,
       config: providerConfig,
       contextTokens: maxTokens,
+      language,
       signal
     });
     const summaryMessage = buildConversationSummaryMessage(summary);
@@ -363,7 +378,7 @@ async function buildMessages({
 
     emit({
       type: "status",
-      message: `早期对话已压缩为 ${countChatMessageTokens(summaryMessage).toLocaleString("en-US")} tokens 的记忆摘要。`
+      message: t(language, "agent.compressionDone", { tokens: formatTokens(countChatMessageTokens(summaryMessage)) })
     });
 
     return {
@@ -374,7 +389,7 @@ async function buildMessages({
     const messageText = error instanceof Error ? error.message : String(error);
     emit({
       type: "status",
-      message: `早期对话摘要失败，已退回滑动窗口上下文：${messageText}`
+      message: t(language, "agent.compressionFailed", { message: messageText })
     });
     return {
       messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, historyBudget), userMessage],
@@ -502,7 +517,7 @@ function repairChatProtocol(messages) {
   return repaired;
 }
 
-async function summarizeHistoryMessages({ messages, config, contextTokens, signal }) {
+async function summarizeHistoryMessages({ messages, config, contextTokens, language, signal }) {
   const { maxSummaryTokens, transcriptBudget, summaryConfig } = getSummaryCompressionBudgets({
     config,
     contextTokens
@@ -532,7 +547,7 @@ async function summarizeHistoryMessages({ messages, config, contextTokens, signa
   });
 
   const summary = String(response.message?.content || "").trim();
-  if (!summary) throw new Error("模型返回了空摘要。");
+  if (!summary) throw new Error(t(language, "agent.emptySummary"));
   return summary;
 }
 
@@ -622,8 +637,18 @@ function buildStreamContinuationMessage(partialMessage, streamError) {
   };
 }
 
-function throwIfAborted(signal) {
-  if (signal?.aborted) throw new Error("请求已取消。");
+function throwIfAborted(signal, language) {
+  if (signal?.aborted) throw new Error(t(language, "agent.cancelled"));
+}
+
+function formatTokens(value) {
+  return Number(value || 0).toLocaleString("en-US");
+}
+
+function commandApprovalReason(highRisk, language) {
+  return highRisk
+    ? t(language, "tools.commandPendingHighRisk")
+    : t(language, "tools.commandPendingNormal");
 }
 
 function getMaxAgentSteps(configuredValue) {

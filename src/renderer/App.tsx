@@ -54,6 +54,11 @@ function App() {
   const [sidebarSection, setSidebarSection] = useState<SidebarSection>("files");
   const [tokenUsage, setTokenUsage] = useState<TokenUsageStats>(() => emptyTokenUsage());
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [retryRequest, setRetryRequest] = useState<null | {
+    inputText: string;
+    priorMessages: ChatMessage[];
+    nextMessages: ChatMessage[];
+  }>(null);
   const [contextTokenCount, setContextTokenCount] = useState(0);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_KEY);
@@ -81,7 +86,7 @@ function App() {
   const t = translations[language];
 
   const { appendEvent, events, resetEvents } = useActivityLog();
-  const workspaceState = useWorkspace({ appendEvent });
+  const workspaceState = useWorkspace({ appendEvent, t });
   const agentState = useAgentEvents({
     appendEvent,
     language,
@@ -160,14 +165,18 @@ function App() {
   }, [composerHeight]);
 
   useEffect(() => {
-    const updateOnlineStatus = () => setIsOnline(navigator.onLine);
-    window.addEventListener("online", updateOnlineStatus);
-    window.addEventListener("offline", updateOnlineStatus);
-    return () => {
-      window.removeEventListener("online", updateOnlineStatus);
-      window.removeEventListener("offline", updateOnlineStatus);
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (retryRequest) appendEvent("status", t.networkRestoredTitle, t.networkRestoredBody);
     };
-  }, []);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [appendEvent, retryRequest, t.networkRestoredBody, t.networkRestoredTitle]);
 
   useEffect(() => {
     let cancelled = false;
@@ -191,7 +200,7 @@ function App() {
     const list = messageListRef.current;
     if (!list) return;
     list.scrollTop = list.scrollHeight;
-  }, [messages, events, agentState.patches, agentState.commands, agentState.questions, agentState.busy]);
+  }, [messages, events, agentState.patches, agentState.commands, agentState.questions, agentState.activeToolRuns, agentState.busy]);
 
   useEffect(() => {
     if (rightSidebarSection !== "activity") return;
@@ -244,6 +253,7 @@ function App() {
     }
     if (!navigator.onLine) {
       setIsOnline(false);
+      setRetryRequest({ inputText, priorMessages, nextMessages });
       appendEvent("error", t.offlineTitle, t.offlineBody);
       return;
     }
@@ -254,15 +264,28 @@ function App() {
     if (clearInput) setInput("");
     setMessages(nextMessages);
 
-    await window.agentWindow.sendMessage({
+    const result = await window.agentWindow.sendMessage({
       requestId,
       sessionId: sessionState.activeSessionId,
+      language,
       workspace: workspaceState.workspace || ".",
       input: inputText,
       providerConfig: providerState.config,
       messages: priorMessages,
       attachments: workspaceState.attachedFiles
     });
+    if (result.ok) {
+      setRetryRequest(null);
+    } else if (!result.cancelled && !navigator.onLine) {
+      setRetryRequest({ inputText, priorMessages, nextMessages });
+    }
+  }
+
+  async function retryLastRequest() {
+    if (!retryRequest || agentState.busy || !navigator.onLine) return;
+    const request = retryRequest;
+    setRetryRequest(null);
+    await startAgentRequest({ ...request, clearInput: false });
   }
 
   async function send() {
@@ -404,12 +427,10 @@ function App() {
         deleteSession={sessionState.deleteSession}
         expandedDirs={workspaceState.expandedDirs}
         fileSearch={workspaceState.fileSearch}
-        gitSummary={workspaceState.gitSummary}
         language={language}
         openFile={workspaceState.openFile}
         providerHint={providerState.providerHint}
         queryBalance={providerState.queryBalance}
-        refreshGit={() => workspaceState.refreshGit()}
         renamingSessionId={sessionState.renamingSessionId}
         renamingTitle={sessionState.renamingTitle}
         searchResults={workspaceState.searchResults}
@@ -421,7 +442,6 @@ function App() {
         setFileSearch={workspaceState.setFileSearch}
         setRenamingTitle={sessionState.setRenamingTitle}
         setSidebarSection={setSidebarSection}
-        showGitDiff={workspaceState.showGitDiff}
         sidebarSection={sidebarSection}
         startNewSession={sessionState.startNewSession}
         startRenameSession={sessionState.startRenameSession}
@@ -448,6 +468,7 @@ function App() {
         activeCommands={activeCommands}
         activePatches={activePatches}
         activeQuestions={activeQuestions}
+        activeToolRuns={agentState.activeToolRuns}
         answerQuestion={answerQuestion}
         approveCommand={agentState.approveCommand}
         applyPatch={agentState.applyPatch}
@@ -479,12 +500,16 @@ function App() {
         reasoningViews={reasoningViews}
         regenerateMessage={regenerateMessage}
         resetCommandAutoApproval={() => agentState.resetCommandAutoApproval(permissionContext())}
+        retryLastRequest={retryLastRequest}
+        retryRequestPending={Boolean(retryRequest) && isOnline}
         send={send}
+        streamRecoveryStatus={agentState.streamRecoveryStatus}
         sessionContextTokenCount={contextTokenCount}
         setInput={setInput}
         setLanguage={setLanguage}
         setTheme={setTheme}
         startComposerResize={startComposerResize}
+        streamingResponse={agentState.streamingResponse}
         t={t}
         theme={theme}
         toolDraft={agentState.toolDraft}

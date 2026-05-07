@@ -47,6 +47,20 @@ export type ToolDraft = {
   text: string;
 };
 
+export type ToolRun = {
+  id: string;
+  name: string;
+  args: string;
+  startedAt: number;
+};
+
+export type StreamRecoveryStatus = {
+  message: string;
+  attempt: number;
+  maxAttempts: number;
+  recovering: boolean;
+};
+
 export type SearchMatch = {
   file: string;
   line: number;

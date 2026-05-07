@@ -6,6 +6,19 @@
     <title>Bruce的秘密基地</title>
   </head>
   <body>
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem("agent-ui-theme");
+          const theme = saved === "dark" || saved === "light"
+            ? saved
+            : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          document.body.dataset.theme = theme;
+        } catch {
+          document.body.dataset.theme = "light";
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/renderer/App.tsx"></script>
   </body>

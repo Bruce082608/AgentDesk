@@ -17,9 +17,9 @@ declare global {
       testProvider: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderTestResult } | { ok: false; error: string }>;
       getBalance: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderBalanceResult } | { ok: false; error: string }>;
       countTokens: (payload: { messages: ChatMessage[]; input: string; attachments: AttachedFile[] }) => Promise<{ tokens: number }>;
-      applyPatch: (patchId: string) => Promise<{ ok: true; result: { ok: boolean; patchId: string; summary: string; strategy?: string; warning?: string } } | { ok: false; error: string }>;
+      applyPatch: (payload: string | { patchId: string; language?: "zh" | "en" }) => Promise<{ ok: true; result: { ok: boolean; patchId: string; summary: string; strategy?: string; warning?: string } } | { ok: false; error: string }>;
       discardPatch: (patchId: string) => Promise<{ ok: boolean; patchId: string }>;
-      approveCommand: (payload: { commandId: string; allowFuture?: boolean }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; highRisk: boolean; autoApproveFutureCommands: boolean; commandAutoApproval: boolean; patchAutoApproval: boolean; commandAutoApprovalExpiresAt?: number | null; patchAutoApprovalExpiresAt?: number | null } } | { ok: false; error: string }>;
+      approveCommand: (payload: { commandId: string; allowFuture?: boolean; language?: "zh" | "en" }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; highRisk: boolean; autoApproveFutureCommands: boolean; commandAutoApproval: boolean; patchAutoApproval: boolean; commandAutoApprovalExpiresAt?: number | null; patchAutoApprovalExpiresAt?: number | null } } | { ok: false; error: string }>;
       discardCommand: (commandId: string) => Promise<{ ok: boolean; commandId: string }>;
       setCommandAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       setPatchAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
@@ -92,6 +92,7 @@ export type ProviderBalanceResult = {
 export type AgentRequest = {
   requestId: string;
   sessionId?: string;
+  language?: "zh" | "en";
   workspace: string;
   input: string;
   providerConfig: ProviderConfig;
@@ -152,6 +153,7 @@ export type AgentEvent =
   | { requestId: string; type: "stream_delta"; text: string }
   | { requestId: string; type: "reasoning_delta"; text: string }
   | { requestId: string; type: "tool_call_delta"; name?: string; text: string }
+  | { requestId: string; type: "stream_recovery"; message: string; attempt: number; maxAttempts: number; recovering: boolean }
   | { requestId: string; type: "plan_update"; items: PlanItem[] }
   | { requestId: string; type: "model"; message: string; provider: string; model: string; finishReason?: string | null; reasoning?: string; usage?: unknown; tool_calls?: ChatToolCall[] }
   | { requestId: string; type: "tool_start"; name: string; args: string }

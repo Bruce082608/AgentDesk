@@ -7,6 +7,7 @@ import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setPatchAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
+import { normalizeLanguage, t } from "./i18n.js";
 import { countAgentRequestTokens } from "../shared/tokenCounter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -100,6 +101,7 @@ ipcMain.handle("git:diff", async (_event, workspace) => {
 
 ipcMain.handle("agent:send", async (event, payload) => {
   const requestId = payload.requestId;
+  const language = normalizeLanguage(payload.language);
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
   const emit = (message) => {
@@ -112,7 +114,7 @@ ipcMain.handle("agent:send", async (event, payload) => {
     return { ok: true };
   } catch (error) {
     if (controller.signal.aborted) {
-      emit({ type: "cancelled", message: "请求已取消。" });
+      emit({ type: "cancelled", message: t(language, "agent.cancelled") });
       return { ok: false, cancelled: true };
     }
     emit({
@@ -166,9 +168,11 @@ ipcMain.handle("tokens:count", async (_event, payload) => {
   };
 });
 
-ipcMain.handle("patch:apply", async (_event, patchId) => {
+ipcMain.handle("patch:apply", async (_event, payload) => {
+  const patchId = typeof payload === "string" ? payload : payload?.patchId;
+  const language = normalizeLanguage(payload?.language);
   try {
-    const result = await applyPendingPatch(patchId);
+    const result = await applyPendingPatch(patchId, { language });
     return { ok: true, result };
   } catch (error) {
     return {
@@ -185,7 +189,7 @@ ipcMain.handle("patch:discard", async (_event, patchId) => {
 ipcMain.handle("command:approve", async (_event, payload) => {
   try {
     const commandId = typeof payload === "string" ? payload : payload?.commandId;
-    const result = await approvePendingCommand(commandId, { allowFuture: Boolean(payload?.allowFuture) });
+    const result = await approvePendingCommand(commandId, { allowFuture: Boolean(payload?.allowFuture), language: normalizeLanguage(payload?.language) });
     return { ok: true, result };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
