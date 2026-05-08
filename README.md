@@ -21,6 +21,18 @@ npm install
 npm run dev
 ```
 
+### Windows drag-and-drop note
+
+Windows native file drag-and-drop is sensitive to the process that launches Electron. If the app is started from a sandboxed host, an elevated terminal, or another process with a different integrity level than Explorer, Windows can block drops before the web page receives any drag event. The cursor will show a "not allowed" symbol everywhere in the window.
+
+Start the app from a normal PowerShell window or by double-clicking `start-agent-window.cmd` so Electron runs in the same desktop context as Explorer:
+
+```powershell
+.\start-agent-window.cmd
+```
+
+If drag-and-drop works from normal PowerShell but not from another host, the app code is receiving a Windows process-boundary restriction rather than a React drag handler failure.
+
 You can provide the API key in the UI or through an environment variable:
 
 ```powershell
@@ -50,3 +62,11 @@ The generated installers and archives are written to `release/`.
 
 `npm run pack` creates an unpacked app directory for quick packaging checks.
 `npm run dist` requests macOS, Windows, and Linux targets from electron-builder; some cross-platform targets may require platform-specific tooling such as Wine on macOS/Linux for Windows installers.
+
+## Checks
+
+```powershell
+npm run check
+```
+
+`npm run check:encoding` scans source files for common mojibake markers so UTF-8 regressions are caught before they reach the UI.

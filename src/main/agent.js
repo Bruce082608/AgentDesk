@@ -350,16 +350,15 @@ async function buildMessages({
     };
   }
 
-  emit({
-    type: "status",
-    message: t(language, "agent.compressionStart", {
+  const compressionStartMessage = t(language, "agent.compressionStart", {
       full: formatTokens(fullInputTokens),
       input: formatTokens(inputBudgetTokens),
       output: formatTokens(maxOutputTokens),
       margin: formatTokens(safetyMarginTokens),
       count: earlyMessages.length
-    })
   });
+  emit({ type: "context_compression", phase: "start", message: compressionStartMessage });
+  emit({ type: "status", message: compressionStartMessage });
 
   try {
     const summary = await summarizeHistoryMessages({
@@ -376,10 +375,9 @@ async function buildMessages({
     );
     const recentWithinBudget = selectRecentMessages(recentMessages, remainingBudget);
 
-    emit({
-      type: "status",
-      message: t(language, "agent.compressionDone", { tokens: formatTokens(countChatMessageTokens(summaryMessage)) })
-    });
+    const compressionDoneMessage = t(language, "agent.compressionDone", { tokens: formatTokens(countChatMessageTokens(summaryMessage)) });
+    emit({ type: "context_compression", phase: "done", message: compressionDoneMessage });
+    emit({ type: "status", message: compressionDoneMessage });
 
     return {
       messages: [...fixedMessages, summaryMessage, ...recentWithinBudget, userMessage],
@@ -387,10 +385,9 @@ async function buildMessages({
     };
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
-    emit({
-      type: "status",
-      message: t(language, "agent.compressionFailed", { message: messageText })
-    });
+    const compressionFailedMessage = t(language, "agent.compressionFailed", { message: messageText });
+    emit({ type: "context_compression", phase: "failed", message: compressionFailedMessage });
+    emit({ type: "status", message: compressionFailedMessage });
     return {
       messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, historyBudget), userMessage],
       compressed: false

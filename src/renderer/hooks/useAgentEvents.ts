@@ -66,21 +66,17 @@ export function useAgentEvents({
     });
   }, []);
 
-  const updateCompressionStatus = useCallback((message: string) => {
-    const isCompressionStart = message.includes("正在压缩") || message.includes("Compressing");
-    const isCompressionFailed = message.includes("摘要失败") || message.includes("已退回滑动窗口") || message.includes("summary failed") || message.includes("falling back");
-    const isCompressionDone = message.includes("已压缩") || message.includes("compressed into") || isCompressionFailed;
-    if (!isCompressionStart && !isCompressionDone) return;
+  const updateCompressionStatus = useCallback((phase: "start" | "done" | "failed") => {
     if (compressionStatusTimer.current) {
       window.clearTimeout(compressionStatusTimer.current);
       compressionStatusTimer.current = null;
     }
-    if (isCompressionStart) {
+    if (phase === "start") {
       setContextCompressionStatus(language === "zh" ? "正在自动压缩上下文" : "Auto-compressing context");
       return;
     }
     setContextCompressionStatus(
-      isCompressionFailed
+      phase === "failed"
         ? (language === "zh" ? "上下文压缩失败，已使用滑动窗口" : "Context compression failed; using recent history")
         : (language === "zh" ? "上下文压缩完成" : "Context compression complete")
     );
@@ -196,7 +192,12 @@ export function useAgentEvents({
     }
 
     if (event.type === "status") {
-      updateCompressionStatus(event.message);
+      appendEvent("status", ui.status, event.message);
+      return;
+    }
+
+    if (event.type === "context_compression") {
+      updateCompressionStatus(event.phase);
       appendEvent("status", ui.status, event.message);
       return;
     }

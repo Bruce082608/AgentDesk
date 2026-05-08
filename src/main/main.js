@@ -8,6 +8,19 @@ import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setPatchAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
 import { normalizeLanguage, t } from "./i18n.js";
+import {
+  validateAgentSendPayload,
+  validateAutoApprovalPayload,
+  validateCommandApprovalPayload,
+  validateCommandId,
+  validateConfigPayload,
+  validateFileReadPayload,
+  validateFileSearchPayload,
+  validatePatchPayload,
+  validateRequestId,
+  validateTokenCountPayload,
+  validateWorkspace
+} from "./ipc-validation.js";
 import { countAgentRequestTokens } from "../shared/tokenCounter.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,19 +79,21 @@ ipcMain.handle("config:load", async () => {
 });
 
 ipcMain.handle("config:save", async (_event, config) => {
-  return await saveAppConfig(config);
+  return await saveAppConfig(validateConfigPayload(config));
 });
 
 ipcMain.handle("workspace:tree", async (_event, workspace) => {
-  return await getWorkspaceTree(workspace);
+  return await getWorkspaceTree(validateWorkspace(workspace));
 });
 
 ipcMain.handle("file:read", async (_event, payload) => {
-  return await readWorkspaceFile(payload.workspace, payload.path);
+  const validated = validateFileReadPayload(payload);
+  return await readWorkspaceFile(validated.workspace, validated.path);
 });
 
 ipcMain.handle("file:search", async (_event, payload) => {
-  return await searchWorkspaceFiles(payload.workspace, payload.query, payload.maxResults);
+  const validated = validateFileSearchPayload(payload);
+  return await searchWorkspaceFiles(validated.workspace, validated.query, validated.maxResults);
 });
 
 ipcMain.handle("file:choose-attachments", async () => {
@@ -92,16 +107,24 @@ ipcMain.handle("file:choose-attachments", async () => {
 });
 
 ipcMain.handle("git:summary", async (_event, workspace) => {
-  return await getGitSummary(workspace);
+  return await getGitSummary(validateWorkspace(workspace));
 });
 
 ipcMain.handle("git:diff", async (_event, workspace) => {
-  return await getGitDiff(workspace);
+  return await getGitDiff(validateWorkspace(workspace));
 });
 
 ipcMain.handle("agent:send", async (event, payload) => {
+  try {
+    payload = validateAgentSendPayload(payload);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
   const requestId = payload.requestId;
   const language = normalizeLanguage(payload.language);
+  if (activeRequests.has(requestId)) {
+    return { ok: false, error: "Duplicate requestId." };
+  }
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
   const emit = (message) => {
@@ -128,7 +151,7 @@ ipcMain.handle("agent:send", async (event, payload) => {
 });
 
 ipcMain.handle("agent:cancel", async (_event, requestId) => {
-  const controller = activeRequests.get(requestId);
+  const controller = activeRequests.get(validateRequestId(requestId));
   if (!controller) return { ok: false };
   controller.abort();
   return { ok: true };
@@ -136,7 +159,7 @@ ipcMain.handle("agent:cancel", async (_event, requestId) => {
 
 ipcMain.handle("provider:test", async (_event, config) => {
   try {
-    const result = await testProviderConnection(config);
+    const result = await testProviderConnection(validateConfigPayload(config));
     return { ok: true, result };
   } catch (error) {
     return {
@@ -148,7 +171,7 @@ ipcMain.handle("provider:test", async (_event, config) => {
 
 ipcMain.handle("provider:balance", async (_event, config) => {
   try {
-    const result = await getProviderBalance(config);
+    const result = await getProviderBalance(validateConfigPayload(config));
     return { ok: true, result };
   } catch (error) {
     return {
@@ -159,18 +182,20 @@ ipcMain.handle("provider:balance", async (_event, config) => {
 });
 
 ipcMain.handle("tokens:count", async (_event, payload) => {
+  const validated = validateTokenCountPayload(payload);
   return {
     tokens: countAgentRequestTokens({
-      messages: Array.isArray(payload?.messages) ? payload.messages : [],
-      input: payload?.input || "",
-      attachments: Array.isArray(payload?.attachments) ? payload.attachments : []
+      messages: validated.messages,
+      input: validated.input,
+      attachments: validated.attachments
     })
   };
 });
 
 ipcMain.handle("patch:apply", async (_event, payload) => {
-  const patchId = typeof payload === "string" ? payload : payload?.patchId;
-  const language = normalizeLanguage(payload?.language);
+  const validated = validatePatchPayload(payload);
+  const patchId = validated.patchId;
+  const language = normalizeLanguage(validated.language);
   try {
     const result = await applyPendingPatch(patchId, { language });
     return { ok: true, result };
@@ -183,13 +208,13 @@ ipcMain.handle("patch:apply", async (_event, payload) => {
 });
 
 ipcMain.handle("patch:discard", async (_event, patchId) => {
-  return discardPendingPatch(patchId);
+  return discardPendingPatch(validatePatchPayload({ patchId }).patchId);
 });
 
 ipcMain.handle("command:approve", async (_event, payload) => {
   try {
-    const commandId = typeof payload === "string" ? payload : payload?.commandId;
-    const result = await approvePendingCommand(commandId, { allowFuture: Boolean(payload?.allowFuture), language: normalizeLanguage(payload?.language) });
+    const validated = validateCommandApprovalPayload(payload);
+    const result = await approvePendingCommand(validated.commandId, { allowFuture: validated.allowFuture, language: normalizeLanguage(validated.language) });
     return { ok: true, result };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -197,13 +222,13 @@ ipcMain.handle("command:approve", async (_event, payload) => {
 });
 
 ipcMain.handle("command:discard", async (_event, commandId) => {
-  return discardPendingCommand(commandId);
+  return discardPendingCommand(validateCommandId(commandId));
 });
 
 ipcMain.handle("command:auto-approval", async (_event, payload) => {
-  return setCommandAutoApproval(payload);
+  return setCommandAutoApproval(validateAutoApprovalPayload(payload));
 });
 
 ipcMain.handle("patch:auto-approval", async (_event, payload) => {
-  return setPatchAutoApproval(payload);
+  return setPatchAutoApproval(validateAutoApprovalPayload(payload));
 });

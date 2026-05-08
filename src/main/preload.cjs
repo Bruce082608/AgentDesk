@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("agentWindow", {
   chooseWorkspace: () => ipcRenderer.invoke("workspace:choose"),
@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("agentWindow", {
   readFile: (payload) => ipcRenderer.invoke("file:read", payload),
   searchFiles: (payload) => ipcRenderer.invoke("file:search", payload),
   chooseAttachmentFiles: () => ipcRenderer.invoke("file:choose-attachments"),
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   getGitSummary: (workspace) => ipcRenderer.invoke("git:summary", workspace),
   getGitDiff: (workspace) => ipcRenderer.invoke("git:diff", workspace),
   loadConfig: () => ipcRenderer.invoke("config:load"),

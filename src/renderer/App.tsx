@@ -133,6 +133,35 @@ function App() {
     workspace: workspaceState.workspace
   });
 
+  // ---- Document-level drag-and-drop ----
+  // On Windows Electron, the window must call preventDefault() on dragover
+  // at the document level to accept native file drops.  Without this the
+  // cursor shows "not allowed" as soon as it enters the window, and the
+  // per-element handlers on the conversation never get a chance to fire.
+  useEffect(() => {
+    const onDragEnter = (event: DragEvent) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    };
+    const onDragOver = (event: DragEvent) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    };
+    const onDrop = (event: DragEvent) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    };
+
+    window.addEventListener("dragenter", onDragEnter, true);
+    window.addEventListener("dragover", onDragOver, true);
+    window.addEventListener("drop", onDrop, true);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter, true);
+      window.removeEventListener("dragover", onDragOver, true);
+      window.removeEventListener("drop", onDrop, true);
+    };
+  }, []);
+
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme);
 

@@ -8,6 +8,7 @@ declare global {
       readFile: (payload: { workspace: string; path: string }) => Promise<{ path: string; content: string }>;
       searchFiles: (payload: { workspace: string; query: string; maxResults?: number }) => Promise<WorkspaceSearchResult>;
       chooseAttachmentFiles: () => Promise<AttachedFile[]>;
+      getPathForFile: (file: File) => string;
       getGitSummary: (workspace: string) => Promise<GitSummary>;
       getGitDiff: (workspace: string) => Promise<{ diff: string }>;
       loadConfig: () => Promise<{ config: ProviderConfig & { recoveredFromError?: string }; path: string }>;
@@ -151,6 +152,7 @@ export type AutoApprovalState = {
 
 export type AgentEvent =
   | { requestId: string; type: "status"; message: string }
+  | { requestId: string; type: "context_compression"; phase: "start" | "done" | "failed"; message: string }
   | { requestId: string; type: "stream_delta"; text: string }
   | { requestId: string; type: "reasoning_delta"; text: string }
   | { requestId: string; type: "tool_call_delta"; name?: string; text: string }

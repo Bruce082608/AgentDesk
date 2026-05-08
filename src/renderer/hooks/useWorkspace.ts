@@ -229,7 +229,12 @@ async function readDroppedFiles(fileList: File[]): Promise<AttachedFile[]> {
 }
 
 function getDroppedFilePath(file: File) {
-  const electronPath = (file as File & { path?: string }).path;
+  let electronPath = "";
+  try {
+    electronPath = window.agentWindow.getPathForFile(file);
+  } catch {
+    electronPath = (file as File & { path?: string }).path || "";
+  }
   return electronPath || file.webkitRelativePath || file.name;
 }
 

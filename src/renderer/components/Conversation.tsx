@@ -315,40 +315,65 @@ export function Conversation({
     updateReasoningView
   ]);
 
-  function hasDraggedFiles(event: DragEvent<HTMLDivElement>) {
-    return Array.from(event.dataTransfer?.types || []).includes("Files");
+  // ---- Drag-and-drop handlers ----
+  // NOTE: must call preventDefault() BEFORE checking file types,
+  // because on Windows the DataTransfer.types may not include "Files"
+  // on dragenter, which would prevent the element from becoming a
+  // valid drop target.  stopPropagation() ensures the document-level
+  // dragover/drop handlers (which exist for Windows compat) don't
+  // override our dropEffect or double-process the drop.
+  function hasDraggedFiles(event: DragEvent<HTMLElement>) {
+    const dt = event.dataTransfer;
+    if (!dt) return false;
+    const items = Array.from(dt.items || []);
+    if (items.some((item) => item.kind === "file")) return true;
+    const types = Array.from(dt.types || []);
+    if (types.includes("Files")) return true;
+    // fallback: on Windows the "Files" type may be missing from types
+    // even though files are actually being dragged
+    if (dt.files && dt.files.length > 0) return true;
+    return false;
   }
 
-  function handleMessageDragEnter(event: DragEvent<HTMLDivElement>) {
-    if (!hasDraggedFiles(event)) return;
+  function handleConversationDragEnter(event: DragEvent<HTMLElement>) {
     event.preventDefault();
+    if (!hasDraggedFiles(event)) return;
     dragDepthRef.current += 1;
     setDraggingFiles(true);
   }
 
-  function handleMessageDragOver(event: DragEvent<HTMLDivElement>) {
-    if (!hasDraggedFiles(event)) return;
+  function handleConversationDragOver(event: DragEvent<HTMLElement>) {
     event.preventDefault();
+    event.stopPropagation();
+    if (!hasDraggedFiles(event)) return;
+    if (!draggingFiles) setDraggingFiles(true);
     event.dataTransfer.dropEffect = "copy";
   }
 
-  function handleMessageDragLeave(event: DragEvent<HTMLDivElement>) {
+  function handleConversationDragLeave(event: DragEvent<HTMLElement>) {
     if (!hasDraggedFiles(event)) return;
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) setDraggingFiles(false);
   }
 
-  async function handleMessageDrop(event: DragEvent<HTMLDivElement>) {
-    if (!hasDraggedFiles(event)) return;
+  async function handleConversationDrop(event: DragEvent<HTMLElement>) {
     event.preventDefault();
+    event.stopPropagation();
     dragDepthRef.current = 0;
-    setDraggingFiles(false);
+    if (draggingFiles) setDraggingFiles(false);
+    if (!hasDraggedFiles(event)) return;
     const files = Array.from(event.dataTransfer.files || []);
     if (files.length > 0) await attachDroppedFiles(files);
   }
 
   return (
-    <main className="conversation">
+    <main
+      className="conversation"
+      onDragEnter={handleConversationDragEnter}
+      onDragOver={handleConversationDragOver}
+      onDragLeave={handleConversationDragLeave}
+      onDrop={handleConversationDrop}
+    >
       <header className="topbar">
         <div>
           <strong>{t.agentSession}</strong>
@@ -389,10 +414,6 @@ export function Conversation({
       <div
         className={`message-list${draggingFiles ? " dragging-files" : ""}`}
         ref={messageListRef}
-        onDragEnter={handleMessageDragEnter}
-        onDragOver={handleMessageDragOver}
-        onDragLeave={handleMessageDragLeave}
-        onDrop={handleMessageDrop}
       >
         {draggingFiles && (
           <div className="message-drop-zone" aria-hidden="true">

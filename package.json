@@ -15,9 +15,10 @@
     "dist:win": "npm run build && electron-builder --win",
     "dist:linux": "npm run build && electron-builder --linux",
     "check:safe-storage": "electron scripts/check-safe-storage.cjs",
+    "check:encoding": "node scripts/check-encoding.cjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run check:encoding && npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "gpt-tokenizer": "^3.4.0",
