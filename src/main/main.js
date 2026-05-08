@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAgentTurn } from "./agent.js";
-import { readUploadedFiles } from "./attachments.js";
+import { readAttachmentFiles, readUploadedFiles } from "./attachments.js";
 import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setPatchAutoApproval } from "./tools.js";
@@ -10,6 +10,7 @@ import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchW
 import { normalizeLanguage, t } from "./i18n.js";
 import {
   validateAgentSendPayload,
+  validateAttachmentPathsPayload,
   validateAutoApprovalPayload,
   validateCommandApprovalPayload,
   validateCommandId,
@@ -19,7 +20,8 @@ import {
   validatePatchPayload,
   validateRequestId,
   validateTokenCountPayload,
-  validateWorkspace
+  validateWorkspace,
+  validateWorkspaceTreePayload
 } from "./ipc-validation.js";
 import { countAgentRequestTokens } from "../shared/tokenCounter.js";
 
@@ -83,7 +85,8 @@ ipcMain.handle("config:save", async (_event, config) => {
 });
 
 ipcMain.handle("workspace:tree", async (_event, workspace) => {
-  return await getWorkspaceTree(validateWorkspace(workspace));
+  const validated = validateWorkspaceTreePayload(workspace);
+  return await getWorkspaceTree(validated.workspace, validated.directory);
 });
 
 ipcMain.handle("file:read", async (_event, payload) => {
@@ -104,6 +107,11 @@ ipcMain.handle("file:choose-attachments", async () => {
 
   if (result.canceled || result.filePaths.length === 0) return [];
   return await readUploadedFiles(result.filePaths);
+});
+
+ipcMain.handle("file:read-attachments", async (_event, payload) => {
+  const validated = validateAttachmentPathsPayload(payload);
+  return await readAttachmentFiles(validated.paths);
 });
 
 ipcMain.handle("git:summary", async (_event, workspace) => {

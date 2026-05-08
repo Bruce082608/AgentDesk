@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
 import type { Language, translations } from "../i18n";
-import type { AttachedFile, ChatMessage, ReasoningView, StreamRecoveryStatus, ToolDraft, ToolRun } from "../types";
+import type { AttachedFile, ChatMessage, ContextCompressionState, ReasoningView, StreamRecoveryStatus, ToolDraft, ToolRun } from "../types";
 import { CodeBlock, MarkdownContent, formatToolDraftText } from "../utils";
 import { ApprovalPanel } from "./ApprovalPanel";
 import type { CommandItem, PatchItem, UserQuestionItem } from "../types";
@@ -25,6 +25,7 @@ type ConversationProps = {
   composerHeight: number;
   composerInputRef: RefObject<HTMLTextAreaElement | null>;
   configContextTokens: number;
+  contextCompression: ContextCompressionState;
   contextCompressionStatus: string;
   contextPercent: number;
   contextUsageLabel: string;
@@ -58,8 +59,7 @@ type ConversationProps = {
   toolDraft: ToolDraft | null;
   showScrollToBottom: boolean;
   scrollToBottom: () => void;
-  updateCommandAutoApproval: (enabled: boolean) => void;
-  updatePatchAutoApproval: (enabled: boolean) => void;
+  updatePermissionMode: (mode: "default" | "full") => void;
   updateReasoningView: (key: string, view: ReasoningView) => void;
   uploadAttachmentFiles: () => void;
   copyMessage: (message: ChatMessage) => void;
@@ -83,6 +83,7 @@ export function Conversation({
   composerHeight,
   composerInputRef,
   configContextTokens,
+  contextCompression,
   contextCompressionStatus,
   contextPercent,
   contextUsageLabel,
@@ -117,20 +118,16 @@ export function Conversation({
   toolDraft,
   showScrollToBottom,
   scrollToBottom,
-  updateCommandAutoApproval,
-  updatePatchAutoApproval,
+  updatePermissionMode,
   updateReasoningView,
   uploadAttachmentFiles
 }: ConversationProps) {
   const hasAutoPermissions = commandAutoApproval || patchAutoApproval;
+  const fullAccessEnabled = commandAutoApproval && patchAutoApproval;
   const autoPermissionTitle = [
-    language === "zh" ? "自动权限仅限当前会话和 workspace，最长 30 分钟。" : "Auto permissions are scoped to this chat and workspace for up to 30 minutes.",
-    commandAutoApproval && commandAutoApprovalExpiresAt
-      ? `${language === "zh" ? "命令到期" : "Commands expire"} ${new Date(commandAutoApprovalExpiresAt).toLocaleTimeString()}.`
-      : "",
-    patchAutoApproval && patchAutoApprovalExpiresAt
-      ? `${language === "zh" ? "Patch 到期" : "Patches expire"} ${new Date(patchAutoApprovalExpiresAt).toLocaleTimeString()}.`
-      : ""
+    language === "zh" ? "完全访问权限仅限当前会话和 workspace，直到你切回默认权限或应用重启。" : "Full access is scoped to this chat and workspace until you switch back to default permissions or restart the app.",
+    commandAutoApproval ? (language === "zh" ? "命令无需审批。" : "Commands do not require approval.") : "",
+    patchAutoApproval ? (language === "zh" ? "文件变更无需审批。" : "File changes do not require approval.") : ""
   ].filter(Boolean).join(" ");
   const streamingMessageIndex = streamingResponse ? getStreamingAssistantIndex(messages) : -1;
   const activeToolName = toolDraft ? (toolDraft.name || "tool") : activeToolRuns[activeToolRuns.length - 1]?.name || "";
@@ -439,10 +436,28 @@ export function Conversation({
               <span>{activeToolStatus}</span>
             </div>
           )}
+          {contextCompression.phase !== "idle" && (
+            <details className={`composer-compression ${contextCompression.phase}`} open={contextCompression.phase === "start" || contextCompression.phase === "failed"}>
+              <summary>
+                <span className="compression-dot" />
+                <span>{contextCompressionStatus || contextCompression.message}</span>
+              </summary>
+              {contextCompression.summary ? (
+                <pre>{contextCompression.summary}</pre>
+              ) : (
+                <p>{contextCompression.message}</p>
+              )}
+            </details>
+          )}
           {attachedFiles.length > 0 && (
             <div className="composer-attachments">
               {attachedFiles.map((file) => (
-                <button key={file.path} type="button" onClick={() => detachFile(file.path)} title={t.removeContextTitle}>{file.path} ×</button>
+                <button key={file.path} type="button" onClick={() => detachFile(file.path)} title={formatAttachmentTitle(file, language, t.removeContextTitle)}>
+                  <span className="attachment-name">{file.path}</span>
+                  <span className={`attachment-badge ${file.status || "ready"}`}>{formatAttachmentStatus(file, language)}</span>
+                  {file.duplicateCount && file.duplicateCount > 1 && <span className="attachment-badge duplicate">×{file.duplicateCount}</span>}
+                  <span aria-hidden="true">×</span>
+                </button>
               ))}
             </div>
           )}
@@ -460,36 +475,25 @@ export function Conversation({
             }}
           />
           <div className="composer-controls">
-            <div className="permission-inline" title={t.defaultPermissionHint} aria-label={t.permissionMode}>
-              <span>{language === "zh" ? "权限" : "Perms"}</span>
-              <label
-                className={`permission-toggle ${commandAutoApproval ? "active" : ""}`}
-                title={language === "zh" ? "命令自动执行" : "Auto-run commands"}
-                aria-label={language === "zh" ? "命令自动执行" : "Auto-run commands"}
+            <div className="permission-segment" title={hasAutoPermissions ? t.fullAccessPermissionHint : t.defaultPermissionHint} aria-label={t.permissionMode}>
+              <button
+                type="button"
+                className={!fullAccessEnabled ? "active" : ""}
+                onClick={() => updatePermissionMode("default")}
               >
-                <input
-                  type="checkbox"
-                  checked={commandAutoApproval}
-                  onChange={(event) => updateCommandAutoApproval(event.target.checked)}
-                />
-                <span aria-hidden="true">{language === "zh" ? "命令" : "Cmd"}</span>
-              </label>
-              <label
-                className={`permission-toggle ${patchAutoApproval ? "active" : ""}`}
-                title={language === "zh" ? "Patch 自动应用" : "Auto-apply patches"}
-                aria-label={language === "zh" ? "Patch 自动应用" : "Auto-apply patches"}
+                {t.defaultPermission}
+              </button>
+              <button
+                type="button"
+                className={fullAccessEnabled ? "active" : ""}
+                onClick={() => updatePermissionMode("full")}
               >
-                <input
-                  type="checkbox"
-                  checked={patchAutoApproval}
-                  onChange={(event) => updatePatchAutoApproval(event.target.checked)}
-                />
-                <span aria-hidden="true">Patch</span>
-              </label>
+                {t.fullAccessPermission}
+              </button>
             </div>
             {hasAutoPermissions && (
               <span className="permission-status" title={autoPermissionTitle}>
-                {language === "zh" ? "自动权限 30 分钟" : "Auto permissions 30m"}
+                {language === "zh" ? "当前会话完全访问" : "Full access for session"}
               </span>
             )}
             <div className="composer-actions">
@@ -675,4 +679,24 @@ function formatActiveToolStatus(name: string, language: Language) {
   return language === "zh"
     ? `Agent 正在调用 ${displayName}...`
     : `Agent is calling ${displayName}...`;
+}
+
+function formatAttachmentStatus(file: AttachedFile, language: Language) {
+  const zh = language === "zh";
+  if (file.status === "large") return zh ? "过大" : "large";
+  if (file.status === "binary") return zh ? "二进制" : "binary";
+  if (file.status === "truncated" || file.truncated) return zh ? "已截断" : "truncated";
+  return zh ? "就绪" : "ready";
+}
+
+function formatAttachmentTitle(file: AttachedFile, language: Language, removeTitle: string) {
+  const parts = [
+    removeTitle,
+    file.path,
+    formatAttachmentStatus(file, language),
+    file.size ? `${file.size.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} bytes` : "",
+    file.chars ? `${file.chars.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} chars` : "",
+    file.duplicateCount && file.duplicateCount > 1 ? `${language === "zh" ? "重复添加" : "duplicate adds"}: ${file.duplicateCount}` : ""
+  ].filter(Boolean);
+  return parts.join("\n");
 }

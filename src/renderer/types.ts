@@ -22,6 +22,10 @@ export type CommandItem = {
   id: string;
   command: string;
   reason: string;
+  cwd?: string;
+  timeoutMs?: number | null;
+  shell?: string;
+  inheritedEnv?: boolean;
   highRisk: boolean;
   status: "pending" | "approved" | "discarded" | "failed";
   result?: string;
@@ -60,6 +64,13 @@ export type StreamRecoveryStatus = {
   attempt: number;
   maxAttempts: number;
   recovering: boolean;
+};
+
+export type ContextCompressionState = {
+  phase: "idle" | "start" | "done" | "failed";
+  message: string;
+  summary?: string;
+  updatedAt?: number;
 };
 
 export type SearchMatch = {

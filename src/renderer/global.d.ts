@@ -4,10 +4,11 @@ declare global {
   interface Window {
     agentWindow: {
       chooseWorkspace: () => Promise<string | null>;
-      getWorkspaceTree: (workspace: string) => Promise<{ items: WorkspaceTreeItem[]; truncated: boolean }>;
+      getWorkspaceTree: (payload: string | { workspace: string; directory?: string }) => Promise<{ directory?: string; items: WorkspaceTreeItem[]; truncated: boolean }>;
       readFile: (payload: { workspace: string; path: string }) => Promise<{ path: string; content: string }>;
       searchFiles: (payload: { workspace: string; query: string; maxResults?: number }) => Promise<WorkspaceSearchResult>;
       chooseAttachmentFiles: () => Promise<AttachedFile[]>;
+      readAttachmentFiles: (payload: { paths: string[] }) => Promise<AttachedFile[]>;
       getPathForFile: (file: File) => string;
       getGitSummary: (workspace: string) => Promise<GitSummary>;
       getGitDiff: (workspace: string) => Promise<{ diff: string }>;
@@ -20,7 +21,7 @@ declare global {
       countTokens: (payload: { messages: ChatMessage[]; input: string; attachments: AttachedFile[] }) => Promise<{ tokens: number }>;
       applyPatch: (payload: string | { patchId: string; language?: "zh" | "en" }) => Promise<{ ok: true; result: { ok: boolean; patchId: string; summary: string; strategy?: string; warning?: string } } | { ok: false; error: string }>;
       discardPatch: (patchId: string) => Promise<{ ok: boolean; patchId: string }>;
-      approveCommand: (payload: { commandId: string; allowFuture?: boolean; language?: "zh" | "en" }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; highRisk: boolean; autoApproveFutureCommands: boolean; commandAutoApproval: boolean; patchAutoApproval: boolean; commandAutoApprovalExpiresAt?: number | null; patchAutoApprovalExpiresAt?: number | null } } | { ok: false; error: string }>;
+      approveCommand: (payload: { commandId: string; allowFuture?: boolean; language?: "zh" | "en" }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; cwd?: string; timeoutMs?: number; shell?: string; inheritedEnv?: boolean; highRisk: boolean; autoApproveFutureCommands: boolean; commandAutoApproval: boolean; patchAutoApproval: boolean; commandAutoApprovalExpiresAt?: number | null; patchAutoApprovalExpiresAt?: number | null } } | { ok: false; error: string }>;
       discardCommand: (commandId: string) => Promise<{ ok: boolean; commandId: string }>;
       setCommandAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       setPatchAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
@@ -107,6 +108,8 @@ export type WorkspaceTreeItem = {
   name: string;
   type: "file" | "directory";
   depth: number;
+  loaded?: boolean;
+  hasChildren?: boolean;
 };
 
 export type WorkspaceSearchResult = {
@@ -118,6 +121,11 @@ export type WorkspaceSearchResult = {
 export type AttachedFile = {
   path: string;
   content: string;
+  status?: "ready" | "large" | "binary" | "truncated";
+  size?: number;
+  chars?: number;
+  truncated?: boolean;
+  duplicateCount?: number;
 };
 
 export type GitSummary = {
@@ -147,12 +155,12 @@ export type AutoApprovalState = {
   autoApproveFutureCommands?: boolean;
   commandAutoApprovalExpiresAt?: number | null;
   patchAutoApprovalExpiresAt?: number | null;
-  ttlMs?: number;
+  ttlMs?: number | null;
 };
 
 export type AgentEvent =
   | { requestId: string; type: "status"; message: string }
-  | { requestId: string; type: "context_compression"; phase: "start" | "done" | "failed"; message: string }
+  | { requestId: string; type: "context_compression"; phase: "start" | "done" | "failed"; message: string; summary?: string }
   | { requestId: string; type: "stream_delta"; text: string }
   | { requestId: string; type: "reasoning_delta"; text: string }
   | { requestId: string; type: "tool_call_delta"; name?: string; text: string }
@@ -164,7 +172,7 @@ export type AgentEvent =
   | { requestId: string; type: "tool_error"; name: string; message: string; toolCallId?: string; result?: string }
   | { requestId: string; type: "patch_proposed"; patchId: string; summary: string; patch: string }
   | { requestId: string; type: "patch_applied"; patchId: string; summary: string; strategy?: string }
-  | { requestId: string; type: "command_pending"; commandId: string; command: string; reason: string; highRisk?: boolean }
+  | { requestId: string; type: "command_pending"; commandId: string; command: string; reason: string; cwd?: string; timeoutMs?: number | null; shell?: string; inheritedEnv?: boolean; highRisk?: boolean }
   | { requestId: string; type: "ask_user_pending"; question: string; context?: string; options?: string[] }
   | { requestId: string; type: "error"; message: string }
   | { requestId: string; type: "cancelled"; message: string }

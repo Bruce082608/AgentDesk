@@ -19,6 +19,7 @@ type SidebarProps = {
   balanceResult: ProviderBalanceResult | null;
   busy: boolean;
   cancelRenameSession: () => void;
+  cancelSearchWorkspace: () => void;
   checkingBalance: boolean;
   chooseWorkspace: () => void;
   commitRenameSession: (sessionId: string) => void;
@@ -28,6 +29,7 @@ type SidebarProps = {
   expandedDirs: Set<string>;
   fileSearch: string;
   language: Language;
+  loadingDirs: Set<string>;
   openFile: (path: string) => void;
   providerHint: string;
   queryBalance: () => void;
@@ -64,6 +66,7 @@ export const Sidebar = memo(function Sidebar({
   balanceResult,
   busy,
   cancelRenameSession,
+  cancelSearchWorkspace,
   checkingBalance,
   chooseWorkspace,
   commitRenameSession,
@@ -73,6 +76,7 @@ export const Sidebar = memo(function Sidebar({
   expandedDirs,
   fileSearch,
   language,
+  loadingDirs,
   openFile,
   providerHint,
   queryBalance,
@@ -184,8 +188,8 @@ export const Sidebar = memo(function Sidebar({
                 if (event.key === "Enter") searchWorkspace();
               }}
             />
-            <button className="secondary" disabled={!workspace || !fileSearch.trim() || searchingFiles} onClick={searchWorkspace}>
-              {searchingFiles ? t.searching : t.search}
+            <button className="secondary" disabled={!workspace || (!fileSearch.trim() && !searchingFiles)} onClick={searchingFiles ? cancelSearchWorkspace : searchWorkspace}>
+              {searchingFiles ? t.cancel : t.search}
             </button>
           </div>
           {searchResults.length > 0 && (
@@ -207,9 +211,9 @@ export const Sidebar = memo(function Sidebar({
                 style={{ paddingLeft: `${8 + item.depth * 12}px` }}
                 onClick={() => item.type === "directory" ? toggleDirectory(item.path) : openFile(item.path)}
               >
-                <span>{item.type === "directory" ? (expandedDirs.has(item.path) ? "▾" : "▸") : "·"}</span>
+                <span>{item.type === "directory" ? (loadingDirs.has(item.path) ? "…" : expandedDirs.has(item.path) ? "▾" : "▸") : "·"}</span>
                 {item.name}
-                {item.type === "directory" && !hasTreeChildren(tree, item.path) && <small>{t.emptyDir}</small>}
+                {item.type === "directory" && item.hasChildren === false && !hasTreeChildren(tree, item.path) && <small>{t.emptyDir}</small>}
               </button>
             ))}
           </div>

@@ -1,13 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { translations } from "../i18n";
 import type { EventLogItem, SearchMatch, WorkspaceTreeItem } from "../types";
 import type { AttachedFile, GitSummary } from "../global";
 import { getInitialExpandedDirs, isTreeItemVisible } from "../utils";
 
 type Translation = typeof translations[keyof typeof translations];
-
-const MAX_DROPPED_FILE_BYTES = 1_000_000;
-const MAX_DROPPED_FILE_CHARS = 120_000;
 
 type UseWorkspaceParams = {
   appendEvent: (kind: EventLogItem["kind"], title: string, body: string) => void;
@@ -24,6 +21,8 @@ export function useWorkspace({ appendEvent, t }: UseWorkspaceParams) {
   const [previewFile, setPreviewFile] = useState<AttachedFile | null>(null);
   const [gitSummary, setGitSummary] = useState<GitSummary | null>(null);
   const [searchingFiles, setSearchingFiles] = useState(false);
+  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(() => new Set());
+  const searchRunRef = useRef(0);
 
   const visibleTree = useMemo(
     () => tree.filter((item) => isTreeItemVisible(item, expandedDirs)),
@@ -33,9 +32,10 @@ export function useWorkspace({ appendEvent, t }: UseWorkspaceParams) {
   const refreshWorkspace = useCallback(async (target = workspace) => {
     if (!target) return;
     try {
-      const result = await window.agentWindow.getWorkspaceTree(target);
+      const result = await window.agentWindow.getWorkspaceTree({ workspace: target, directory: "" });
       setTree(result.items);
       setExpandedDirs(getInitialExpandedDirs(result.items));
+      setLoadingDirs(new Set());
     } catch (error) {
       appendEvent("error", t.fileTreeReadFailed, error instanceof Error ? error.message : String(error));
     }
@@ -64,14 +64,32 @@ export function useWorkspace({ appendEvent, t }: UseWorkspaceParams) {
     await refreshGit(selected);
   }, [refreshGit, refreshWorkspace]);
 
-  const toggleDirectory = useCallback((path: string) => {
+  const toggleDirectory = useCallback(async (directoryPath: string) => {
+    const isExpanded = expandedDirs.has(directoryPath);
     setExpandedDirs((current) => {
       const next = new Set(current);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
+      if (next.has(directoryPath)) next.delete(directoryPath);
+      else next.add(directoryPath);
       return next;
     });
-  }, []);
+    if (isExpanded || !workspace) return;
+    const item = tree.find((entry) => entry.path === directoryPath);
+    if (item?.loaded || item?.hasChildren === false || loadingDirs.has(directoryPath)) return;
+
+    setLoadingDirs((current) => new Set(current).add(directoryPath));
+    try {
+      const result = await window.agentWindow.getWorkspaceTree({ workspace, directory: directoryPath });
+      setTree((current) => insertTreeChildren(current, directoryPath, result.items));
+    } catch (error) {
+      appendEvent("error", t.fileTreeReadFailed, error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingDirs((current) => {
+        const next = new Set(current);
+        next.delete(directoryPath);
+        return next;
+      });
+    }
+  }, [appendEvent, expandedDirs, loadingDirs, t, tree, workspace]);
 
   const showGitDiff = useCallback(async () => {
     if (!workspace) return;
@@ -112,11 +130,8 @@ export function useWorkspace({ appendEvent, t }: UseWorkspaceParams) {
     try {
       const files = await window.agentWindow.chooseAttachmentFiles();
       if (files.length === 0) return;
-      setAttachedFiles((current) => {
-        const seen = new Set(current.map((file) => file.path));
-        return [...current, ...files.filter((file) => !seen.has(file.path))];
-      });
-      appendEvent("tool", t.fileUploaded, JSON.stringify(files.map((file) => ({ path: file.path, chars: file.content.length })), null, 2));
+      setAttachedFiles((current) => mergeAttachedFiles(current, files));
+      appendEvent("tool", t.fileUploaded, JSON.stringify(files.map((file) => ({ path: file.path, status: file.status || "ready", chars: file.content.length })), null, 2));
     } catch (error) {
       appendEvent("error", t.fileUploadFailed, error instanceof Error ? error.message : String(error));
     }
@@ -124,13 +139,12 @@ export function useWorkspace({ appendEvent, t }: UseWorkspaceParams) {
 
   const attachDroppedFiles = useCallback(async (fileList: File[]) => {
     try {
-      const files = await readDroppedFiles(fileList);
+      const paths = getDroppedFilePaths(fileList);
+      if (paths.length === 0) return;
+      const files = await window.agentWindow.readAttachmentFiles({ paths });
       if (files.length === 0) return;
-      setAttachedFiles((current) => {
-        const seen = new Set(current.map((file) => file.path));
-        return [...current, ...files.filter((file) => !seen.has(file.path))];
-      });
-      appendEvent("tool", t.fileUploaded, JSON.stringify(files.map((file) => ({ path: file.path, chars: file.content.length })), null, 2));
+      setAttachedFiles((current) => mergeAttachedFiles(current, files));
+      appendEvent("tool", t.fileUploaded, JSON.stringify(files.map((file) => ({ path: file.path, status: file.status || "ready", chars: file.content.length })), null, 2));
     } catch (error) {
       appendEvent("error", t.fileUploadFailed, error instanceof Error ? error.message : String(error));
     }
@@ -139,23 +153,32 @@ export function useWorkspace({ appendEvent, t }: UseWorkspaceParams) {
   const searchWorkspace = useCallback(async () => {
     const query = fileSearch.trim();
     if (!workspace || !query || searchingFiles) return;
+    const runId = searchRunRef.current + 1;
+    searchRunRef.current = runId;
     setSearchingFiles(true);
     try {
       const result = await window.agentWindow.searchFiles({ workspace, query, maxResults: 50 });
+      if (searchRunRef.current !== runId) return;
       setSearchResults(result.results);
       appendEvent("tool", t.fileSearchEvent, JSON.stringify({ query, matches: result.results.length, engine: result.engine, truncated: result.truncated }, null, 2));
     } catch (error) {
       appendEvent("error", t.fileSearchFailed, error instanceof Error ? error.message : String(error));
     } finally {
-      setSearchingFiles(false);
+      if (searchRunRef.current === runId) setSearchingFiles(false);
     }
   }, [appendEvent, fileSearch, searchingFiles, t, workspace]);
+
+  const cancelSearchWorkspace = useCallback(() => {
+    searchRunRef.current += 1;
+    setSearchingFiles(false);
+  }, []);
 
   const resetWorkspaceTransientState = useCallback(() => {
     setAttachedFiles([]);
     setPreviewFile(null);
     setSearchResults([]);
     setFileSearch("");
+    setLoadingDirs(new Set());
   }, []);
 
   const clearWorkspaceData = useCallback(() => {
@@ -181,6 +204,8 @@ export function useWorkspace({ appendEvent, t }: UseWorkspaceParams) {
     searchResults,
     searchingFiles,
     searchWorkspace,
+    cancelSearchWorkspace,
+    loadingDirs,
     setAttachedFiles,
     setFileSearch,
     setGitSummary,
@@ -197,54 +222,51 @@ export function useWorkspace({ appendEvent, t }: UseWorkspaceParams) {
   };
 }
 
-async function readDroppedFiles(fileList: File[]): Promise<AttachedFile[]> {
-  const files: AttachedFile[] = [];
-  for (const file of fileList) {
-    if (!file) continue;
-    const path = getDroppedFilePath(file);
-    if (file.size > MAX_DROPPED_FILE_BYTES) {
-      files.push({
-        path,
-        content: `[文件过大，未读取正文。大小：${file.size} bytes；当前上传分析限制：${MAX_DROPPED_FILE_BYTES} bytes。]`
-      });
-      continue;
-    }
-
-    const buffer = new Uint8Array(await file.arrayBuffer());
-    if (looksBinary(buffer)) {
-      files.push({
-        path,
-        content: `[二进制文件，未读取正文。大小：${file.size} bytes。当前版本支持文本类文件分析。]`
-      });
-      continue;
-    }
-
-    let content = new TextDecoder("utf-8").decode(buffer);
-    if (content.length > MAX_DROPPED_FILE_CHARS) {
-      content = `${content.slice(0, MAX_DROPPED_FILE_CHARS)}\n\n[内容已截断：最多读取 ${MAX_DROPPED_FILE_CHARS} 字符。]`;
-    }
-    files.push({ path, content });
-  }
-  return files;
+function getDroppedFilePaths(fileList: File[]) {
+  const paths = fileList
+    .map((file) => {
+      try {
+        return window.agentWindow.getPathForFile(file);
+      } catch {
+        return (file as File & { path?: string }).path || "";
+      }
+    })
+    .map((filePath) => filePath.trim())
+    .filter(Boolean);
+  return [...new Set(paths)];
 }
 
-function getDroppedFilePath(file: File) {
-  let electronPath = "";
-  try {
-    electronPath = window.agentWindow.getPathForFile(file);
-  } catch {
-    electronPath = (file as File & { path?: string }).path || "";
+function mergeAttachedFiles(current: AttachedFile[], incoming: AttachedFile[]) {
+  const next = [...current];
+  const indexByPath = new Map(next.map((file, index) => [file.path, index]));
+  for (const file of incoming) {
+    const existingIndex = indexByPath.get(file.path);
+    if (existingIndex === undefined) {
+      indexByPath.set(file.path, next.length);
+      next.push(file);
+      continue;
+    }
+    const existing = next[existingIndex];
+    next[existingIndex] = {
+      ...existing,
+      duplicateCount: (existing.duplicateCount || 1) + 1
+    };
   }
-  return electronPath || file.webkitRelativePath || file.name;
+  return next;
 }
 
-function looksBinary(buffer: Uint8Array) {
-  if (buffer.length === 0) return false;
-  const sample = buffer.subarray(0, Math.min(buffer.length, 4096));
-  let suspicious = 0;
-  for (const byte of sample) {
-    if (byte === 0) return true;
-    if (byte < 7 || (byte > 14 && byte < 32)) suspicious += 1;
-  }
-  return suspicious / sample.length > 0.08;
+function insertTreeChildren(current: WorkspaceTreeItem[], directoryPath: string, children: WorkspaceTreeItem[]) {
+  const childPrefix = `${directoryPath}/`;
+  const parentIndex = current.findIndex((item) => item.path === directoryPath);
+  if (parentIndex < 0) return current;
+  const withoutOldChildren = current.filter((item) => item.path === directoryPath || !item.path.startsWith(childPrefix));
+  const nextParentIndex = withoutOldChildren.findIndex((item) => item.path === directoryPath);
+  const parent = withoutOldChildren[nextParentIndex];
+  const nextParent = { ...parent, loaded: true, hasChildren: children.length > 0 };
+  return [
+    ...withoutOldChildren.slice(0, nextParentIndex),
+    nextParent,
+    ...children,
+    ...withoutOldChildren.slice(nextParentIndex + 1)
+  ];
 }

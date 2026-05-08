@@ -7,18 +7,21 @@
   "type": "module",
   "main": "src/main/main.js",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "dev": "node scripts/preflight-dev.cjs check && concurrently -k \"vite --host 127.0.0.1 --strictPort\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "dev:clean": "node scripts/preflight-dev.cjs clean",
     "build": "vite build",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder -mwl",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win",
-    "dist:linux": "npm run build && electron-builder --linux",
+    "pack": "node scripts/preflight-pack.cjs && npm run build && electron-builder --dir",
+    "dist": "node scripts/preflight-pack.cjs && npm run build && electron-builder -mwl",
+    "dist:mac": "node scripts/preflight-pack.cjs && npm run build && electron-builder --mac",
+    "dist:win": "node scripts/preflight-pack.cjs && npm run build && electron-builder --win",
+    "dist:win:unsigned": "node scripts/preflight-pack.cjs && npm run build && electron-builder --win --config.win.signAndEditExecutable=false",
+    "dist:linux": "node scripts/preflight-pack.cjs && npm run build && electron-builder --linux",
     "check:safe-storage": "electron scripts/check-safe-storage.cjs",
     "check:encoding": "node scripts/check-encoding.cjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "npm run check:encoding && npm run typecheck && npm test && npm run build"
+    "check": "npm run check:encoding && npm run typecheck && npm test && npm run build",
+    "ci": "npm run check"
   },
   "dependencies": {
     "gpt-tokenizer": "^3.4.0",
@@ -125,10 +128,14 @@
       ]
     },
     "nsis": {
+      "artifactName": "${productName}-${version}-Setup-${arch}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
       "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-Portable-${arch}.${ext}"
     },
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "publish": null

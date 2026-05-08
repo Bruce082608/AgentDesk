@@ -93,6 +93,28 @@ export function ApprovalPanel({
                   <small>{command.highRisk ? `high / ${command.status}` : command.status}</small>
                 </summary>
                 <div className="patch-error">{command.error || command.reason}</div>
+                <dl className="command-meta">
+                  {command.cwd && (
+                    <>
+                      <dt>cwd</dt>
+                      <dd>{command.cwd}</dd>
+                    </>
+                  )}
+                  {command.shell && (
+                    <>
+                      <dt>{language === "zh" ? "Shell" : "Shell"}</dt>
+                      <dd>{command.shell}</dd>
+                    </>
+                  )}
+                  {command.timeoutMs && (
+                    <>
+                      <dt>{language === "zh" ? "超时" : "Timeout"}</dt>
+                      <dd>{Math.round(command.timeoutMs / 1000)}s</dd>
+                    </>
+                  )}
+                  <dt>{language === "zh" ? "环境变量" : "Env"}</dt>
+                  <dd>{command.inheritedEnv === false ? (language === "zh" ? "不继承" : "Isolated") : (language === "zh" ? "继承应用环境" : "Inherited from app")}</dd>
+                </dl>
                 {command.result && <pre>{command.result}</pre>}
                 <div className="patch-actions">
                   <button className="primary small" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id)}>{t.execute}</button>

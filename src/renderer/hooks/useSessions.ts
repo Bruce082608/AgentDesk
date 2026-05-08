@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { translations } from "../i18n";
 import type { ChatMessage, ChatSession, TokenUsageStats } from "../types";
@@ -8,6 +8,7 @@ import { createBlankSession, deriveSessionTitle, loadChatSessions, saveChatSessi
 type Translation = typeof translations[keyof typeof translations];
 
 type UseSessionsParams = {
+  appendEvent: (kind: "status" | "tool" | "error" | "model" | "patch", title: string, body: string) => void;
   busy: boolean;
   clearWorkspaceData: () => void;
   messages: ChatMessage[];
@@ -24,6 +25,7 @@ type UseSessionsParams = {
 };
 
 export function useSessions({
+  appendEvent,
   busy,
   clearWorkspaceData,
   messages,
@@ -43,6 +45,45 @@ export function useSessions({
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [renamingSessionId, setRenamingSessionId] = useState("");
   const [renamingTitle, setRenamingTitle] = useState("");
+  const saveTimerRef = useRef<number | null>(null);
+  const pendingSaveRef = useRef<ChatSession[] | null>(null);
+  const storageWarningRef = useRef("");
+
+  const flushSessionSave = useCallback(() => {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const pending = pendingSaveRef.current;
+    if (!pending) return;
+    pendingSaveRef.current = null;
+    const result = saveChatSessions(pending);
+    if (result === "compacted" && storageWarningRef.current !== "compacted") {
+      storageWarningRef.current = "compacted";
+      appendEvent("status", t.sessionStorageCompacted, t.sessionStorageCompactedBody);
+    }
+    if (result === "failed" && storageWarningRef.current !== "failed") {
+      storageWarningRef.current = "failed";
+      appendEvent("error", t.sessionStorageFailed, t.sessionStorageFailedBody);
+    }
+  }, [appendEvent, t]);
+
+  const scheduleSessionSave = useCallback((nextSessions: ChatSession[], immediate = false) => {
+    pendingSaveRef.current = nextSessions;
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (immediate) {
+      flushSessionSave();
+      return;
+    }
+    saveTimerRef.current = window.setTimeout(flushSessionSave, 600);
+  }, [flushSessionSave]);
+
+  useEffect(() => {
+    return () => flushSessionSave();
+  }, [flushSessionSave]);
 
   useEffect(() => {
     const savedSessions = loadChatSessions();
@@ -79,10 +120,10 @@ export function useSessions({
         })
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, MAX_SAVED_SESSIONS);
-      saveChatSessions(next);
+      scheduleSessionSave(next);
       return next;
     });
-  }, [activeSessionId, messages, sessionsLoaded, tokenUsage, workspace]);
+  }, [activeSessionId, messages, scheduleSessionSave, sessionsLoaded, tokenUsage, workspace]);
 
   const persistActiveSession = useCallback((updates: Partial<ChatSession>) => {
     if (!activeSessionId) return;
@@ -98,24 +139,24 @@ export function useSessions({
           updatedAt: Date.now()
         };
       });
-      saveChatSessions(next);
+      scheduleSessionSave(next, true);
       return next;
     });
-  }, [activeSessionId, messages, tokenUsage, workspace]);
+  }, [activeSessionId, messages, scheduleSessionSave, tokenUsage, workspace]);
 
   const startNewSession = useCallback(() => {
     if (busy) return;
     const session = createBlankSession(workspace);
     setSessions((current) => {
       const next = [session, ...current].slice(0, MAX_SAVED_SESSIONS);
-      saveChatSessions(next);
+      scheduleSessionSave(next, true);
       return next;
     });
     setActiveSessionId(session.id);
     setMessages([]);
     resetSessionTokenUsage();
     resetTransientState();
-  }, [busy, resetSessionTokenUsage, resetTransientState, setMessages, workspace]);
+  }, [busy, resetSessionTokenUsage, resetTransientState, scheduleSessionSave, setMessages, workspace]);
 
   const selectSession = useCallback(async (sessionId: string) => {
     if (busy || sessionId === activeSessionId) return;
@@ -148,12 +189,12 @@ export function useSessions({
     if (!nextTitle) return;
     setSessions((current) => {
       const next = current.map((item) => item.id === sessionId ? { ...item, title: nextTitle, titleEdited: true, updatedAt: Date.now() } : item);
-      saveChatSessions(next);
+      scheduleSessionSave(next, true);
       return next;
     });
     setRenamingSessionId("");
     setRenamingTitle("");
-  }, [renamingTitle]);
+  }, [renamingTitle, scheduleSessionSave]);
 
   const cancelRenameSession = useCallback(() => {
     setRenamingSessionId("");
@@ -167,7 +208,7 @@ export function useSessions({
       const next = current.filter((item) => item.id !== sessionId);
       const fallback = next[0] ?? createBlankSession(workspace);
       const normalized = next.length > 0 ? next : [fallback];
-      saveChatSessions(normalized);
+      scheduleSessionSave(normalized, true);
       if (sessionId === activeSessionId) {
         setActiveSessionId(fallback.id);
         setMessages(fallback.messages);
@@ -183,7 +224,7 @@ export function useSessions({
       }
       return normalized;
     });
-  }, [activeSessionId, busy, clearWorkspaceData, refreshGit, refreshWorkspace, resetTransientState, setMessages, setTokenUsage, setWorkspace, t.deleteSessionConfirm, workspace]);
+  }, [activeSessionId, busy, clearWorkspaceData, refreshGit, refreshWorkspace, resetTransientState, scheduleSessionSave, setMessages, setTokenUsage, setWorkspace, t.deleteSessionConfirm, workspace]);
 
   const clearCurrentSession = useCallback(() => {
     if (busy) return;

@@ -11,6 +11,7 @@ export const translations = {
     advanced: "设置",
     copy: "复制",
     copied: "已复制",
+    cancel: "取消",
     regenerate: "重新生成",
     rename: "重命名",
     deleteSession: "删除",
@@ -132,7 +133,11 @@ export const translations = {
     fileUploaded: "文件已上传",
     fileUploadFailed: "文件上传失败",
     fileSearchEvent: "文件搜索",
-    fileSearchFailed: "文件搜索失败"
+    fileSearchFailed: "文件搜索失败",
+    sessionStorageCompacted: "会话历史已压缩保存",
+    sessionStorageCompactedBody: "本地存储空间不足，已保留最近的会话和消息以完成保存。",
+    sessionStorageFailed: "会话历史保存失败",
+    sessionStorageFailedBody: "浏览器本地存储写入失败，请导出或清理历史后再继续。"
   },
   en: {
     newChat: "New",
@@ -144,6 +149,7 @@ export const translations = {
     advanced: "Settings",
     copy: "Copy",
     copied: "Copied",
+    cancel: "Cancel",
     regenerate: "Regenerate",
     rename: "Rename",
     deleteSession: "Delete",
@@ -265,6 +271,10 @@ export const translations = {
     fileUploaded: "Files uploaded",
     fileUploadFailed: "File upload failed",
     fileSearchEvent: "File search",
-    fileSearchFailed: "File search failed"
+    fileSearchFailed: "File search failed",
+    sessionStorageCompacted: "Chat history compacted",
+    sessionStorageCompactedBody: "Local storage was full, so recent sessions and messages were kept to complete the save.",
+    sessionStorageFailed: "Chat history save failed",
+    sessionStorageFailedBody: "Browser local storage could not be written. Export or clear history before continuing."
   }
 } as const;

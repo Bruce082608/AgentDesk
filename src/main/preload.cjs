@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("agentWindow", {
   readFile: (payload) => ipcRenderer.invoke("file:read", payload),
   searchFiles: (payload) => ipcRenderer.invoke("file:search", payload),
   chooseAttachmentFiles: () => ipcRenderer.invoke("file:choose-attachments"),
+  readAttachmentFiles: (payload) => ipcRenderer.invoke("file:read-attachments", payload),
   getPathForFile: (file) => webUtils.getPathForFile(file),
   getGitSummary: (workspace) => ipcRenderer.invoke("git:summary", workspace),
   getGitDiff: (workspace) => ipcRenderer.invoke("git:diff", workspace),

@@ -256,8 +256,12 @@ export async function runAgentTurn(payload, emit) {
               type: "command_pending",
               commandId: parsed.commandId,
               command: parsed.command,
+              cwd: parsed.cwd || "",
+              timeoutMs: parsed.timeoutMs || null,
+              shell: parsed.shell || "",
+              inheritedEnv: parsed.inheritedEnv !== false,
               highRisk: Boolean(parsed.highRisk),
-              reason: commandApprovalReason(parsed.highRisk, language)
+              reason: parsed.riskReason || commandApprovalReason(parsed.highRisk, language)
             });
           }
         }
@@ -376,7 +380,7 @@ async function buildMessages({
     const recentWithinBudget = selectRecentMessages(recentMessages, remainingBudget);
 
     const compressionDoneMessage = t(language, "agent.compressionDone", { tokens: formatTokens(countChatMessageTokens(summaryMessage)) });
-    emit({ type: "context_compression", phase: "done", message: compressionDoneMessage });
+    emit({ type: "context_compression", phase: "done", message: compressionDoneMessage, summary });
     emit({ type: "status", message: compressionDoneMessage });
 
     return {

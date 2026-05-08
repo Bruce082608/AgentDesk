@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   validateAgentSendPayload,
+  validateAttachmentPathsPayload,
   validateFileReadPayload,
   validateTokenCountPayload
 } from "./ipc-validation.js";
@@ -39,5 +40,12 @@ describe("IPC payload validation", () => {
     expect(() => validateFileReadPayload({ workspace: "", path: "README.md" })).toThrow(/Invalid IPC payload/);
     expect(() => validateTokenCountPayload({ messages: [{ role: "admin", content: "x" }], input: "", attachments: [] })).toThrow(/Invalid IPC payload/);
     expect(() => validateAgentSendPayload({ requestId: "x" })).toThrow(/Invalid IPC payload/);
+  });
+
+  it("validates dropped attachment paths without accepting renderer file contents", () => {
+    expect(validateAttachmentPathsPayload({ paths: ["C:/work/a.txt", "C:/work/b.txt"] })).toEqual({
+      paths: ["C:/work/a.txt", "C:/work/b.txt"]
+    });
+    expect(() => validateAttachmentPathsPayload({ paths: [{ path: "C:/work/a.txt", content: "renderer content" }] })).toThrow(/Invalid IPC payload/);
   });
 });

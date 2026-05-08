@@ -13,6 +13,15 @@ export function validateWorkspace(value, field = "workspace") {
   return requireString(value, field, { max: MAX_PATH_LENGTH });
 }
 
+export function validateWorkspaceTreePayload(value) {
+  if (typeof value === "string") return { workspace: validateWorkspace(value), directory: "" };
+  const payload = requireObject(value, "workspace tree payload");
+  return {
+    workspace: validateWorkspace(payload.workspace),
+    directory: optionalString(payload.directory, "directory", { max: MAX_PATH_LENGTH }) || ""
+  };
+}
+
 export function validateConfigPayload(value) {
   return validateProviderConfig(value, { allowEmptyApiKey: true });
 }
@@ -31,6 +40,15 @@ export function validateFileSearchPayload(value) {
     workspace: validateWorkspace(payload.workspace),
     query: requireString(payload.query, "query", { max: 1000 }),
     maxResults: optionalInteger(payload.maxResults, "maxResults", 1, 200)
+  };
+}
+
+export function validateAttachmentPathsPayload(value) {
+  const payload = requireObject(value, "attachment paths payload");
+  if (!Array.isArray(payload.paths)) invalid("paths", "an array");
+  if (payload.paths.length > MAX_ATTACHMENTS) invalid("paths", `at most ${MAX_ATTACHMENTS} items`);
+  return {
+    paths: payload.paths.map((item, index) => requireString(item, `paths[${index}]`, { max: MAX_PATH_LENGTH }))
   };
 }
 

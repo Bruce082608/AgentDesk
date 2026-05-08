@@ -21,6 +21,12 @@ npm install
 npm run dev
 ```
 
+If the dev server reports that port `5173` is already in use, stop the old process or run:
+
+```powershell
+npm run dev:clean
+```
+
 ### Windows drag-and-drop note
 
 Windows native file drag-and-drop is sensitive to the process that launches Electron. If the app is started from a sandboxed host, an elevated terminal, or another process with a different integrity level than Explorer, Windows can block drops before the web page receives any drag event. The cursor will show a "not allowed" symbol everywhere in the window.
@@ -62,6 +68,8 @@ The generated installers and archives are written to `release/`.
 
 `npm run pack` creates an unpacked app directory for quick packaging checks.
 `npm run dist` requests macOS, Windows, and Linux targets from electron-builder; some cross-platform targets may require platform-specific tooling such as Wine on macOS/Linux for Windows installers.
+
+Packaging commands run a preflight check first. If a previous app build is still open and locks files under `release/`, close that app before packaging again.
 
 ## Checks
 

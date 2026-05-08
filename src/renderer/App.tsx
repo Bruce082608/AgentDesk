@@ -118,6 +118,7 @@ function App() {
   }, [agentState, resetEvents, workspaceState]);
 
   const sessionState = useSessions({
+    appendEvent,
     busy: agentState.busy,
     clearWorkspaceData: workspaceState.clearWorkspaceData,
     messages,
@@ -465,13 +466,12 @@ function App() {
     };
   }, [sessionState.activeSessionId, workspaceState.workspace]);
 
-  const updateCommandAutoApproval = useCallback((enabled: boolean) => {
-    agentState.updateCommandAutoApproval(enabled, permissionContext());
-  }, [agentState.updateCommandAutoApproval, permissionContext]);
-
-  const updatePatchAutoApproval = useCallback((enabled: boolean) => {
-    agentState.updatePatchAutoApproval(enabled, permissionContext());
-  }, [agentState.updatePatchAutoApproval, permissionContext]);
+  const updatePermissionMode = useCallback((mode: "default" | "full") => {
+    const enabled = mode === "full";
+    const context = permissionContext();
+    agentState.updateCommandAutoApproval(enabled, context);
+    agentState.updatePatchAutoApproval(enabled, context);
+  }, [agentState.updateCommandAutoApproval, agentState.updatePatchAutoApproval, permissionContext]);
 
   const resetCommandAutoApproval = useCallback(() => {
     agentState.resetCommandAutoApproval(permissionContext());
@@ -536,6 +536,7 @@ function App() {
         balanceResult={providerState.balanceResult}
         busy={agentState.busy}
         cancelRenameSession={sessionState.cancelRenameSession}
+        cancelSearchWorkspace={workspaceState.cancelSearchWorkspace}
         checkingBalance={providerState.checkingBalance}
         chooseWorkspace={chooseWorkspace}
         commitRenameSession={sessionState.commitRenameSession}
@@ -545,6 +546,7 @@ function App() {
         expandedDirs={workspaceState.expandedDirs}
         fileSearch={workspaceState.fileSearch}
         language={language}
+        loadingDirs={workspaceState.loadingDirs}
         openFile={workspaceState.openFile}
         providerHint={providerState.providerHint}
         queryBalance={providerState.queryBalance}
@@ -599,6 +601,7 @@ function App() {
         composerHeight={composerHeight}
         composerInputRef={composerInputRef}
         configContextTokens={inputBudgetTokens}
+        contextCompression={agentState.contextCompression}
         contextCompressionStatus={agentState.contextCompressionStatus}
         contextPercent={contextPercent}
         contextUsageLabel={contextUsageLabel}
@@ -633,8 +636,7 @@ function App() {
         toolDraft={agentState.toolDraft}
         showScrollToBottom={showScrollToBottom}
         scrollToBottom={scrollToBottom}
-        updateCommandAutoApproval={updateCommandAutoApproval}
-        updatePatchAutoApproval={updatePatchAutoApproval}
+        updatePermissionMode={updatePermissionMode}
         updateReasoningView={updateReasoningView}
         uploadAttachmentFiles={workspaceState.uploadAttachmentFiles}
       />

@@ -71,6 +71,8 @@ describe("tools scoped auto approval", () => {
     const commandState = __test__.setScopedAutoApproval(context);
     expect(commandState.commandAutoApproval).toBe(true);
     expect(commandState.patchAutoApproval).toBe(false);
+    expect(commandState.commandAutoApprovalExpiresAt).toBeNull();
+    expect(commandState.ttlMs).toBeNull();
 
     const otherSession = __test__.getAutoApprovalState({ workspace, sessionId: "s2" });
     expect(otherSession.commandAutoApproval).toBe(false);
@@ -78,5 +80,14 @@ describe("tools scoped auto approval", () => {
     const patchState = __test__.setScopedAutoApproval({ workspace, sessionId: "s1", kind: "patch", enabled: true });
     expect(patchState.commandAutoApproval).toBe(true);
     expect(patchState.patchAutoApproval).toBe(true);
+    expect(patchState.patchAutoApprovalExpiresAt).toBeNull();
+  });
+
+  it("normalizes auto-approval workspace scope paths", () => {
+    const normalized = __test__.normalizeScopeWorkspace(workspace);
+    expect(path.isAbsolute(normalized)).toBe(true);
+    if (process.platform === "win32") {
+      expect(normalized).toBe(normalized.toLowerCase());
+    }
   });
 });

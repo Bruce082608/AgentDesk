@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -13,7 +14,6 @@ import {
 const execFileAsync = promisify(execFile);
 const pendingPatches = new Map();
 const autoApprovalScopes = new Map();
-const AUTO_APPROVAL_TTL_MS = 30 * 60 * 1000;
 
 export async function proposePatch(context, patch, summary = "") {
   const workspace = context.workspace;
@@ -232,46 +232,57 @@ function pathSecurityOptions(language) {
 }
 
 function permissionScopeKey(context) {
-  const workspace = path.resolve(context.workspace || process.cwd());
+  const workspace = normalizeScopeWorkspace(context.workspace || process.cwd());
   const session = String(context.sessionId || "workspace");
   return `${workspace}::${session}`;
+}
+
+function normalizeScopeWorkspace(workspace) {
+  const resolved = path.resolve(workspace || process.cwd());
+  let realPath = resolved;
+  try {
+    realPath = fsSync.realpathSync.native(resolved);
+  } catch {
+    realPath = resolved;
+  }
+  return process.platform === "win32" ? realPath.toLowerCase() : realPath;
 }
 
 export function getAutoApprovalState(context) {
   const key = permissionScopeKey(context);
   const now = Date.now();
   const state = autoApprovalScopes.get(key) || {};
-  const commandAutoApproval = Number(state.commandExpiresAt || 0) > now;
-  const patchAutoApproval = Number(state.patchExpiresAt || 0) > now;
+  const commandAutoApproval = Boolean(state.commandEnabled) || Number(state.commandExpiresAt || 0) > now;
+  const patchAutoApproval = Boolean(state.patchEnabled) || Number(state.patchExpiresAt || 0) > now;
   if (!commandAutoApproval && !patchAutoApproval && autoApprovalScopes.has(key)) {
     autoApprovalScopes.delete(key);
   }
   return {
     ok: true,
     scope: {
-      workspace: path.resolve(context.workspace || process.cwd()),
+      workspace: normalizeScopeWorkspace(context.workspace || process.cwd()),
       sessionId: String(context.sessionId || "")
     },
     commandAutoApproval,
     patchAutoApproval,
     autoApproveFutureCommands: commandAutoApproval,
-    commandAutoApprovalExpiresAt: commandAutoApproval ? state.commandExpiresAt : null,
-    patchAutoApprovalExpiresAt: patchAutoApproval ? state.patchExpiresAt : null,
-    ttlMs: AUTO_APPROVAL_TTL_MS
+    commandAutoApprovalExpiresAt: null,
+    patchAutoApprovalExpiresAt: null,
+    ttlMs: null
   };
 }
 
 export function setScopedAutoApproval(context) {
   const key = permissionScopeKey(context);
-  const now = Date.now();
-  const expiresAt = now + AUTO_APPROVAL_TTL_MS;
   const current = autoApprovalScopes.get(key) || {};
   const next = { ...current };
   if (context.kind === "command") {
-    next.commandExpiresAt = context.enabled ? expiresAt : 0;
+    next.commandEnabled = Boolean(context.enabled);
+    next.commandExpiresAt = 0;
   }
   if (context.kind === "patch") {
-    next.patchExpiresAt = context.enabled ? expiresAt : 0;
+    next.patchEnabled = Boolean(context.enabled);
+    next.patchExpiresAt = 0;
   }
   autoApprovalScopes.set(key, next);
   return getAutoApprovalState(context);
@@ -290,6 +301,7 @@ export const __test__ = {
   resolveInsideWorkspace,
   validatePatchPaths,
   permissionScopeKey,
+  normalizeScopeWorkspace,
   setScopedAutoApproval,
   getAutoApprovalState
 };

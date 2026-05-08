@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { translations } from "../i18n";
 import type { EventLogItem, ProviderBalanceResult, ProviderConfig } from "../types";
 import { defaultConfig } from "../types";
@@ -20,6 +20,7 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
   const [balanceResult, setBalanceResult] = useState<ProviderBalanceResult | null>(null);
   const [configPath, setConfigPath] = useState("");
   const [configLoaded, setConfigLoaded] = useState(false);
+  const saveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     window.agentWindow.loadConfig().then(({ config: fileConfig, path }) => {
@@ -39,9 +40,19 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
 
   useEffect(() => {
     if (!configLoaded) return;
-    window.agentWindow.saveConfig(config).catch((error) => {
-      appendEvent("error", "配置保存失败", error instanceof Error ? error.message : String(error));
-    });
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      window.agentWindow.saveConfig(config).catch((error) => {
+        appendEvent("error", "配置保存失败", error instanceof Error ? error.message : String(error));
+      });
+    }, 500);
+    return () => {
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
   }, [appendEvent, config, configLoaded]);
 
   const providerHint = useMemo(() => {

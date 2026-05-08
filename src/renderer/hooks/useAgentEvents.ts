@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Language } from "../i18n";
 import type { AgentEvent, ChatMessage } from "../global";
-import type { CommandItem, EventLogItem, PatchItem, PlanItem, StreamRecoveryStatus, TokenUsageStats, ToolDraft, ToolRun, UserQuestionItem } from "../types";
+import type { CommandItem, ContextCompressionState, EventLogItem, PatchItem, PlanItem, StreamRecoveryStatus, TokenUsageStats, ToolDraft, ToolRun, UserQuestionItem } from "../types";
 import { formatQuestionMessage, normalizeQuestionOptions } from "../utils";
 
 type AppendEvent = (kind: EventLogItem["kind"], title: string, body: string) => void;
@@ -38,6 +38,7 @@ export function useAgentEvents({
   const [commandAutoApprovalExpiresAt, setCommandAutoApprovalExpiresAt] = useState<number | null>(null);
   const [patchAutoApprovalExpiresAt, setPatchAutoApprovalExpiresAt] = useState<number | null>(null);
   const [contextCompressionStatus, setContextCompressionStatus] = useState("");
+  const [contextCompression, setContextCompression] = useState<ContextCompressionState>({ phase: "idle", message: "" });
   const activeRequest = useRef<string | null>(null);
   const streamingMessageActive = useRef(false);
   const reasoningMessageActive = useRef(false);
@@ -66,11 +67,17 @@ export function useAgentEvents({
     });
   }, []);
 
-  const updateCompressionStatus = useCallback((phase: "start" | "done" | "failed") => {
+  const updateCompressionStatus = useCallback((phase: "start" | "done" | "failed", message = "", summary = "") => {
     if (compressionStatusTimer.current) {
       window.clearTimeout(compressionStatusTimer.current);
       compressionStatusTimer.current = null;
     }
+    setContextCompression((current) => ({
+      phase,
+      message: message || current.message,
+      summary: summary || current.summary,
+      updatedAt: Date.now()
+    }));
     if (phase === "start") {
       setContextCompressionStatus(language === "zh" ? "正在自动压缩上下文" : "Auto-compressing context");
       return;
@@ -197,8 +204,7 @@ export function useAgentEvents({
     }
 
     if (event.type === "context_compression") {
-      updateCompressionStatus(event.phase);
-      appendEvent("status", ui.status, event.message);
+      updateCompressionStatus(event.phase, event.message, event.summary || "");
       return;
     }
 
@@ -280,7 +286,17 @@ export function useAgentEvents({
 
     if (event.type === "command_pending") {
       setCommands((current) => [
-        { id: event.commandId, command: event.command, reason: event.reason, highRisk: Boolean(event.highRisk), status: "pending" },
+        {
+          id: event.commandId,
+          command: event.command,
+          reason: event.reason,
+          cwd: event.cwd,
+          timeoutMs: event.timeoutMs,
+          shell: event.shell,
+          inheritedEnv: event.inheritedEnv,
+          highRisk: Boolean(event.highRisk),
+          status: "pending"
+        },
         ...current
       ]);
       appendEvent("patch", ui.commandPending, event.command);
@@ -366,7 +382,15 @@ export function useAgentEvents({
   const approveCommand = useCallback(async (commandId: string, allowFuture = false) => {
     const result = await window.agentWindow.approveCommand({ commandId, allowFuture, language });
     if (result.ok) {
-      setCommands((current) => current.map((command) => command.id === commandId ? { ...command, status: "approved", result: result.result.result } : command));
+      setCommands((current) => current.map((command) => command.id === commandId ? {
+        ...command,
+        status: "approved",
+        result: result.result.result,
+        cwd: result.result.cwd || command.cwd,
+        timeoutMs: result.result.timeoutMs || command.timeoutMs,
+        shell: result.result.shell || command.shell,
+        inheritedEnv: result.result.inheritedEnv ?? command.inheritedEnv
+      } : command));
       const ui = getAgentEventLabels(language);
       appendEvent("tool", `${ui.commandExecuted}: ${result.result.command}`, result.result.result);
       setCommandAutoApproval(result.result.commandAutoApproval);
@@ -455,6 +479,7 @@ export function useAgentEvents({
     commandAutoApprovalExpiresAt,
     commands,
     contextCompressionStatus,
+    contextCompression,
     discardCommand,
     discardPatch,
     patches,
@@ -498,7 +523,7 @@ function getAgentEventLabels(language: Language) {
       patchDiscarded: "Patch discarded",
       commandExecuted: "Command executed",
       futureCommandsAllowed: "Future commands allowed",
-      futureCommandsAllowedBody: "Future command requests in this chat and workspace will run automatically for 30 minutes.",
+      futureCommandsAllowedBody: "Future command requests in this chat and workspace will run automatically until you switch back or restart the app.",
       commandFailed: "Command failed",
       commandConfirmRestored: "Future command confirmation restored",
       commandConfirmRestoredBody: "Future high-risk or side-effect commands will ask for confirmation again.",
@@ -506,7 +531,7 @@ function getAgentEventLabels(language: Language) {
       patchAutoApplyDisabledBody: "Future file changes will ask for confirmation again.",
       commandAutoRunEnabled: "Command auto-run enabled",
       commandAutoRunDisabled: "Command auto-run disabled",
-      autoPermissionScoped: "Only applies to this chat and workspace; expires after 30 minutes.",
+      autoPermissionScoped: "Only applies to this chat and workspace until you switch back or restart the app.",
       commandNeedsConfirm: "High-risk or side-effect commands will ask for confirmation.",
       patchAutoApplyEnabled: "Patch auto-apply enabled",
       patchNeedsConfirm: "File writes, deletes, and patches will ask for confirmation."
@@ -534,7 +559,7 @@ function getAgentEventLabels(language: Language) {
     patchDiscarded: "Patch 已放弃",
     commandExecuted: "命令已执行",
     futureCommandsAllowed: "后续命令已允许",
-    futureCommandsAllowedBody: "当前会话和 workspace 内，后续命令请求将在 30 分钟内自动执行。",
+    futureCommandsAllowedBody: "当前会话和 workspace 内，后续命令请求将自动执行，直到你切回默认权限或应用重启。",
     commandFailed: "命令执行失败",
     commandConfirmRestored: "后续命令确认已恢复",
     commandConfirmRestoredBody: "agent 后续高危或副作用命令会再次请求确认。",
@@ -542,7 +567,7 @@ function getAgentEventLabels(language: Language) {
     patchAutoApplyDisabledBody: "agent 后续文件变更会再次请求确认。",
     commandAutoRunEnabled: "已启用命令自动执行",
     commandAutoRunDisabled: "已关闭命令自动执行",
-    autoPermissionScoped: "仅当前会话和 workspace 生效，30 分钟后自动失效。",
+    autoPermissionScoped: "仅当前会话和 workspace 生效，直到你切回默认权限或应用重启。",
     commandNeedsConfirm: "高危或副作用命令会请求确认。",
     patchAutoApplyEnabled: "已启用 Patch 自动应用",
     patchNeedsConfirm: "文件写入、删除和 patch 会请求确认。"

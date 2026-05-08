@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
 import { normalizeLanguage, t } from "./i18n.js";
 import { webSearch } from "./web-search.js";
 import { searchWorkspaceTextWithRg } from "../shared/ripgrep.js";
@@ -294,17 +295,23 @@ async function runCommand(context, command, timeoutMs) {
   const workspace = context.workspace;
   const commandText = String(command ?? "").trim();
   if (!commandText) throw localizedError(context.language, "tools.emptyCommand");
+  const timeout = normalizeCommandTimeout(timeoutMs);
+  const shell = getShellInvocation(commandText);
+  const cwd = path.resolve(workspace);
   const highRisk = isDangerousCommand(commandText);
   if (!isAutoApprovalEnabled("command", context) && (highRisk || !isAutoAllowedCommand(commandText))) {
     const commandId = randomUUID();
     pendingCommands.set(commandId, {
       id: commandId,
-      workspace: path.resolve(workspace),
+      workspace: cwd,
       requestId: context.requestId,
       sessionId: context.sessionId,
       command: commandText,
       highRisk,
-      timeoutMs,
+      timeoutMs: timeout,
+      cwd,
+      shell: formatShellLabel(shell.file),
+      inheritedEnv: true,
       language: context.language,
       createdAt: Date.now()
     });
@@ -313,26 +320,36 @@ async function runCommand(context, command, timeoutMs) {
       pending: true,
       commandId,
       command: commandText,
+      cwd,
+      timeoutMs: timeout,
+      shell: formatShellLabel(shell.file),
+      inheritedEnv: true,
       highRisk,
       risk: highRisk ? "high" : "normal",
+      riskReason: commandApprovalReason(highRisk, context.language),
       message: t(context.language, "tools.commandQueued")
     });
   }
 
-  return executeCommand(workspace, commandText, timeoutMs);
+  return executeCommand(workspace, commandText, timeout);
 }
 
 async function executeCommand(workspace, commandText, timeoutMs) {
-  const timeout = Math.min(Math.max(Number(timeoutMs) || 30_000, 1_000), 120_000);
+  const timeout = normalizeCommandTimeout(timeoutMs);
   const { file, args } = getShellInvocation(commandText);
+  const cwd = path.resolve(workspace);
   const { stdout, stderr } = await execFileAsync(file, args, {
-    cwd: workspace,
+    cwd,
     timeout,
     windowsHide: true,
     maxBuffer: 1_000_000
   });
 
-  return JSON.stringify({ stdout, stderr }, null, 2);
+  return JSON.stringify({ stdout, stderr, cwd, timeoutMs: timeout, shell: formatShellLabel(file), inheritedEnv: true }, null, 2);
+}
+
+function normalizeCommandTimeout(timeoutMs) {
+  return Math.min(Math.max(Number(timeoutMs) || 30_000, 1_000), 120_000);
 }
 
 function getShellInvocation(commandText) {
@@ -345,6 +362,16 @@ function getShellInvocation(commandText) {
     return { file: "powershell.exe", args: ["-NoProfile", "-Command", commandText] };
   }
   return { file: "/bin/bash", args: ["-lc", commandText] };
+}
+
+function formatShellLabel(file) {
+  return path.basename(String(file || "shell"));
+}
+
+function commandApprovalReason(highRisk, language) {
+  return highRisk
+    ? t(language, "tools.commandPendingHighRisk")
+    : t(language, "tools.commandPendingNormal");
 }
 
 export async function approvePendingCommand(commandId, options = {}) {
@@ -366,6 +393,10 @@ export async function approvePendingCommand(commandId, options = {}) {
     commandId,
     command: pending.command,
     result,
+    cwd: pending.cwd,
+    timeoutMs: pending.timeoutMs,
+    shell: pending.shell,
+    inheritedEnv: pending.inheritedEnv,
     highRisk: Boolean(pending.highRisk),
     autoApproveFutureCommands: permissionState.commandAutoApproval,
     commandAutoApproval: permissionState.commandAutoApproval,
