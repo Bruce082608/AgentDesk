@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { Language, translations } from "../i18n";
 import type {
   ActivityFilter,
@@ -58,7 +59,7 @@ type SidebarProps = {
 const appName = "Bruce的秘密基地";
 const brandIconUrl = new URL("../assets/bruce-secret-base.jpg", import.meta.url).href;
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   activeSessionId,
   balanceResult,
   busy,
@@ -358,4 +359,4 @@ export function Sidebar({
       )}
     </aside>
   );
-}
+});

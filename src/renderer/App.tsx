@@ -59,7 +59,8 @@ function App() {
     priorMessages: ChatMessage[];
     nextMessages: ChatMessage[];
   }>(null);
-  const [contextTokenCount, setContextTokenCount] = useState(0);
+  const [baseContextTokenCount, setBaseContextTokenCount] = useState(0);
+  const [inputTokenCount, setInputTokenCount] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [showActivityScrollToBottom, setShowActivityScrollToBottom] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
@@ -184,19 +185,36 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      window.agentWindow.countTokens({ messages, input, attachments: workspaceState.attachedFiles })
+      window.agentWindow.countTokens({ messages, input: "", attachments: workspaceState.attachedFiles })
         .then((result) => {
-          if (!cancelled) setContextTokenCount(result.tokens);
+          if (!cancelled) setBaseContextTokenCount(result.tokens);
         })
         .catch(() => {
-          if (!cancelled) setContextTokenCount(0);
+          if (!cancelled) setBaseContextTokenCount(0);
         });
     }, 120);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [messages, input, workspaceState.attachedFiles]);
+  }, [messages, workspaceState.attachedFiles]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      window.agentWindow.countTokens({ messages: [], input, attachments: [] })
+        .then((result) => {
+          if (!cancelled) setInputTokenCount(result.tokens);
+        })
+        .catch(() => {
+          if (!cancelled) setInputTokenCount(0);
+        });
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [input]);
 
   useEffect(() => {
     if (!followOutputRef.current) return;
@@ -270,26 +288,27 @@ function App() {
     [activityFilter, activitySearch, events]
   );
   const inputBudgetTokens = getInputBudgetTokens(providerState.config.contextTokens, providerState.config.maxTokens);
+  const contextTokenCount = baseContextTokenCount + inputTokenCount;
   const contextPercent = Math.min(100, Math.round((contextTokenCount / Math.max(inputBudgetTokens, 1)) * 100));
   const contextUsageLabel = `${contextPercent}%`;
 
-  function scrollToBottom() {
+  const scrollToBottom = useCallback(() => {
     const list = messageListRef.current;
     if (!list) return;
     list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
     followOutputRef.current = true;
     setShowScrollToBottom(false);
-  }
+  }, []);
 
-  function scrollActivityToBottom() {
+  const scrollActivityToBottom = useCallback(() => {
     const list = activityListRef.current;
     if (!list) return;
     list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
     followActivityRef.current = true;
     setShowActivityScrollToBottom(false);
-  }
+  }, []);
 
-  async function startAgentRequest({
+  const startAgentRequest = useCallback(async ({
     inputText,
     priorMessages,
     nextMessages,
@@ -299,7 +318,7 @@ function App() {
     priorMessages: ChatMessage[];
     nextMessages: ChatMessage[];
     clearInput?: boolean;
-  }) {
+  }) => {
     if (!workspaceState.workspace && workspaceState.attachedFiles.length === 0) {
       appendEvent("error", "缺少 workspace", "请先选择一个工作区目录。");
       return;
@@ -333,16 +352,27 @@ function App() {
     } else if (!result.cancelled && !navigator.onLine) {
       setRetryRequest({ inputText, priorMessages, nextMessages });
     }
-  }
+  }, [
+    agentState.beginRequest,
+    appendEvent,
+    language,
+    providerState.config,
+    sessionState.activeSessionId,
+    t.offlineBody,
+    t.offlineTitle,
+    t.waitingPlan,
+    workspaceState.attachedFiles,
+    workspaceState.workspace
+  ]);
 
-  async function retryLastRequest() {
+  const retryLastRequest = useCallback(async () => {
     if (!retryRequest || agentState.busy || !navigator.onLine) return;
     const request = retryRequest;
     setRetryRequest(null);
     await startAgentRequest({ ...request, clearInput: false });
-  }
+  }, [agentState.busy, retryRequest, startAgentRequest]);
 
-  async function send() {
+  const send = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || agentState.busy) return;
 
@@ -352,14 +382,14 @@ function App() {
       nextMessages: [...messages, { role: "user", content: trimmed, createdAt: Date.now() }],
       clearInput: true
     });
-  }
+  }, [agentState.busy, input, messages, startAgentRequest]);
 
-  async function copyMessage(message: ChatMessage) {
+  const copyMessage = useCallback(async (message: ChatMessage) => {
     await copyText(message.content || message.reasoning || "");
     appendEvent("status", t.copied, message.role === "user" ? t.you : t.agent);
-  }
+  }, [appendEvent, t.agent, t.copied, t.you]);
 
-  async function regenerateMessage(index: number) {
+  const regenerateMessage = useCallback(async (index: number) => {
     if (agentState.busy) return;
     const userIndex = messages.slice(0, index + 1).map((message) => message.role).lastIndexOf("user");
     if (userIndex < 0) return;
@@ -370,9 +400,9 @@ function App() {
       priorMessages: messages.slice(0, userIndex),
       nextMessages: messages.slice(0, userIndex + 1)
     });
-  }
+  }, [agentState.busy, messages, startAgentRequest]);
 
-  async function answerQuestion(questionId: string, option: string) {
+  const answerQuestion = useCallback(async (questionId: string, option: string) => {
     if (agentState.busy) return;
     const question = agentState.questions.find((item) => item.id === questionId);
     if (!question) return;
@@ -383,36 +413,40 @@ function App() {
       priorMessages: messages,
       nextMessages: [...messages, { role: "user", content: answer, createdAt: Date.now() }]
     });
-  }
+  }, [agentState.busy, agentState.questions, agentState.setQuestions, messages, startAgentRequest]);
 
-  function dismissQuestion(questionId: string) {
+  const dismissQuestion = useCallback((questionId: string) => {
     agentState.setQuestions((current) => current.map((item) => item.id === questionId ? { ...item, status: "dismissed" } : item));
-  }
+  }, [agentState.setQuestions]);
 
-  function updateReasoningView(key: string, view: ReasoningView) {
+  const updateReasoningView = useCallback((key: string, view: ReasoningView) => {
     setReasoningViews((current) => ({ ...current, [key]: view }));
-  }
+  }, []);
 
-  function chooseWorkspace() {
+  const chooseWorkspace = useCallback(() => {
     workspaceState.chooseWorkspace((selected) => {
       sessionState.persistActiveSession({ workspace: selected, messages, tokenUsage });
     });
-  }
+  }, [messages, sessionState.persistActiveSession, tokenUsage, workspaceState.chooseWorkspace]);
 
-  function permissionContext() {
+  const permissionContext = useCallback(() => {
     return {
       workspace: workspaceState.workspace || ".",
       sessionId: sessionState.activeSessionId
     };
-  }
+  }, [sessionState.activeSessionId, workspaceState.workspace]);
 
-  function updateCommandAutoApproval(enabled: boolean) {
+  const updateCommandAutoApproval = useCallback((enabled: boolean) => {
     agentState.updateCommandAutoApproval(enabled, permissionContext());
-  }
+  }, [agentState.updateCommandAutoApproval, permissionContext]);
 
-  function updatePatchAutoApproval(enabled: boolean) {
+  const updatePatchAutoApproval = useCallback((enabled: boolean) => {
     agentState.updatePatchAutoApproval(enabled, permissionContext());
-  }
+  }, [agentState.updatePatchAutoApproval, permissionContext]);
+
+  const resetCommandAutoApproval = useCallback(() => {
+    agentState.resetCommandAutoApproval(permissionContext());
+  }, [agentState.resetCommandAutoApproval, permissionContext]);
 
   function startColumnResize(side: "left" | "right", event: React.PointerEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -554,7 +588,7 @@ function App() {
         previewFile={workspaceState.previewFile}
         reasoningViews={reasoningViews}
         regenerateMessage={regenerateMessage}
-        resetCommandAutoApproval={() => agentState.resetCommandAutoApproval(permissionContext())}
+        resetCommandAutoApproval={resetCommandAutoApproval}
         retryLastRequest={retryLastRequest}
         retryRequestPending={Boolean(retryRequest) && isOnline}
         send={send}

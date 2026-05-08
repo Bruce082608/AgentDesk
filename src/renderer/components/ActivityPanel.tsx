@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { RefObject } from "react";
 import type { Language, translations } from "../i18n";
 import type { ActivityFilter, EventLogItem, PlanItem, RightSidebarSection } from "../types";
@@ -21,7 +22,7 @@ type ActivityPanelProps = {
   t: Translation;
 };
 
-export function ActivityPanel({
+export const ActivityPanel = memo(function ActivityPanel({
   activityFilter,
   activityListRef,
   activitySearch,
@@ -111,7 +112,7 @@ export function ActivityPanel({
       )}
     </aside>
   );
-}
+});
 
 function formatEventTimestamp(timestamp: number | undefined, language: Language) {
   if (!timestamp) return language === "zh" ? "未记录时间" : "Timestamp not recorded";

@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent, type RefObject } from "react";
+import { useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
 import type { Language, translations } from "../i18n";
 import type { AttachedFile, ChatMessage, ReasoningView, StreamRecoveryStatus, ToolDraft, ToolRun } from "../types";
 import { CodeBlock, MarkdownContent, formatToolDraftText } from "../utils";
@@ -137,6 +137,183 @@ export function Conversation({
   const activeToolStatus = busy && activeToolName ? formatActiveToolStatus(activeToolName, language) : "";
   const dragDepthRef = useRef(0);
   const [draggingFiles, setDraggingFiles] = useState(false);
+  const messageListContent = useMemo(() => (
+    <>
+      {messages.length === 0 && (
+        <div className="empty-state">
+          <h2>{t.emptyTitle}</h2>
+          <p>{t.emptyBody}</p>
+        </div>
+      )}
+      {messages.map((message, index) => {
+        if (message.role === "system") return null;
+        if (message.role === "tool") {
+          return (
+            <ToolCallCard
+              key={`${message.tool_call_id || message.name || "tool"}-${index}`}
+              args=""
+              copyLabel={t.copy}
+              copiedLabel={t.copied}
+              language={language}
+              name={message.name || ""}
+              result={message.content}
+              status={isToolResultError(message.content) ? "error" : "completed"}
+              title={formatMessageTimestamp(message.createdAt, language)}
+            />
+          );
+        }
+        if (message.role === "assistant" && !message.content && !message.reasoning && message.tool_calls?.length) return null;
+        const reasoningKey = `${message.role}-${index}`;
+        const reasoningView = reasoningViews[reasoningKey] || "preview";
+        return (
+          <article className={`message ${message.role}${index === streamingMessageIndex ? " streaming" : ""}`} key={`${message.role}-${index}`} title={formatMessageTimestamp(message.createdAt, language)}>
+            <div className="message-meta">
+              <div className="role">{message.role === "user" ? t.you : t.agent}</div>
+              <div className="message-actions">
+                <button type="button" onClick={() => copyMessage(message)} title={t.copy} aria-label={t.copy}>⧉</button>
+                {message.role === "assistant" && (
+                  <button type="button" onClick={() => regenerateMessage(index)} disabled={busy} title={t.regenerate} aria-label={t.regenerate}>↻</button>
+                )}
+              </div>
+            </div>
+            <div className="message-body">
+              {message.reasoning && (
+                <section className={`reasoning-block ${reasoningView}`}>
+                  <div className="reasoning-header">
+                    <button
+                      type="button"
+                      className="reasoning-title"
+                      onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "preview" : "collapsed")}
+                      title={t.reasoning}
+                      aria-label={t.reasoning}
+                    >
+                      💡
+                    </button>
+                    <div className="reasoning-actions">
+                      {reasoningView === "full" ? (
+                        <button type="button" onClick={() => updateReasoningView(reasoningKey, "preview")} title={t.previewReasoning} aria-label={t.previewReasoning}>≡</button>
+                      ) : (
+                        <button type="button" onClick={() => updateReasoningView(reasoningKey, "full")} title={t.expandReasoning} aria-label={t.expandReasoning}>↕</button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "preview" : "collapsed")}
+                        title={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
+                        aria-label={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
+                      >
+                        {reasoningView === "collapsed" ? "≡" : "×"}
+                      </button>
+                    </div>
+                  </div>
+                  {reasoningView !== "collapsed" && <pre>{message.reasoning}</pre>}
+                </section>
+              )}
+              {message.content ? <MarkdownContent content={message.content} copyLabel={t.copy} copiedLabel={t.copied} /> : null}
+            </div>
+          </article>
+        );
+      })}
+      {activeToolRuns.map((tool) => (
+        <ToolCallCard
+          key={tool.id}
+          args={tool.args}
+          copyLabel={t.copy}
+          copiedLabel={t.copied}
+          language={language}
+          name={tool.name}
+          status="running"
+          title={formatMessageTimestamp(tool.startedAt, language)}
+        />
+      ))}
+      {toolDraft && busy && (
+        <article className="message assistant tool-draft-message">
+          <div className="message-meta">
+            <div className="role">{t.writingCode}{toolDraft.name ? ` · ${toolDraft.name}` : ""}</div>
+          </div>
+          <div className="message-body">
+            <div className="markdown-content">
+              <CodeBlock code={formatToolDraftText(toolDraft.text)} language="json" copyLabel={t.copy} copiedLabel={t.copied} />
+            </div>
+          </div>
+        </article>
+      )}
+      <ApprovalPanel
+        activeCommands={activeCommands}
+        activePatches={activePatches}
+        activeQuestions={activeQuestions}
+        answerQuestion={answerQuestion}
+        approveCommand={approveCommand}
+        applyPatch={applyPatch}
+        busy={busy}
+        commandAutoApproval={commandAutoApproval}
+        discardCommand={discardCommand}
+        discardPatch={discardPatch}
+        dismissQuestion={dismissQuestion}
+        language={language}
+        resetCommandAutoApproval={resetCommandAutoApproval}
+        t={t}
+      />
+      {contextCompressionStatus && (
+        <div className="context-compression-status" role="status">
+          <span className="compression-dot" />
+          <span>{contextCompressionStatus}</span>
+        </div>
+      )}
+      {streamRecoveryStatus && (
+        <div className={`stream-recovery-status ${streamRecoveryStatus.recovering ? "recovering" : "failed"}`} role="status">
+          <span className="tool-status-indicator running" aria-hidden="true" />
+          <span>{streamRecoveryStatus.message}</span>
+        </div>
+      )}
+      {retryRequestPending && (
+        <div className="network-retry-banner" role="status">
+          <span>{t.networkRestoredBody}</span>
+          <button type="button" className="secondary tiny" disabled={busy} onClick={retryLastRequest}>{t.retryLastRequest}</button>
+        </div>
+      )}
+      {showScrollToBottom && (
+        <button
+          type="button"
+          className="scroll-to-bottom"
+          onClick={scrollToBottom}
+          title={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
+          aria-label={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
+        >
+          ↓
+        </button>
+      )}
+      {busy && <div className="thinking">{t.thinking}</div>}
+    </>
+  ), [
+    activeCommands,
+    activePatches,
+    activeQuestions,
+    activeToolRuns,
+    answerQuestion,
+    approveCommand,
+    applyPatch,
+    busy,
+    commandAutoApproval,
+    contextCompressionStatus,
+    copyMessage,
+    discardCommand,
+    discardPatch,
+    dismissQuestion,
+    language,
+    messages,
+    reasoningViews,
+    regenerateMessage,
+    resetCommandAutoApproval,
+    retryLastRequest,
+    retryRequestPending,
+    scrollToBottom,
+    showScrollToBottom,
+    streamRecoveryStatus,
+    streamingMessageIndex,
+    t,
+    toolDraft,
+    updateReasoningView
+  ]);
 
   function hasDraggedFiles(event: DragEvent<HTMLDivElement>) {
     return Array.from(event.dataTransfer?.types || []).includes("Files");
@@ -223,150 +400,7 @@ export function Conversation({
             <span>{language === "zh" ? "支持文本文件；过大或二进制文件会以说明占位。" : "Text files are read; large or binary files get a note."}</span>
           </div>
         )}
-        {messages.length === 0 && (
-          <div className="empty-state">
-            <h2>{t.emptyTitle}</h2>
-            <p>{t.emptyBody}</p>
-          </div>
-        )}
-        {messages.map((message, index) => {
-          if (message.role === "system") return null;
-          if (message.role === "tool") {
-            return (
-              <ToolCallCard
-                key={`${message.tool_call_id || message.name || "tool"}-${index}`}
-                args=""
-                copyLabel={t.copy}
-                copiedLabel={t.copied}
-                language={language}
-                name={message.name || ""}
-                result={message.content}
-                status={isToolResultError(message.content) ? "error" : "completed"}
-                title={formatMessageTimestamp(message.createdAt, language)}
-              />
-            );
-          }
-          if (message.role === "assistant" && !message.content && !message.reasoning && message.tool_calls?.length) return null;
-          const reasoningKey = `${message.role}-${index}`;
-          const reasoningView = reasoningViews[reasoningKey] || "preview";
-          return (
-            <article className={`message ${message.role}${index === streamingMessageIndex ? " streaming" : ""}`} key={`${message.role}-${index}`} title={formatMessageTimestamp(message.createdAt, language)}>
-              <div className="message-meta">
-                <div className="role">{message.role === "user" ? t.you : t.agent}</div>
-                <div className="message-actions">
-                  <button type="button" onClick={() => copyMessage(message)} title={t.copy} aria-label={t.copy}>⧉</button>
-                  {message.role === "assistant" && (
-                    <button type="button" onClick={() => regenerateMessage(index)} disabled={busy} title={t.regenerate} aria-label={t.regenerate}>↻</button>
-                  )}
-                </div>
-              </div>
-              <div className="message-body">
-                {message.reasoning && (
-                  <section className={`reasoning-block ${reasoningView}`}>
-                    <div className="reasoning-header">
-                      <button
-                        type="button"
-                        className="reasoning-title"
-                        onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "preview" : "collapsed")}
-                        title={t.reasoning}
-                        aria-label={t.reasoning}
-                      >
-                        💡
-                      </button>
-                      <div className="reasoning-actions">
-                        {reasoningView === "full" ? (
-                          <button type="button" onClick={() => updateReasoningView(reasoningKey, "preview")} title={t.previewReasoning} aria-label={t.previewReasoning}>≡</button>
-                        ) : (
-                          <button type="button" onClick={() => updateReasoningView(reasoningKey, "full")} title={t.expandReasoning} aria-label={t.expandReasoning}>↕</button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "preview" : "collapsed")}
-                          title={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
-                          aria-label={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
-                        >
-                          {reasoningView === "collapsed" ? "≡" : "×"}
-                        </button>
-                      </div>
-                    </div>
-                    {reasoningView !== "collapsed" && <pre>{message.reasoning}</pre>}
-                  </section>
-                )}
-                {message.content ? <MarkdownContent content={message.content} copyLabel={t.copy} copiedLabel={t.copied} /> : null}
-              </div>
-            </article>
-          );
-        })}
-        {activeToolRuns.map((tool) => (
-          <ToolCallCard
-            key={tool.id}
-            args={tool.args}
-            copyLabel={t.copy}
-            copiedLabel={t.copied}
-            language={language}
-            name={tool.name}
-            status="running"
-            title={formatMessageTimestamp(tool.startedAt, language)}
-          />
-        ))}
-        {toolDraft && busy && (
-          <article className="message assistant tool-draft-message">
-            <div className="message-meta">
-              <div className="role">{t.writingCode}{toolDraft.name ? ` · ${toolDraft.name}` : ""}</div>
-            </div>
-            <div className="message-body">
-              <div className="markdown-content">
-                <CodeBlock code={formatToolDraftText(toolDraft.text)} language="json" copyLabel={t.copy} copiedLabel={t.copied} />
-              </div>
-            </div>
-          </article>
-        )}
-        <ApprovalPanel
-          activeCommands={activeCommands}
-          activePatches={activePatches}
-          activeQuestions={activeQuestions}
-          answerQuestion={answerQuestion}
-          approveCommand={approveCommand}
-          applyPatch={applyPatch}
-          busy={busy}
-          commandAutoApproval={commandAutoApproval}
-          discardCommand={discardCommand}
-          discardPatch={discardPatch}
-          dismissQuestion={dismissQuestion}
-          language={language}
-          resetCommandAutoApproval={resetCommandAutoApproval}
-          t={t}
-        />
-        {contextCompressionStatus && (
-          <div className="context-compression-status" role="status">
-            <span className="compression-dot" />
-            <span>{contextCompressionStatus}</span>
-          </div>
-        )}
-        {streamRecoveryStatus && (
-          <div className={`stream-recovery-status ${streamRecoveryStatus.recovering ? "recovering" : "failed"}`} role="status">
-            <span className="tool-status-indicator running" aria-hidden="true" />
-            <span>{streamRecoveryStatus.message}</span>
-          </div>
-        )}
-        {retryRequestPending && (
-          <div className="network-retry-banner" role="status">
-            <span>{t.networkRestoredBody}</span>
-            <button type="button" className="secondary tiny" disabled={busy} onClick={retryLastRequest}>{t.retryLastRequest}</button>
-          </div>
-        )}
-        {showScrollToBottom && (
-          <button
-            type="button"
-            className="scroll-to-bottom"
-            onClick={scrollToBottom}
-            title={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
-            aria-label={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
-          >
-            ↓
-          </button>
-        )}
-        {busy && <div className="thinking">{t.thinking}</div>}
+        {messageListContent}
       </div>
 
       <footer className="composer" style={{ height: `${composerHeight + 30}px` }}>
@@ -439,7 +473,10 @@ export function Conversation({
             )}
             <div className="composer-actions">
               {!isOnline && <span className="offline-pill">{t.offlineTitle}</span>}
-              <span className={`context-meter ${contextPercent >= 90 ? "danger" : contextPercent >= 70 ? "warn" : ""}`} title={`${t.contextUsage}: ${sessionContextTokenCount.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} / ${configContextTokens.toLocaleString(language === "zh" ? "zh-CN" : "en-US")} tokens`}>
+              <span
+                className={`context-meter ${contextPercent >= 90 ? "danger" : contextPercent >= 70 ? "warn" : ""}`}
+                title={`${t.contextUsage}: ${Math.round(sessionContextTokenCount).toLocaleString(language === "zh" ? "zh-CN" : "en-US")} / ${Math.round(configContextTokens).toLocaleString(language === "zh" ? "zh-CN" : "en-US")} tokens`}
+              >
                 {contextUsageLabel}
               </span>
               <button className="composer-icon" type="button" disabled={busy} onClick={uploadAttachmentFiles} title={t.uploadFiles} aria-label={t.uploadFiles}>+</button>

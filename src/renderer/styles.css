@@ -2428,8 +2428,8 @@ body[data-theme="dark"] .question-text {
   animation: scroll-hint-fade-in 180ms ease;
 }
 
-.scroll-to-bottom:hover {
-  transform: translateX(-50%) translateY(-2px);
+button.scroll-to-bottom:hover:not(:disabled) {
+  transform: translateX(-50%);
   box-shadow: 0 10px 28px var(--primary-focus-ring);
 }
 
