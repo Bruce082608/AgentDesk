@@ -2,12 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { resolveInsideWorkspace } from "../shared/pathSecurity.js";
+import { searchWorkspaceTextWithRg } from "../shared/ripgrep.js";
 
 const execFileAsync = promisify(execFile);
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".vite", "coverage"]);
 const MAX_TREE_FILES = 700;
 const MAX_READ_BYTES = 180_000;
-const RIPGREP_COMMAND = process.platform === "win32" ? "rg.exe" : "rg";
 
 export async function getWorkspaceTree(workspace) {
   const root = resolveInsideWorkspace(workspace, ".");
@@ -50,7 +51,7 @@ export async function searchWorkspaceFiles(workspace, query, maxResults = 50) {
   if (!needle) return { results: [], truncated: false, engine: "none" };
   const limit = Math.min(Number(maxResults) || 50, 100);
 
-  const rgResult = await searchWithRg(workspace, needle, limit).catch(() => null);
+  const rgResult = await searchWorkspaceTextWithRg({ workspace, query: needle, maxResults: limit }).catch(() => null);
   if (rgResult) return rgResult;
 
   const tree = await getWorkspaceTree(workspace);
@@ -104,60 +105,12 @@ async function runGit(workspace, args) {
   return stdout;
 }
 
-async function searchWithRg(workspace, needle, limit) {
-  let stdout = "";
-  try {
-    ({ stdout } = await execFileAsync(
-      RIPGREP_COMMAND,
-      [
-        "--line-number",
-        "--no-heading",
-        "--fixed-strings",
-        "--color=never",
-        "--glob",
-        "!{.git,node_modules,dist,build,.next,.vite,coverage}/**",
-        needle,
-        "."
-      ],
-      {
-        cwd: resolveInsideWorkspace(workspace, "."),
-        windowsHide: true,
-        maxBuffer: 1_000_000
-      }
-    ));
-  } catch (error) {
-    if (error?.code === 1) return { results: [], truncated: false, engine: RIPGREP_COMMAND };
-    throw error;
-  }
-
-  const results = [];
-  for (const line of stdout.split(/\r?\n/)) {
-    if (!line || results.length >= limit) break;
-    const match = line.match(/^(.+?):(\d+):(.*)$/);
-    if (!match) continue;
-    results.push({ file: match[1].replaceAll("\\", "/"), line: Number(match[2]), text: match[3].slice(0, 240) });
-  }
-
-  return { results, truncated: results.length >= limit, engine: RIPGREP_COMMAND };
-}
-
 function draftCommitMessage(changedFiles) {
   if (changedFiles.length === 0) return "chore: no local changes";
   const hasSource = changedFiles.some((file) => /\.(ts|tsx|js|jsx|css|json|md)$/.test(file.path));
   const verb = hasSource ? "update" : "adjust";
   if (changedFiles.length === 1) return `chore: ${verb} ${changedFiles[0].path}`;
   return `chore: ${verb} ${changedFiles.length} files`;
-}
-
-function resolveInsideWorkspace(workspace, targetPath) {
-  if (!workspace) throw new Error("请先选择 workspace。");
-  const absoluteWorkspace = path.resolve(workspace);
-  const absoluteTarget = path.resolve(absoluteWorkspace, String(targetPath || "."));
-  const relative = path.relative(absoluteWorkspace, absoluteTarget);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`路径越界：${targetPath}`);
-  }
-  return absoluteTarget;
 }
 
 export const __test__ = {

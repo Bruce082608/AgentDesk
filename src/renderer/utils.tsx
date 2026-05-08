@@ -85,6 +85,7 @@ function normalizeStoredMessage(value: unknown): ChatMessage | null {
     role: message.role,
     content: String(message.content || "")
   };
+  if (Number.isFinite(message.createdAt) && Number(message.createdAt) > 0) normalized.createdAt = Number(message.createdAt);
   if (typeof message.reasoning === "string") normalized.reasoning = message.reasoning;
   const toolCalls = normalizeStoredToolCalls(message.tool_calls);
   if (toolCalls.length > 0) normalized.tool_calls = toolCalls;
@@ -362,22 +363,21 @@ export function CodeBlock({ code, language, copyLabel, copiedLabel }: { code: st
   const [expanded, setExpanded] = useState(lineCount <= 40);
   const previousLineCount = useRef(lineCount);
   const collapsed = !expanded && lineCount > 40;
-  const highlighted = useMemo(() => {
-    const normalized = normalizeCodeLanguage(language);
-    try {
-      if (normalized && hljs.getLanguage(normalized)) {
-        return hljs.highlight(code, { language: normalized, ignoreIllegals: true }).value;
-      }
-      return hljs.highlightAuto(code).value;
-    } catch {
-      return escapeHtml(code);
-    }
-  }, [code, language]);
+  const normalizedLanguage = useMemo(() => normalizeCodeLanguage(language), [language]);
+  const [highlighted, setHighlighted] = useState(() => escapeHtml(code));
 
   useEffect(() => {
     if (previousLineCount.current <= 40 && lineCount > 40) setExpanded(false);
     previousLineCount.current = lineCount;
   }, [lineCount]);
+
+  useEffect(() => {
+    setHighlighted(escapeHtml(code));
+    const timer = window.setTimeout(() => {
+      setHighlighted(highlightCode(code, normalizedLanguage));
+    }, 90);
+    return () => window.clearTimeout(timer);
+  }, [code, normalizedLanguage]);
 
   async function copyCode() {
     await copyText(code);
@@ -409,6 +409,17 @@ export function CodeBlock({ code, language, copyLabel, copiedLabel }: { code: st
       </pre>
     </div>
   );
+}
+
+function highlightCode(code: string, normalizedLanguage: string) {
+  try {
+    if (normalizedLanguage && hljs.getLanguage(normalizedLanguage)) {
+      return hljs.highlight(code, { language: normalizedLanguage, ignoreIllegals: true }).value;
+    }
+    return hljs.highlightAuto(code).value;
+  } catch {
+    return escapeHtml(code);
+  }
 }
 
 /* ---- MarkdownContent component ---- */

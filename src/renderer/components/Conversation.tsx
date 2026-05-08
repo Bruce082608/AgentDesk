@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { useRef, useState, type DragEvent, type RefObject } from "react";
 import type { Language, translations } from "../i18n";
 import type { AttachedFile, ChatMessage, ReasoningView, StreamRecoveryStatus, ToolDraft, ToolRun } from "../types";
 import { CodeBlock, MarkdownContent, formatToolDraftText } from "../utils";
@@ -16,6 +16,7 @@ type ConversationProps = {
   approveCommand: (commandId: string, allowFuture?: boolean) => void;
   applyPatch: (patchId: string) => void;
   attachFile: (path: string) => void;
+  attachDroppedFiles: (files: File[]) => Promise<void>;
   attachedFiles: AttachedFile[];
   busy: boolean;
   cancelActiveRequest: () => void;
@@ -73,6 +74,7 @@ export function Conversation({
   approveCommand,
   applyPatch,
   attachFile,
+  attachDroppedFiles,
   attachedFiles,
   busy,
   cancelActiveRequest,
@@ -133,6 +135,40 @@ export function Conversation({
   const streamingMessageIndex = streamingResponse ? getStreamingAssistantIndex(messages) : -1;
   const activeToolName = toolDraft ? (toolDraft.name || "tool") : activeToolRuns[activeToolRuns.length - 1]?.name || "";
   const activeToolStatus = busy && activeToolName ? formatActiveToolStatus(activeToolName, language) : "";
+  const dragDepthRef = useRef(0);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+
+  function hasDraggedFiles(event: DragEvent<HTMLDivElement>) {
+    return Array.from(event.dataTransfer?.types || []).includes("Files");
+  }
+
+  function handleMessageDragEnter(event: DragEvent<HTMLDivElement>) {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setDraggingFiles(true);
+  }
+
+  function handleMessageDragOver(event: DragEvent<HTMLDivElement>) {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleMessageDragLeave(event: DragEvent<HTMLDivElement>) {
+    if (!hasDraggedFiles(event)) return;
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDraggingFiles(false);
+  }
+
+  async function handleMessageDrop(event: DragEvent<HTMLDivElement>) {
+    if (!hasDraggedFiles(event)) return;
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setDraggingFiles(false);
+    const files = Array.from(event.dataTransfer.files || []);
+    if (files.length > 0) await attachDroppedFiles(files);
+  }
 
   return (
     <main className="conversation">
@@ -173,7 +209,20 @@ export function Conversation({
         </section>
       )}
 
-      <div className="message-list" ref={messageListRef}>
+      <div
+        className={`message-list${draggingFiles ? " dragging-files" : ""}`}
+        ref={messageListRef}
+        onDragEnter={handleMessageDragEnter}
+        onDragOver={handleMessageDragOver}
+        onDragLeave={handleMessageDragLeave}
+        onDrop={handleMessageDrop}
+      >
+        {draggingFiles && (
+          <div className="message-drop-zone" aria-hidden="true">
+            <strong>{language === "zh" ? "松开以加入上下文" : "Drop to attach context"}</strong>
+            <span>{language === "zh" ? "支持文本文件；过大或二进制文件会以说明占位。" : "Text files are read; large or binary files get a note."}</span>
+          </div>
+        )}
         {messages.length === 0 && (
           <div className="empty-state">
             <h2>{t.emptyTitle}</h2>
@@ -193,6 +242,7 @@ export function Conversation({
                 name={message.name || ""}
                 result={message.content}
                 status={isToolResultError(message.content) ? "error" : "completed"}
+                title={formatMessageTimestamp(message.createdAt, language)}
               />
             );
           }
@@ -200,7 +250,7 @@ export function Conversation({
           const reasoningKey = `${message.role}-${index}`;
           const reasoningView = reasoningViews[reasoningKey] || "preview";
           return (
-            <article className={`message ${message.role}${index === streamingMessageIndex ? " streaming" : ""}`} key={`${message.role}-${index}`}>
+            <article className={`message ${message.role}${index === streamingMessageIndex ? " streaming" : ""}`} key={`${message.role}-${index}`} title={formatMessageTimestamp(message.createdAt, language)}>
               <div className="message-meta">
                 <div className="role">{message.role === "user" ? t.you : t.agent}</div>
                 <div className="message-actions">
@@ -256,6 +306,7 @@ export function Conversation({
             language={language}
             name={tool.name}
             status="running"
+            title={formatMessageTimestamp(tool.startedAt, language)}
           />
         ))}
         {toolDraft && busy && (
@@ -412,9 +463,10 @@ type ToolCallCardProps = {
   name: string;
   result?: string;
   status: ToolCardStatus;
+  title?: string;
 };
 
-function ToolCallCard({ args, copiedLabel, copyLabel, language, name, result, status }: ToolCallCardProps) {
+function ToolCallCard({ args, copiedLabel, copyLabel, language, name, result, status, title }: ToolCallCardProps) {
   const parsedResult = parseToolPayload(result);
   const displayName = name || stringValue(parsedResult?.tool) || "tool";
   const effectiveStatus = status === "completed" && parsedResult?.ok === false ? "error" : status;
@@ -424,7 +476,7 @@ function ToolCallCard({ args, copiedLabel, copyLabel, language, name, result, st
   const statusLabel = toolStatusLabel(effectiveStatus, language);
 
   return (
-    <details className={`tool-call-card ${effectiveStatus}`} open={effectiveStatus === "running"}>
+    <details className={`tool-call-card ${effectiveStatus}`} open={effectiveStatus === "running"} title={title}>
       <summary>
         <span className={`tool-status-indicator ${effectiveStatus}`} aria-hidden="true" />
         <span className="tool-call-name">{displayName}</span>
@@ -447,6 +499,14 @@ function ToolCallCard({ args, copiedLabel, copyLabel, language, name, result, st
       </div>
     </details>
   );
+}
+
+function formatMessageTimestamp(timestamp: number | undefined, language: Language) {
+  if (!timestamp) return language === "zh" ? "未记录时间" : "Timestamp not recorded";
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "medium"
+  }).format(timestamp);
 }
 
 function toolStatusLabel(status: ToolCardStatus, language: Language) {

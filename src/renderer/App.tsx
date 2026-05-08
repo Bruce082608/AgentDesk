@@ -61,6 +61,7 @@ function App() {
   }>(null);
   const [contextTokenCount, setContextTokenCount] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [showActivityScrollToBottom, setShowActivityScrollToBottom] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved === "dark" || saved === "light" || saved === "system") return saved;
@@ -84,6 +85,7 @@ function App() {
   const activityListRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const followOutputRef = useRef(true);
+  const followActivityRef = useRef(true);
   const t = translations[language];
 
   const { appendEvent, events, resetEvents } = useActivityLog();
@@ -222,10 +224,34 @@ function App() {
 
   useEffect(() => {
     if (rightSidebarSection !== "activity") return;
+    followActivityRef.current = true;
+    setShowActivityScrollToBottom(false);
+  }, [rightSidebarSection]);
+
+  useEffect(() => {
+    if (rightSidebarSection !== "activity") return;
+    if (!followActivityRef.current) return;
     const list = activityListRef.current;
     if (!list) return;
-    list.scrollTop = list.scrollHeight;
+    requestAnimationFrame(() => {
+      list.scrollTo({ top: list.scrollHeight, behavior: "instant" });
+    });
   }, [events, activityFilter, activitySearch, rightSidebarSection]);
+
+  useEffect(() => {
+    const list = activityListRef.current;
+    if (!list) return;
+
+    const onActivityScroll = () => {
+      const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+      followActivityRef.current = distanceToBottom < 32;
+      const shouldShow = rightSidebarSection === "activity" && !followActivityRef.current;
+      setShowActivityScrollToBottom(prev => prev !== shouldShow ? shouldShow : prev);
+    };
+
+    list.addEventListener("scroll", onActivityScroll, { passive: true });
+    return () => list.removeEventListener("scroll", onActivityScroll);
+  }, [rightSidebarSection]);
 
   const activePatches = useMemo(
     () => agentState.patches.filter((patch) => patch.status === "pending" || patch.status === "failed"),
@@ -253,6 +279,14 @@ function App() {
     list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
     followOutputRef.current = true;
     setShowScrollToBottom(false);
+  }
+
+  function scrollActivityToBottom() {
+    const list = activityListRef.current;
+    if (!list) return;
+    list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+    followActivityRef.current = true;
+    setShowActivityScrollToBottom(false);
   }
 
   async function startAgentRequest({
@@ -315,7 +349,7 @@ function App() {
     await startAgentRequest({
       inputText: trimmed,
       priorMessages: messages,
-      nextMessages: [...messages, { role: "user", content: trimmed }],
+      nextMessages: [...messages, { role: "user", content: trimmed, createdAt: Date.now() }],
       clearInput: true
     });
   }
@@ -347,7 +381,7 @@ function App() {
     await startAgentRequest({
       inputText: answer,
       priorMessages: messages,
-      nextMessages: [...messages, { role: "user", content: answer }]
+      nextMessages: [...messages, { role: "user", content: answer, createdAt: Date.now() }]
     });
   }
 
@@ -493,6 +527,7 @@ function App() {
         approveCommand={agentState.approveCommand}
         applyPatch={agentState.applyPatch}
         attachFile={workspaceState.attachFile}
+        attachDroppedFiles={workspaceState.attachDroppedFiles}
         attachedFiles={workspaceState.attachedFiles}
         busy={agentState.busy}
         cancelActiveRequest={agentState.cancelActiveRequest}
@@ -561,6 +596,8 @@ function App() {
         setActivityFilter={setActivityFilter}
         setActivitySearch={setActivitySearch}
         setRightSidebarSection={setRightSidebarSection}
+        showActivityScrollToBottom={showActivityScrollToBottom}
+        scrollActivityToBottom={scrollActivityToBottom}
         t={t}
       />
     </div>

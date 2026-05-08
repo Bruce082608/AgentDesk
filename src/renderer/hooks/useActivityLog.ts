@@ -6,7 +6,7 @@ export function useActivityLog() {
   const [events, setEvents] = useState<EventLogItem[]>([]);
 
   const appendEvent = useCallback((kind: EventLogItem["kind"], title: string, body: string) => {
-    setEvents((current) => trimActivityEvents([...current, { id: crypto.randomUUID(), title, body, kind }]));
+    setEvents((current) => trimActivityEvents([...current, { id: crypto.randomUUID(), title, body, kind, createdAt: Date.now() }]));
   }, []);
 
   const resetEvents = useCallback(() => {

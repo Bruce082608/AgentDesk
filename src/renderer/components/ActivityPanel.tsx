@@ -16,6 +16,8 @@ type ActivityPanelProps = {
   setActivityFilter: (filter: ActivityFilter) => void;
   setActivitySearch: (search: string) => void;
   setRightSidebarSection: (section: RightSidebarSection) => void;
+  showActivityScrollToBottom: boolean;
+  scrollActivityToBottom: () => void;
   t: Translation;
 };
 
@@ -31,6 +33,8 @@ export function ActivityPanel({
   setActivityFilter,
   setActivitySearch,
   setRightSidebarSection,
+  showActivityScrollToBottom,
+  scrollActivityToBottom,
   t
 }: ActivityPanelProps) {
   return (
@@ -86,14 +90,33 @@ export function ActivityPanel({
           <div className="event-list" ref={activityListRef}>
             {filteredEvents.length === 0 && <div className="muted">{events.length === 0 ? t.activityEmpty : t.activitySearchPlaceholder}</div>}
             {filteredEvents.map((event) => (
-              <details className={`event ${event.kind}`} key={event.id} open={event.kind === "error"}>
+              <details className={`event ${event.kind}`} key={event.id} open={event.kind === "error"} title={formatEventTimestamp(event.createdAt, language)}>
                 <summary>{event.title}</summary>
                 <pre>{event.body}</pre>
               </details>
             ))}
           </div>
+          {showActivityScrollToBottom && (
+            <button
+              className="scroll-to-bottom activity-scroll-to-bottom"
+              type="button"
+              onClick={scrollActivityToBottom}
+              title={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
+              aria-label={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
+            >
+              ↓
+            </button>
+          )}
         </>
       )}
     </aside>
   );
+}
+
+function formatEventTimestamp(timestamp: number | undefined, language: Language) {
+  if (!timestamp) return language === "zh" ? "未记录时间" : "Timestamp not recorded";
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "medium"
+  }).format(timestamp);
 }

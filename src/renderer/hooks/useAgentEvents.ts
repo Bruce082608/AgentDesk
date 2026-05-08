@@ -118,7 +118,7 @@ export function useAgentEvents({
       setMessages((current) => {
         if ((!streamingMessageActive.current && !reasoningMessageActive.current) || current[current.length - 1]?.role !== "assistant") {
           streamingMessageActive.current = true;
-          return [...current, { role: "assistant", content: event.text }];
+          return [...current, { role: "assistant", content: event.text, createdAt: Date.now() }];
         }
         const next = [...current];
         next[next.length - 1] = { ...next[next.length - 1], content: next[next.length - 1].content + event.text };
@@ -132,7 +132,7 @@ export function useAgentEvents({
       setMessages((current) => {
         if ((!streamingMessageActive.current && !reasoningMessageActive.current) || current[current.length - 1]?.role !== "assistant") {
           reasoningMessageActive.current = true;
-          return [...current, { role: "assistant", content: "", reasoning: event.text }];
+          return [...current, { role: "assistant", content: "", reasoning: event.text, createdAt: Date.now() }];
         }
         const next = [...current];
         const last = next[next.length - 1];
@@ -173,6 +173,7 @@ export function useAgentEvents({
         setMessages((current) => [...current, {
           role: "assistant",
           content: event.message || "",
+          createdAt: Date.now(),
           reasoning: event.reasoning || undefined,
           tool_calls: event.tool_calls?.length ? event.tool_calls : undefined
         }]);
@@ -231,6 +232,7 @@ export function useAgentEvents({
         setMessages((current) => [...current, {
           role: "tool",
           content: event.result,
+          createdAt: Date.now(),
           tool_call_id: event.toolCallId,
           name: event.name
         }]);
@@ -245,6 +247,7 @@ export function useAgentEvents({
         setMessages((current) => [...current, {
           role: "tool",
           content: event.result || event.message,
+          createdAt: Date.now(),
           tool_call_id: event.toolCallId,
           name: event.name
         }]);
@@ -290,14 +293,14 @@ export function useAgentEvents({
         { id: crypto.randomUUID(), question: event.question, context: event.context, options, status: "pending" },
         ...current
       ]);
-      setMessages((current) => [...current, { role: "assistant", content: assistantQuestion }]);
+      setMessages((current) => [...current, { role: "assistant", content: assistantQuestion, createdAt: Date.now() }]);
       appendEvent("patch", ui.agentQuestion, event.question);
       return;
     }
 
     if (event.type === "error") {
       appendEvent("error", ui.agentError, event.message);
-      setMessages((current) => [...current, { role: "assistant", content: `${ui.requestFailed}: ${event.message}` }]);
+      setMessages((current) => [...current, { role: "assistant", content: `${ui.requestFailed}: ${event.message}`, createdAt: Date.now() }]);
       setBusy(false);
       activeRequest.current = null;
       setActiveToolRuns([]);
@@ -306,7 +309,7 @@ export function useAgentEvents({
 
     if (event.type === "cancelled") {
       appendEvent("status", ui.requestCancelled, event.message);
-      setMessages((current) => [...current, { role: "assistant", content: ui.requestCancelledBody }]);
+      setMessages((current) => [...current, { role: "assistant", content: ui.requestCancelledBody, createdAt: Date.now() }]);
       setBusy(false);
       activeRequest.current = null;
       setActiveToolRuns([]);

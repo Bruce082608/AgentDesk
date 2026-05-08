@@ -7,6 +7,7 @@ export type EventLogItem = {
   title: string;
   body: string;
   kind: "status" | "tool" | "error" | "model" | "patch";
+  createdAt: number;
 };
 
 export type PatchItem = {
