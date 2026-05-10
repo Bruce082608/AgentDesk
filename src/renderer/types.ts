@@ -35,6 +35,7 @@ export type CommandItem = {
 export type AutoApprovalState = {
   commandAutoApproval: boolean;
   patchAutoApproval: boolean;
+  fullAccessAutoApproval?: boolean;
   commandAutoApprovalExpiresAt?: number | null;
   patchAutoApprovalExpiresAt?: number | null;
 };
@@ -97,7 +98,7 @@ export type ChatSession = {
   updatedAt: number;
 };
 
-export type SidebarSection = "files" | "advanced";
+export type SidebarSection = "chats" | "files" | "advanced";
 export type RightSidebarSection = "plan" | "activity";
 export type ActivityFilter = "all" | "tool" | "error" | "approval" | "system";
 export type ThemeMode = "light" | "dark" | "system";

@@ -5,7 +5,7 @@ import { runAgentTurn } from "./agent.js";
 import { readAttachmentFiles, readUploadedFiles } from "./attachments.js";
 import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
-import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setPatchAutoApproval } from "./tools.js";
+import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setFullAccessAutoApproval, setPatchAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
 import { normalizeLanguage, t } from "./i18n.js";
 import {
@@ -239,4 +239,8 @@ ipcMain.handle("command:auto-approval", async (_event, payload) => {
 
 ipcMain.handle("patch:auto-approval", async (_event, payload) => {
   return setPatchAutoApproval(validateAutoApprovalPayload(payload));
+});
+
+ipcMain.handle("permissions:full-access", async (_event, payload) => {
+  return setFullAccessAutoApproval(validateAutoApprovalPayload(payload));
 });

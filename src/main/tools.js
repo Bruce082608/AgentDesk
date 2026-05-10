@@ -9,6 +9,7 @@ export {
   discardPendingPatch,
   getPendingPatch,
   setCommandAutoApproval,
+  setFullAccessAutoApproval,
   setPatchAutoApproval
 } from "./patch-approval.js";
 

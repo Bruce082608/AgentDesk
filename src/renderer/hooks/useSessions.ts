@@ -146,7 +146,7 @@ export function useSessions({
 
   const startNewSession = useCallback(() => {
     if (busy) return;
-    const session = createBlankSession(workspace);
+    const session = createBlankSession("");
     setSessions((current) => {
       const next = [session, ...current].slice(0, MAX_SAVED_SESSIONS);
       scheduleSessionSave(next, true);
@@ -154,9 +154,11 @@ export function useSessions({
     });
     setActiveSessionId(session.id);
     setMessages([]);
+    setWorkspace("");
+    clearWorkspaceData();
     resetSessionTokenUsage();
     resetTransientState();
-  }, [busy, resetSessionTokenUsage, resetTransientState, scheduleSessionSave, setMessages, workspace]);
+  }, [busy, clearWorkspaceData, resetSessionTokenUsage, resetTransientState, scheduleSessionSave, setMessages, setWorkspace]);
 
   const selectSession = useCallback(async (sessionId: string) => {
     if (busy || sessionId === activeSessionId) return;

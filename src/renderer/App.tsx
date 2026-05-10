@@ -51,7 +51,7 @@ function App() {
   const [rightSidebarSection, setRightSidebarSection] = useState<RightSidebarSection>("plan");
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all");
   const [activitySearch, setActivitySearch] = useState("");
-  const [sidebarSection, setSidebarSection] = useState<SidebarSection>("files");
+  const [sidebarSection, setSidebarSection] = useState<SidebarSection>("chats");
   const [tokenUsage, setTokenUsage] = useState<TokenUsageStats>(() => emptyTokenUsage());
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [retryRequest, setRetryRequest] = useState<null | {
@@ -468,10 +468,8 @@ function App() {
 
   const updatePermissionMode = useCallback((mode: "default" | "full") => {
     const enabled = mode === "full";
-    const context = permissionContext();
-    agentState.updateCommandAutoApproval(enabled, context);
-    agentState.updatePatchAutoApproval(enabled, context);
-  }, [agentState.updateCommandAutoApproval, agentState.updatePatchAutoApproval, permissionContext]);
+    agentState.updateFullAccessAutoApproval(enabled, permissionContext());
+  }, [agentState.updateFullAccessAutoApproval, permissionContext]);
 
   const resetCommandAutoApproval = useCallback(() => {
     agentState.resetCommandAutoApproval(permissionContext());
@@ -596,6 +594,7 @@ function App() {
         attachedFiles={workspaceState.attachedFiles}
         busy={agentState.busy}
         cancelActiveRequest={agentState.cancelActiveRequest}
+        chooseWorkspace={chooseWorkspace}
         commandAutoApproval={agentState.commandAutoApproval}
         commandAutoApprovalExpiresAt={agentState.commandAutoApprovalExpiresAt}
         composerHeight={composerHeight}
@@ -639,6 +638,7 @@ function App() {
         updatePermissionMode={updatePermissionMode}
         updateReasoningView={updateReasoningView}
         uploadAttachmentFiles={workspaceState.uploadAttachmentFiles}
+        workspace={workspaceState.workspace}
       />
 
       <div

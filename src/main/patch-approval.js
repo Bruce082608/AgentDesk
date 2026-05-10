@@ -217,6 +217,11 @@ export function setPatchAutoApproval(payload) {
   return setScopedAutoApproval(context);
 }
 
+export function setFullAccessAutoApproval(payload) {
+  const context = normalizeApprovalPayload(payload, "full_access");
+  return setScopedAutoApproval(context);
+}
+
 export function localizedError(language, key, values = {}) {
   const error = new Error(t(language, key, values));
   error.language = normalizeLanguage(language);
@@ -265,6 +270,7 @@ export function getAutoApprovalState(context) {
     },
     commandAutoApproval,
     patchAutoApproval,
+    fullAccessAutoApproval: commandAutoApproval && patchAutoApproval,
     autoApproveFutureCommands: commandAutoApproval,
     commandAutoApprovalExpiresAt: null,
     patchAutoApprovalExpiresAt: null,
@@ -281,6 +287,12 @@ export function setScopedAutoApproval(context) {
     next.commandExpiresAt = 0;
   }
   if (context.kind === "patch") {
+    next.patchEnabled = Boolean(context.enabled);
+    next.patchExpiresAt = 0;
+  }
+  if (context.kind === "full_access") {
+    next.commandEnabled = Boolean(context.enabled);
+    next.commandExpiresAt = 0;
     next.patchEnabled = Boolean(context.enabled);
     next.patchExpiresAt = 0;
   }

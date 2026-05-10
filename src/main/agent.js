@@ -1,5 +1,6 @@
 import { completeChat, normalizeProviderConfig, streamWithTools } from "./providers.js";
 import { executeToolCall, toolDefinitions } from "./tools.js";
+import { getAutoApprovalState } from "./patch-approval.js";
 import { normalizeLanguage, t } from "./i18n.js";
 import { getDynamicSafetyMarginTokens, getInputBudgetTokens } from "../shared/contextBudget.js";
 import { countChatMessageTokens, countChatMessagesTokens, countTextTokens } from "../shared/tokenCounter.js";
@@ -18,6 +19,11 @@ export async function runAgentTurn(payload, emit) {
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
   const normalizedProviderConfig = normalizeProviderConfig(providerConfig);
   const language = normalizeLanguage(payload.language);
+  const permissions = getAutoApprovalState({
+    workspace,
+    sessionId: payload.sessionId || ""
+  });
+  const fullAccess = permissions.fullAccessAutoApproval;
   const contextTokens = normalizedProviderConfig.contextTokens;
   const maxOutputTokens = normalizedProviderConfig.maxTokens;
   const inputBudgetTokens = getInputBudgetTokens(contextTokens, maxOutputTokens);
@@ -34,6 +40,9 @@ export async function runAgentTurn(payload, emit) {
       "You can inspect and edit files through the provided tools.",
       "You may create, overwrite, or delete files with write_file/delete_file when that is clearer than a patch.",
       "If you need a missing decision or clarification from the user, call ask_user with one concise question and 2-6 clear options, then stop and wait for the user's selected option.",
+      fullAccess
+        ? "Permission mode: FULL ACCESS. Shell commands, file writes/deletes, and patches are approved automatically for this chat and workspace. Do not ask the user for approval before using those tools. Use ask_user only for missing product decisions or clarifications."
+        : "Permission mode: DEFAULT. Side-effecting commands, file writes/deletes, and patches may require user approval before they take effect.",
       "CRITICAL - Patch Accuracy Rules:",
       "• Before generating a patch, always use read_file to get the LATEST content of the target file.",
       "• If you already read the file earlier in this conversation but a patch was applied since then, re-read the file.",
@@ -42,11 +51,15 @@ export async function runAgentTurn(payload, emit) {
       "• Generate the patch using diff --git format with proper a/ and b/ path prefixes.",
       "Keep changes small and explain what you changed.",
       "Before doing substantive work, call update_plan with 2-5 concrete steps. Keep it updated as work progresses.",
-      "When editing files, call apply_patch with a unified diff. The user must approve the patch before it is applied.",
+      fullAccess
+        ? "When editing files, call apply_patch with a unified diff or use write_file/delete_file when clearer. In full access mode these changes are applied automatically."
+        : "When editing files, call apply_patch with a unified diff. The user must approve the patch before it is applied.",
       "When you need project context, list files before reading.",
       "When the user needs current or online information, use web_search and cite the returned URLs in your answer.",
       "Use PowerShell commands on Windows, and POSIX shell commands on macOS/Linux.",
-      "High-risk operations such as deleting files are allowed only through tools and will require user approval before execution.",
+      fullAccess
+        ? "High-risk operations such as deleting files are allowed only through tools and will execute automatically in full access mode."
+        : "High-risk operations such as deleting files are allowed only through tools and will require user approval before execution.",
       "Error recovery: when a tool fails, explicitly reflect on the likely cause, choose a different recovery action, and avoid repeating the same failing call with identical arguments."
     ].join("\n")
   };

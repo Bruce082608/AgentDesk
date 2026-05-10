@@ -20,6 +20,7 @@ type ConversationProps = {
   attachedFiles: AttachedFile[];
   busy: boolean;
   cancelActiveRequest: () => void;
+  chooseWorkspace: () => void;
   commandAutoApproval: boolean;
   commandAutoApprovalExpiresAt?: number | null;
   composerHeight: number;
@@ -62,6 +63,7 @@ type ConversationProps = {
   updatePermissionMode: (mode: "default" | "full") => void;
   updateReasoningView: (key: string, view: ReasoningView) => void;
   uploadAttachmentFiles: () => void;
+  workspace: string;
   copyMessage: (message: ChatMessage) => void;
 };
 
@@ -78,6 +80,7 @@ export function Conversation({
   attachedFiles,
   busy,
   cancelActiveRequest,
+  chooseWorkspace,
   commandAutoApproval,
   commandAutoApprovalExpiresAt,
   composerHeight,
@@ -120,7 +123,8 @@ export function Conversation({
   scrollToBottom,
   updatePermissionMode,
   updateReasoningView,
-  uploadAttachmentFiles
+  uploadAttachmentFiles,
+  workspace
 }: ConversationProps) {
   const hasAutoPermissions = commandAutoApproval || patchAutoApproval;
   const fullAccessEnabled = commandAutoApproval && patchAutoApproval;
@@ -140,6 +144,21 @@ export function Conversation({
         <div className="empty-state">
           <h2>{t.emptyTitle}</h2>
           <p>{t.emptyBody}</p>
+          <div className="empty-guide-actions">
+            <button type="button" className="primary" disabled={busy} onClick={chooseWorkspace}>{t.chooseFolder}</button>
+            <span className="empty-workspace-label">{workspace || t.notSelected}</span>
+          </div>
+          <div className="empty-guide-grid">
+            <button type="button" onClick={() => setInput(language === "zh" ? "阅读这个项目的 README，并告诉我如何启动。" : "Read this project's README and tell me how to start it.")}>
+              {language === "zh" ? "理解项目" : "Understand project"}
+            </button>
+            <button type="button" onClick={() => setInput(language === "zh" ? "检查这个项目的代码结构，并提出工程和体验优化建议。" : "Inspect the code structure and suggest engineering and UX improvements.")}>
+              {language === "zh" ? "检查代码" : "Inspect code"}
+            </button>
+            <button type="button" onClick={() => setInput(language === "zh" ? "运行测试和构建，修复发现的问题。" : "Run tests and build, then fix any issues you find.")}>
+              {language === "zh" ? "验证项目" : "Verify project"}
+            </button>
+          </div>
         </div>
       )}
       {messages.map((message, index) => {
@@ -290,6 +309,7 @@ export function Conversation({
     approveCommand,
     applyPatch,
     busy,
+    chooseWorkspace,
     commandAutoApproval,
     contextCompressionStatus,
     copyMessage,
@@ -309,7 +329,8 @@ export function Conversation({
     streamingMessageIndex,
     t,
     toolDraft,
-    updateReasoningView
+    updateReasoningView,
+    workspace
   ]);
 
   // ---- Drag-and-drop handlers ----

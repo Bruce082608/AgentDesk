@@ -90,4 +90,17 @@ describe("tools scoped auto approval", () => {
       expect(normalized).toBe(normalized.toLowerCase());
     }
   });
+
+  it("toggles full access as command and patch approval together", () => {
+    const context = { workspace, sessionId: "full-access", kind: "full_access", enabled: true };
+    const enabled = __test__.setScopedAutoApproval(context);
+    expect(enabled.commandAutoApproval).toBe(true);
+    expect(enabled.patchAutoApproval).toBe(true);
+    expect(enabled.fullAccessAutoApproval).toBe(true);
+
+    const disabled = __test__.setScopedAutoApproval({ ...context, enabled: false });
+    expect(disabled.commandAutoApproval).toBe(false);
+    expect(disabled.patchAutoApproval).toBe(false);
+    expect(disabled.fullAccessAutoApproval).toBe(false);
+  });
 });

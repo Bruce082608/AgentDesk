@@ -25,6 +25,7 @@ declare global {
       discardCommand: (commandId: string) => Promise<{ ok: boolean; commandId: string }>;
       setCommandAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       setPatchAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
+      setFullAccessAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       onAgentEvent: (callback: (event: AgentEvent) => void) => () => void;
     };
   }
@@ -152,6 +153,7 @@ export type AutoApprovalState = {
   ok: boolean;
   commandAutoApproval: boolean;
   patchAutoApproval: boolean;
+  fullAccessAutoApproval?: boolean;
   autoApproveFutureCommands?: boolean;
   commandAutoApprovalExpiresAt?: number | null;
   patchAutoApprovalExpiresAt?: number | null;

@@ -324,6 +324,10 @@ body.resizing-rows * {
   padding: 20px;
 }
 
+.sidebar-nav {
+  margin-bottom: 8px;
+}
+
 .activity {
   border-left: 1px solid var(--border);
   position: relative;
@@ -786,8 +790,28 @@ body[data-theme="dark"] .allow-future {
 .session-list {
   display: grid;
   gap: 6px;
-  max-height: clamp(260px, 34vh, 430px);
+  max-height: calc(100vh - 160px);
   overflow: auto;
+}
+
+.session-list.grouped {
+  gap: 14px;
+}
+
+.session-group {
+  display: grid;
+  gap: 6px;
+}
+
+.session-group-title {
+  padding: 4px 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-row {
@@ -1277,7 +1301,7 @@ body[data-theme="dark"] .allow-future {
 
 .empty-state {
   margin: 9vh auto;
-  max-width: 540px;
+  max-width: 620px;
   text-align: center;
   color: var(--text-muted);
 }
@@ -1286,6 +1310,54 @@ body[data-theme="dark"] .allow-future {
   margin: 0 0 10px;
   color: var(--text-heading);
   font-size: 25px;
+}
+
+.empty-guide-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin: 22px auto 16px;
+  flex-wrap: wrap;
+}
+
+.empty-workspace-label {
+  max-width: min(420px, 80vw);
+  padding: 8px 10px;
+  border: 1px solid var(--border-row);
+  border-radius: 8px;
+  background: var(--surface-dim);
+  color: var(--text-label);
+  font-size: 12px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.empty-guide-grid button {
+  min-height: 42px;
+  padding: 10px;
+  border: 1px solid var(--border-row);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-label);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.empty-guide-grid button:hover {
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+  transform: none;
 }
 
 .message {
