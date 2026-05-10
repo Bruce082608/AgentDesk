@@ -5,7 +5,7 @@ const root = path.resolve(__dirname, "..");
 const releaseDir = path.join(root, "release");
 const lockedCandidates = [
   path.join(releaseDir, "win-unpacked", "resources", "app.asar"),
-  path.join(releaseDir, "win-unpacked", "DeepSeek Agent Window.exe")
+  path.join(releaseDir, "win-unpacked", "AgentDesk.exe")
 ];
 
 let failed = false;

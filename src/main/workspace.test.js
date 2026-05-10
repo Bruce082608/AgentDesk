@@ -14,3 +14,9 @@ describe("workspace path safety", () => {
     expect(() => __test__.resolveInsideWorkspace(workspace, "../outside.txt")).toThrow(/路径越界/);
   });
 });
+
+describe("workspace commit drafts", () => {
+  it("prefers update for source files", () => {
+    expect(__test__.draftCommitMessage([{ status: "M", path: "src/app.tsx" }])).toContain("update");
+  });
+});

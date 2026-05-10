@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Language } from "../i18n";
 import type { AgentEvent, ChatMessage } from "../global";
-import type { CommandItem, ContextCompressionState, EventLogItem, PatchItem, PlanItem, StreamRecoveryStatus, TokenUsageStats, ToolDraft, ToolRun, UserQuestionItem } from "../types";
+import type { CommandItem, ContextCompressionState, EventLogItem, PatchItem, PlanItem, StreamRecoveryStatus, TaskStatus, TokenUsageStats, ToolDraft, ToolRun, UserQuestionItem } from "../types";
 import { formatQuestionMessage, normalizeQuestionOptions } from "../utils";
 
 type AppendEvent = (kind: EventLogItem["kind"], title: string, body: string) => void;
@@ -29,6 +29,7 @@ export function useAgentEvents({
   const [questions, setQuestions] = useState<UserQuestionItem[]>([]);
   const [toolDraft, setToolDraft] = useState<ToolDraft | null>(null);
   const [activeToolRuns, setActiveToolRuns] = useState<ToolRun[]>([]);
+  const [taskStatus, setTaskStatus] = useState<TaskStatus>({ phase: "idle", label: "" });
   const [streamingResponse, setStreamingResponse] = useState(false);
   const [streamRecoveryStatus, setStreamRecoveryStatus] = useState<StreamRecoveryStatus | null>(null);
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
@@ -57,6 +58,16 @@ export function useAgentEvents({
     setStreamingResponse(false);
     setStreamRecoveryStatus(null);
   }, []);
+
+  const setTaskPhase = useCallback((phase: TaskStatus["phase"], detail = "") => {
+    const labels = getTaskStatusLabels(language);
+    setTaskStatus({
+      phase,
+      label: labels[phase],
+      detail: detail || undefined,
+      updatedAt: Date.now()
+    });
+  }, [language]);
 
   const finishActiveToolRun = useCallback((name: string) => {
     setActiveToolRuns((current) => {
@@ -112,12 +123,14 @@ export function useAgentEvents({
       setBusy(false);
       activeRequest.current = null;
       setActiveToolRuns([]);
+      setTaskPhase("idle");
       resetStreamState();
       return;
     }
 
     if (event.type === "stream_delta") {
       setStreamingResponse(true);
+      if (taskStatus.phase === "idle") setTaskPhase("understanding");
       setMessages((current) => {
         if ((!streamingMessageActive.current && !reasoningMessageActive.current) || current[current.length - 1]?.role !== "assistant") {
           streamingMessageActive.current = true;
@@ -132,6 +145,7 @@ export function useAgentEvents({
 
     if (event.type === "reasoning_delta") {
       setStreamingResponse(true);
+      if (taskStatus.phase === "idle") setTaskPhase("understanding");
       setMessages((current) => {
         if ((!streamingMessageActive.current && !reasoningMessageActive.current) || current[current.length - 1]?.role !== "assistant") {
           reasoningMessageActive.current = true;
@@ -146,6 +160,7 @@ export function useAgentEvents({
     }
 
     if (event.type === "tool_call_delta") {
+      if (taskStatus.phase === "idle") setTaskPhase("understanding");
       setToolDraft((current) => ({
         name: event.name || current?.name || "tool_call",
         text: `${current?.text || ""}${event.text}`
@@ -205,10 +220,14 @@ export function useAgentEvents({
 
     if (event.type === "context_compression") {
       updateCompressionStatus(event.phase, event.message, event.summary || "");
+      if (event.phase === "start") setTaskPhase("understanding", event.message);
+      if (event.phase === "done") setTaskPhase("understanding", event.message);
+      if (event.phase === "failed") setTaskPhase("understanding", event.message);
       return;
     }
 
     if (event.type === "tool_start") {
+      setTaskPhase(classifyToolPhase(event.name), event.name);
       setActiveToolRuns((current) => [
         ...current,
         {
@@ -244,6 +263,9 @@ export function useAgentEvents({
           name: event.name
         }]);
       }
+      if (taskStatus.phase !== "waiting") {
+        setTaskPhase(classifyToolPhase(event.name), event.name);
+      }
       appendEvent("tool", `${ui.toolResult}: ${event.name}`, event.result);
       return;
     }
@@ -259,11 +281,13 @@ export function useAgentEvents({
           name: event.name
         }]);
       }
+      setTaskPhase("editing", event.message || event.name);
       appendEvent("error", `${ui.toolFailed}: ${event.name}`, event.message);
       return;
     }
 
     if (event.type === "patch_proposed") {
+      setTaskPhase("waiting", event.summary || event.patchId);
       setPatches((current) => [
         {
           id: event.patchId,
@@ -278,6 +302,7 @@ export function useAgentEvents({
     }
 
     if (event.type === "patch_applied") {
+      setTaskPhase("editing", event.summary || event.patchId);
       appendEvent("patch", ui.patchAutoApplied, `${event.summary || event.patchId}${event.strategy ? ` (${event.strategy})` : ""}`);
       refreshWorkspace();
       refreshGit();
@@ -285,6 +310,7 @@ export function useAgentEvents({
     }
 
     if (event.type === "command_pending") {
+      setTaskPhase("waiting", event.reason || event.command);
       setCommands((current) => [
         {
           id: event.commandId,
@@ -304,6 +330,7 @@ export function useAgentEvents({
     }
 
     if (event.type === "ask_user_pending") {
+      setTaskPhase("waiting", event.question);
       const options = normalizeQuestionOptions(event.options, event.question, language);
       const assistantQuestion = formatQuestionMessage(event.question, event.context, options);
       setQuestions((current) => [
@@ -316,6 +343,7 @@ export function useAgentEvents({
     }
 
     if (event.type === "error") {
+      setTaskPhase("error", event.message);
       appendEvent("error", ui.agentError, event.message);
       setMessages((current) => [...current, { role: "assistant", content: `${ui.requestFailed}: ${event.message}`, createdAt: Date.now() }]);
       setBusy(false);
@@ -325,6 +353,7 @@ export function useAgentEvents({
     }
 
     if (event.type === "cancelled") {
+      setTaskPhase("idle");
       appendEvent("status", ui.requestCancelled, event.message);
       setMessages((current) => [...current, { role: "assistant", content: ui.requestCancelledBody, createdAt: Date.now() }]);
       setBusy(false);
@@ -332,7 +361,7 @@ export function useAgentEvents({
       setActiveToolRuns([]);
       resetStreamState();
     }
-  }, [appendEvent, finishActiveToolRun, language, recordTokenUsage, refreshGit, refreshWorkspace, resetStreamState, setMessages, updateCompressionStatus]);
+  }, [appendEvent, finishActiveToolRun, language, recordTokenUsage, refreshGit, refreshWorkspace, resetStreamState, setMessages, taskStatus.phase, updateCompressionStatus, setTaskPhase]);
 
   useEffect(() => {
     return window.agentWindow.onAgentEvent((event) => {
@@ -350,8 +379,9 @@ export function useAgentEvents({
     setStreamingResponse(false);
     setStreamRecoveryStatus(null);
     setBusy(true);
+    setTaskPhase("understanding");
     setPlanItems([{ step: waitingPlan, status: "in_progress" }]);
-  }, []);
+  }, [setTaskPhase]);
 
   const cancelActiveRequest = useCallback(async () => {
     if (!activeRequest.current) return;
@@ -477,9 +507,10 @@ export function useAgentEvents({
     setActiveToolRuns([]);
     setStreamingResponse(false);
     setStreamRecoveryStatus(null);
+    setTaskPhase("idle");
     streamingMessageActive.current = false;
     reasoningMessageActive.current = false;
-  }, []);
+  }, [setTaskPhase]);
 
   return {
     activeToolRuns,
@@ -508,10 +539,42 @@ export function useAgentEvents({
     setQuestions,
     streamingResponse,
     streamRecoveryStatus,
+    taskStatus,
     toolDraft,
     updateCommandAutoApproval,
     updateFullAccessAutoApproval,
     updatePatchAutoApproval
+  };
+}
+
+function classifyToolPhase(name: string): TaskStatus["phase"] {
+  const normalized = String(name || "").toLowerCase();
+  if (!normalized) return "understanding";
+  if (["list_files", "read_file", "search_files", "web_search", "workspace_tree"].includes(normalized)) return "searching";
+  if (["write_file", "delete_file", "apply_patch"].includes(normalized)) return "editing";
+  if (["run_command"].includes(normalized)) return "editing";
+  if (["ask_user", "update_plan"].includes(normalized)) return "waiting";
+  return "understanding";
+}
+
+function getTaskStatusLabels(language: Language) {
+  if (language === "en") {
+    return {
+      idle: "",
+      understanding: "Understanding the task",
+      searching: "Looking through files",
+      editing: "Editing code",
+      waiting: "Waiting for your confirmation",
+      error: "Task needs attention"
+    };
+  }
+  return {
+    idle: "",
+    understanding: "正在理解任务",
+    searching: "正在查文件",
+    editing: "正在改代码",
+    waiting: "正在等你确认",
+    error: "任务需要处理"
   };
 }
 

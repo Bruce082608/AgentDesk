@@ -63,7 +63,7 @@ type SessionGroup = {
   sessions: ChatSession[];
 };
 
-const appName = "Bruce的秘密基地";
+const appName = "AgentDesk";
 const brandIconUrl = new URL("../assets/bruce-secret-base.jpg", import.meta.url).href;
 
 export const Sidebar = memo(function Sidebar({
@@ -125,7 +125,12 @@ export const Sidebar = memo(function Sidebar({
 
       <nav className="section-tabs sidebar-nav" aria-label={t.sidebarNav}>
         <button className={sidebarSection === "chats" ? "active" : ""} onClick={() => setSidebarSection("chats")} title={t.chats} aria-label={t.chats}>☰</button>
-        <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")} title={t.files} aria-label={t.files}>▦</button>
+        <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")} title={t.files} aria-label={t.files}>
+          <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3.75 6.5h6.1l1.65 2h8.75v8.75a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6.5Z" />
+            <path d="M3.75 8.5V6.75A2.25 2.25 0 0 1 6 4.5h3.15l1.65 2H18a2.25 2.25 0 0 1 2.25 2" />
+          </svg>
+        </button>
         <button className={sidebarSection === "advanced" ? "active" : ""} onClick={() => setSidebarSection("advanced")} title={t.advanced} aria-label={t.advanced}>⚙</button>
       </nav>
 
@@ -185,7 +190,7 @@ export const Sidebar = memo(function Sidebar({
       )}
 
       {sidebarSection === "files" && (
-        <section className="panel compact-panel">
+        <section className="panel compact-panel file-panel">
           <div className="panel-title row-title">
             <span>{t.files}</span>
             <button className="secondary tiny" onClick={chooseWorkspace}>{t.chooseFolder}</button>
@@ -224,8 +229,8 @@ export const Sidebar = memo(function Sidebar({
                 style={{ paddingLeft: `${8 + item.depth * 12}px` }}
                 onClick={() => item.type === "directory" ? toggleDirectory(item.path) : openFile(item.path)}
               >
-                <span>{item.type === "directory" ? (loadingDirs.has(item.path) ? "…" : expandedDirs.has(item.path) ? "▾" : "▸") : "·"}</span>
-                {item.name}
+                <span className="file-node-icon">{item.type === "directory" ? (loadingDirs.has(item.path) ? "\u2026" : expandedDirs.has(item.path) ? "\u25BE" : "\u25B8") : "\u00B7"}</span>
+                <span className="file-node-name" title={item.path}>{item.name}</span>
                 {item.type === "directory" && item.hasChildren === false && !hasTreeChildren(tree, item.path) && <small>{t.emptyDir}</small>}
               </button>
             ))}
@@ -234,7 +239,7 @@ export const Sidebar = memo(function Sidebar({
       )}
 
       {sidebarSection === "advanced" && (
-        <section className="panel">
+        <section className="panel settings-panel">
           <div className="panel-title">{t.advanced}</div>
           <select value={config.provider} onChange={(event) => updateProvider(event.target.value as ProviderConfig["provider"])}>
             <option value="deepseek">DeepSeek</option>

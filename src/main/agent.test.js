@@ -40,4 +40,31 @@ describe("agent history compression budgets", () => {
     expect(budgets.maxSummaryTokens).toBe(32_768);
     expect(budgets.transcriptBudget).toBeLessThanOrEqual(budgets.summaryInputBudgetTokens);
   });
+
+  it("builds stable compression cache keys for identical inputs", () => {
+    const keyA = __test__.buildCompressionCacheKey({
+      transcript: "alpha",
+      sessionId: "session-1",
+      summaryModel: "summary-a",
+      contextTokens: 1000,
+      maxSummaryTokens: 200
+    });
+    const keyB = __test__.buildCompressionCacheKey({
+      transcript: "alpha",
+      sessionId: "session-1",
+      summaryModel: "summary-a",
+      contextTokens: 1000,
+      maxSummaryTokens: 200
+    });
+    const keyC = __test__.buildCompressionCacheKey({
+      transcript: "beta",
+      sessionId: "session-1",
+      summaryModel: "summary-a",
+      contextTokens: 1000,
+      maxSummaryTokens: 200
+    });
+
+    expect(keyA).toBe(keyB);
+    expect(keyA).not.toBe(keyC);
+  });
 });

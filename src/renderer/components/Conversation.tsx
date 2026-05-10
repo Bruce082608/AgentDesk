@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
+﻿import { memo, useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
 import type { Language, translations } from "../i18n";
-import type { AttachedFile, ChatMessage, ContextCompressionState, ReasoningView, StreamRecoveryStatus, ToolDraft, ToolRun } from "../types";
+import type { AttachedFile, ChatMessage, ContextCompressionState, ReasoningView, StreamRecoveryStatus, TaskStatus, ToolDraft, ToolRun } from "../types";
 import { CodeBlock, MarkdownContent, formatToolDraftText } from "../utils";
 import { ApprovalPanel } from "./ApprovalPanel";
 import type { CommandItem, PatchItem, UserQuestionItem } from "../types";
@@ -60,6 +60,7 @@ type ConversationProps = {
   toolDraft: ToolDraft | null;
   showScrollToBottom: boolean;
   scrollToBottom: () => void;
+  taskStatus: TaskStatus;
   updatePermissionMode: (mode: "default" | "full") => void;
   updateReasoningView: (key: string, view: ReasoningView) => void;
   uploadAttachmentFiles: () => void;
@@ -121,6 +122,7 @@ export function Conversation({
   toolDraft,
   showScrollToBottom,
   scrollToBottom,
+  taskStatus,
   updatePermissionMode,
   updateReasoningView,
   uploadAttachmentFiles,
@@ -134,8 +136,6 @@ export function Conversation({
     patchAutoApproval ? (language === "zh" ? "文件变更无需审批。" : "File changes do not require approval.") : ""
   ].filter(Boolean).join(" ");
   const streamingMessageIndex = streamingResponse ? getStreamingAssistantIndex(messages) : -1;
-  const activeToolName = toolDraft ? (toolDraft.name || "tool") : activeToolRuns[activeToolRuns.length - 1]?.name || "";
-  const activeToolStatus = busy && activeToolName ? formatActiveToolStatus(activeToolName, language) : "";
   const dragDepthRef = useRef(0);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const messageListContent = useMemo(() => (
@@ -273,6 +273,13 @@ export function Conversation({
         <div className="context-compression-status" role="status">
           <span className="compression-dot" />
           <span>{contextCompressionStatus}</span>
+        </div>
+      )}
+      {taskStatus.phase !== "idle" && (
+        <div className={`task-status-bar ${taskStatus.phase}`} role="status" aria-live="polite">
+          <span className={`tool-status-indicator ${taskStatus.phase === "error" ? "error" : "running"}`} aria-hidden="true" />
+          <strong>{taskStatus.label}</strong>
+          {taskStatus.detail && <span>{taskStatus.detail}</span>}
         </div>
       )}
       {streamRecoveryStatus && (
@@ -450,13 +457,7 @@ export function Conversation({
           aria-label={language === "zh" ? "调整底部对话框高度" : "Resize composer height"}
           onPointerDown={startComposerResize}
         />
-        <div className={`composer-surface${activeToolStatus ? " has-tool-status" : ""}`}>
-          {activeToolStatus && (
-            <div className="composer-tool-status" role="status" aria-live="polite">
-              <span className="tool-status-indicator running" aria-hidden="true" />
-              <span>{activeToolStatus}</span>
-            </div>
-          )}
+        <div className="composer-surface">
           {contextCompression.phase !== "idle" && (
             <details className={`composer-compression ${contextCompression.phase}`} open={contextCompression.phase === "start" || contextCompression.phase === "failed"}>
               <summary>
@@ -549,7 +550,7 @@ type ToolCallCardProps = {
   title?: string;
 };
 
-function ToolCallCard({ args, copiedLabel, copyLabel, language, name, result, status, title }: ToolCallCardProps) {
+const ToolCallCard = memo(function ToolCallCard({ args, copiedLabel, copyLabel, language, name, result, status, title }: ToolCallCardProps) {
   const parsedResult = parseToolPayload(result);
   const displayName = name || stringValue(parsedResult?.tool) || "tool";
   const effectiveStatus = status === "completed" && parsedResult?.ok === false ? "error" : status;
@@ -569,20 +570,20 @@ function ToolCallCard({ args, copiedLabel, copyLabel, language, name, result, st
       <div className="tool-call-details">
         {argsCode && (
           <div className="tool-call-section">
-            <div className="tool-call-section-title">{language === "zh" ? "参数" : "Args"}</div>
+            <div className="tool-call-section-title">{language === "zh" ? "鍙傛暟" : "Args"}</div>
             <CodeBlock code={argsCode} language="json" copyLabel={copyLabel} copiedLabel={copiedLabel} />
           </div>
         )}
         {resultCode && (
           <div className="tool-call-section">
-            <div className="tool-call-section-title">{effectiveStatus === "error" ? (language === "zh" ? "错误" : "Error") : (language === "zh" ? "结果" : "Result")}</div>
+            <div className="tool-call-section-title">{effectiveStatus === "error" ? (language === "zh" ? "閿欒" : "Error") : (language === "zh" ? "缁撴灉" : "Result")}</div>
             <CodeBlock code={resultCode} language="json" copyLabel={copyLabel} copiedLabel={copiedLabel} />
           </div>
         )}
       </div>
     </details>
   );
-}
+});
 
 function formatMessageTimestamp(timestamp: number | undefined, language: Language) {
   if (!timestamp) return language === "zh" ? "未记录时间" : "Timestamp not recorded";
@@ -693,13 +694,6 @@ function getStreamingAssistantIndex(messages: ChatMessage[]) {
     if (!message.tool_calls?.length) return index;
   }
   return -1;
-}
-
-function formatActiveToolStatus(name: string, language: Language) {
-  const displayName = name === "tool_call" ? "tool" : name;
-  return language === "zh"
-    ? `Agent 正在调用 ${displayName}...`
-    : `Agent is calling ${displayName}...`;
 }
 
 function formatAttachmentStatus(file: AttachedFile, language: Language) {

@@ -1,6 +1,7 @@
 import { completeChat, normalizeProviderConfig, streamWithTools } from "./providers.js";
 import { executeToolCall, toolDefinitions } from "./tools.js";
 import { getAutoApprovalState } from "./patch-approval.js";
+import { createHash } from "node:crypto";
 import { normalizeLanguage, t } from "./i18n.js";
 import { getDynamicSafetyMarginTokens, getInputBudgetTokens } from "../shared/contextBudget.js";
 import { countChatMessageTokens, countChatMessagesTokens, countTextTokens } from "../shared/tokenCounter.js";
@@ -10,6 +11,7 @@ const RECENT_HISTORY_RATIO_AFTER_SUMMARY = 0.45;
 const MAX_STREAM_RECOVERY_ATTEMPTS = 2;
 const SUMMARY_TOKEN_RATIO = 0.08;
 const SUMMARY_TRANSCRIPT_RATIO = 0.8;
+const compressionCache = new Map();
 
 export async function runAgentTurn(payload, emit) {
   const workspace = payload.workspace || process.cwd();
@@ -74,7 +76,8 @@ export async function runAgentTurn(payload, emit) {
     providerConfig,
     language,
     signal,
-    emit
+    emit,
+    sessionId: payload.sessionId || ""
   });
 
   emit({
@@ -335,7 +338,8 @@ async function buildMessages({
   providerConfig,
   language,
   signal,
-  emit
+  emit,
+  sessionId
 }) {
   const maxTokens = Math.max(4096, contextTokens);
   const maxOutputTokens = getEffectiveMaxOutputTokens(providerConfig, maxTokens);
@@ -383,7 +387,8 @@ async function buildMessages({
       config: providerConfig,
       contextTokens: maxTokens,
       language,
-      signal
+      signal,
+      sessionId
     });
     const summaryMessage = buildConversationSummaryMessage(summary);
     const remainingBudget = Math.max(
@@ -531,12 +536,21 @@ function repairChatProtocol(messages) {
   return repaired;
 }
 
-async function summarizeHistoryMessages({ messages, config, contextTokens, language, signal }) {
+async function summarizeHistoryMessages({ messages, config, contextTokens, language, signal, sessionId }) {
   const { maxSummaryTokens, transcriptBudget, summaryConfig } = getSummaryCompressionBudgets({
     config,
     contextTokens
   });
   const transcript = buildSummaryTranscript(messages, transcriptBudget);
+  const cacheKey = buildCompressionCacheKey({
+    transcript,
+    sessionId,
+    summaryModel: summaryConfig.model,
+    contextTokens: summaryConfig.contextTokens,
+    maxSummaryTokens
+  });
+  const cached = compressionCache.get(cacheKey);
+  if (cached) return cached;
   const response = await completeChat({
     config: summaryConfig,
     maxTokens: maxSummaryTokens,
@@ -562,6 +576,11 @@ async function summarizeHistoryMessages({ messages, config, contextTokens, langu
 
   const summary = String(response.message?.content || "").trim();
   if (!summary) throw new Error(t(language, "agent.emptySummary"));
+  compressionCache.set(cacheKey, summary);
+  if (compressionCache.size > 20) {
+    const oldest = compressionCache.keys().next().value;
+    if (oldest) compressionCache.delete(oldest);
+  }
   return summary;
 }
 
@@ -696,6 +715,18 @@ function parseToolResult(result) {
   }
 }
 
+function buildCompressionCacheKey({ transcript, sessionId, summaryModel, contextTokens, maxSummaryTokens }) {
+  return createHash("sha1")
+    .update([
+      sessionId || "",
+      summaryModel || "",
+      contextTokens || 0,
+      maxSummaryTokens || 0,
+      createHash("sha1").update(String(transcript || "")).digest("hex")
+    ].join("|"))
+    .digest("hex");
+}
+
 function buildToolRecoveryMessage(toolName, rawArgs, parsed, sameCallFailureCount, consecutiveToolFailureCount) {
   return {
     role: "system",
@@ -762,5 +793,6 @@ function selectRecentMessages(messages, contextTokens) {
 }
 
 export const __test__ = {
+  buildCompressionCacheKey,
   getSummaryCompressionBudgets
 };

@@ -105,7 +105,10 @@ export function normalizeConfigForCapabilities(config = {}) {
   const { provider, model, capability } = getModelCapability(config);
   const contextTokens = clampInteger(config.contextTokens, capability.contextTokens, 4_096, capability.contextTokens);
   const maxTokens = clampInteger(config.maxTokens, capability.defaultMaxTokens, 1, capability.maxOutputTokens);
-  const thinkingMode = capability.supportsThinking && config.thinkingMode === "enabled" ? "enabled" : capability.defaultThinkingMode;
+  const requestedThinkingMode = config.thinkingMode === "enabled" || config.thinkingMode === "disabled"
+    ? config.thinkingMode
+    : capability.defaultThinkingMode;
+  const thinkingMode = capability.supportsThinking ? requestedThinkingMode : capability.defaultThinkingMode;
   const reasoningEffort = capability.reasoningEfforts.includes(config.reasoningEffort)
     ? config.reasoningEffort
     : capability.defaultReasoningEffort;

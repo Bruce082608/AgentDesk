@@ -624,6 +624,7 @@ function App() {
         retryRequestPending={Boolean(retryRequest) && isOnline}
         send={send}
         streamRecoveryStatus={agentState.streamRecoveryStatus}
+        taskStatus={agentState.taskStatus}
         sessionContextTokenCount={contextTokenCount}
         setInput={setInput}
         setLanguage={setLanguage}

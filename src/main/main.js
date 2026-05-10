@@ -38,7 +38,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     backgroundColor: "#111318",
-    title: "Bruce的秘密基地",
+    title: "AgentDesk",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,

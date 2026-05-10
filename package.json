@@ -1,7 +1,7 @@
 {
-  "name": "deepseek-agent-window-demo",
+  "name": "agentdesk",
   "version": "0.1.0",
-  "description": "A local DeepSeek coding agent desktop window built with Electron and React.",
+  "description": "Local Desktop Agent built with Electron and React.",
   "author": "Bruce",
   "private": true,
   "type": "module",
@@ -45,8 +45,8 @@
     "wait-on": "^8.0.0"
   },
   "build": {
-    "appId": "com.bruce.deepseek-agent-window-demo",
-    "productName": "DeepSeek Agent Window",
+    "appId": "com.bruce.agentdesk",
+    "productName": "AgentDesk",
     "copyright": "Copyright © 2026 Bruce",
     "directories": {
       "output": "release"

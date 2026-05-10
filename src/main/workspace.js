@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createHash } from "node:crypto";
 import { resolveInsideWorkspace } from "../shared/pathSecurity.js";
 import { searchWorkspaceTextWithRg } from "../shared/ripgrep.js";
 
@@ -9,6 +10,9 @@ const execFileAsync = promisify(execFile);
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".vite", "coverage"]);
 const MAX_TREE_ITEMS = 700;
 const MAX_READ_BYTES = 180_000;
+const MAX_INDEX_FILES = 2500;
+const MAX_INDEX_DEPTH = 8;
+const workspaceIndexCache = new Map();
 
 export async function getWorkspaceTree(workspace, directory = "") {
   const root = resolveInsideWorkspace(workspace, ".");
@@ -53,49 +57,103 @@ export async function searchWorkspaceFiles(workspace, query, maxResults = 50) {
   const rgResult = await searchWorkspaceTextWithRg({ workspace, query: needle, maxResults: limit }).catch(() => null);
   if (rgResult) return rgResult;
 
-  const tree = await getSearchableWorkspaceFiles(workspace);
+  const index = await getWorkspaceSearchIndex(workspace);
+  if (!index.files.length) return { results: [], truncated: false, engine: "index-empty" };
+
   const results = [];
-  for (const item of tree) {
+  for (const file of index.files) {
     if (results.length >= limit) break;
-    if (item.type !== "file") continue;
-    try {
-      const file = await readWorkspaceFile(workspace, item.path);
-      const lines = file.content.split(/\r?\n/);
-      for (let index = 0; index < lines.length; index += 1) {
-        if (lines[index].includes(needle)) {
-          results.push({ file: item.path, line: index + 1, text: lines[index].slice(0, 240) });
-          if (results.length >= limit) break;
-        }
+    const content = await readIndexedFile(workspace, file.path, file.signature).catch(() => null);
+    if (!content) continue;
+    const lines = content.split(/\r?\n/);
+    for (let indexLine = 0; indexLine < lines.length; indexLine += 1) {
+      if (lines[indexLine].includes(needle)) {
+        results.push({ file: file.path, line: indexLine + 1, text: lines[indexLine].slice(0, 240) });
+        if (results.length >= limit) break;
       }
-    } catch {
-      continue;
     }
   }
 
-  return { results, truncated: results.length >= limit, engine: "fallback" };
+  return { results, truncated: results.length >= limit, engine: "indexed-fallback" };
 }
 
-async function getSearchableWorkspaceFiles(workspace) {
+async function getWorkspaceSearchIndex(workspace) {
   const root = resolveInsideWorkspace(workspace, ".");
+  const snapshot = await buildWorkspaceSnapshot(root);
+  const cacheKey = normalizeWorkspaceKey(root);
+  const cached = workspaceIndexCache.get(cacheKey);
+  if (cached && cached.snapshot === snapshot) return cached.index;
+
+  const index = await buildWorkspaceIndex(root);
+  workspaceIndexCache.set(cacheKey, { snapshot, index });
+  if (workspaceIndexCache.size > 20) {
+    const oldest = workspaceIndexCache.keys().next().value;
+    if (oldest) workspaceIndexCache.delete(oldest);
+  }
+  return index;
+}
+
+async function buildWorkspaceSnapshot(root) {
+  const stat = await fs.stat(root);
   const files = [];
 
   async function walk(current, depth) {
-    if (files.length >= MAX_TREE_ITEMS || depth > 8) return;
+    if (files.length >= MAX_INDEX_FILES || depth > MAX_INDEX_DEPTH) return;
     const entries = await fs.readdir(current, { withFileTypes: true });
+    entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
     for (const entry of entries) {
+      if (files.length >= MAX_INDEX_FILES) break;
       if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
       const absolute = path.join(current, entry.name);
       if (entry.isDirectory()) {
         await walk(absolute, depth + 1);
       } else if (entry.isFile()) {
-        files.push({ path: path.relative(root, absolute).replaceAll("\\", "/") });
+        const fileStat = await fs.stat(absolute).catch(() => null);
+        if (fileStat) {
+          files.push(`${path.relative(root, absolute).replaceAll("\\", "/")}:${fileStat.size}:${fileStat.mtimeMs}`);
+        }
       }
-      if (files.length >= MAX_TREE_ITEMS) break;
     }
   }
 
   await walk(root, 0);
-  return files;
+  return createHash("sha1").update([stat.mtimeMs, stat.size, ...files].join("|")).digest("hex");
+}
+
+async function buildWorkspaceIndex(root) {
+  const files = [];
+
+  async function walk(current, depth) {
+    if (files.length >= MAX_INDEX_FILES || depth > MAX_INDEX_DEPTH) return;
+    const entries = await fs.readdir(current, { withFileTypes: true });
+    entries.sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (files.length >= MAX_INDEX_FILES) break;
+      if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
+      const absolute = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolute, depth + 1);
+      } else if (entry.isFile()) {
+        const stat = await fs.stat(absolute).catch(() => null);
+        if (!stat) continue;
+        files.push({
+          path: path.relative(root, absolute).replaceAll("\\", "/"),
+          signature: `${stat.size}:${stat.mtimeMs}`
+        });
+      }
+    }
+  }
+
+  await walk(root, 0);
+  return { files };
+}
+
+async function readIndexedFile(workspace, filePath, signature) {
+  const absolute = resolveInsideWorkspace(workspace, filePath);
+  const stat = await fs.stat(absolute);
+  const nextSignature = `${stat.size}:${stat.mtimeMs}`;
+  if (signature && signature !== nextSignature) return null;
+  return fs.readFile(absolute, "utf8");
 }
 
 async function directoryHasVisibleEntries(directory) {
@@ -142,6 +200,10 @@ function draftCommitMessage(changedFiles) {
   const verb = hasSource ? "update" : "adjust";
   if (changedFiles.length === 1) return `chore: ${verb} ${changedFiles[0].path}`;
   return `chore: ${verb} ${changedFiles.length} files`;
+}
+
+function normalizeWorkspaceKey(workspace) {
+  return workspace.toLowerCase().replaceAll("\\", "/");
 }
 
 export const __test__ = {

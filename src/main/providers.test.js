@@ -22,6 +22,24 @@ describe("provider request body", () => {
     expect(body.tool_choice).toBeUndefined();
   });
 
+  it("keeps DeepSeek thinking disabled when selected", () => {
+    const provider = __test__.normalizeProviderConfig({
+      provider: "deepseek",
+      apiKey: "key",
+      thinkingMode: "disabled",
+      reasoningEffort: "high",
+      maxTokens: 2048
+    });
+    const body = __test__.buildRequestBody(provider, {
+      messages: [],
+      tool_choice: "auto"
+    });
+    expect(provider.thinkingMode).toBe("disabled");
+    expect(body.thinking).toEqual({ type: "disabled" });
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.tool_choice).toBe("auto");
+  });
+
   it("keeps OpenAI-compatible request bodies simple", () => {
     const provider = __test__.normalizeProviderConfig({
       provider: "openai-compatible",

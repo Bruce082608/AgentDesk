@@ -60,6 +60,15 @@ export type ToolRun = {
   startedAt: number;
 };
 
+export type TaskStatusPhase = "idle" | "understanding" | "searching" | "editing" | "waiting" | "error";
+
+export type TaskStatus = {
+  phase: TaskStatusPhase;
+  label: string;
+  detail?: string;
+  updatedAt?: number;
+};
+
 export type StreamRecoveryStatus = {
   message: string;
   attempt: number;
