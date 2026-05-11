@@ -20,6 +20,23 @@ declare global {
       getAutoApprovalState: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       loadConfig: () => Promise<{ config: ProviderConfig & { recoveredFromError?: string }; path: string }>;
       saveConfig: (config: ProviderConfig) => Promise<{ ok: boolean; path: string }>;
+      getSystemState: () => Promise<SystemState>;
+      showNotification: (payload: { title: string; body?: string; silent?: boolean }) => Promise<{ ok: boolean; reason?: string }>;
+      openSystemPaths: (payload: { paths: string[] }) => Promise<{ ok: boolean } | void>;
+      setOpenPathsReady: () => Promise<{ ok: boolean }>;
+      checkForUpdates: () => Promise<UpdateState>;
+      listBackgroundTasks: (payload?: { includeCompleted?: boolean }) => Promise<BackgroundTask[]>;
+      scheduleBackgroundTask: (payload: {
+        title?: string;
+        body?: string;
+        runAt?: string;
+        delayMinutes?: number;
+        intervalMinutes?: number;
+        workspace?: string;
+        sessionId?: string;
+        requestId?: string;
+      }) => Promise<BackgroundTask>;
+      cancelBackgroundTask: (id: string) => Promise<{ ok: boolean; task: BackgroundTask | null }>;
       sendMessage: (payload: AgentRequest) => Promise<{ ok: boolean; cancelled?: boolean }>;
       resumeApproval: (payload: ApprovalResumeRequest) => Promise<{ ok: boolean; result?: unknown; error?: string }>;
       cancelMessage: (requestId: string) => Promise<{ ok: boolean }>;
@@ -34,6 +51,7 @@ declare global {
       setPatchAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       setFullAccessAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       onAgentEvent: (callback: (event: AgentEvent) => void) => () => void;
+      onOpenPaths: (callback: (payload: OpenPathsPayload) => void) => () => void;
     };
   }
 }
@@ -226,6 +244,55 @@ export type PlanItem = {
 };
 
 export type PermissionMode = "default" | "full";
+
+export type OpenPathsPayload = {
+  paths: string[];
+  directories: string[];
+  files: string[];
+  missing: string[];
+  workspaceHint: string;
+};
+
+export type SystemState = {
+  desktop: {
+    appVersion: string;
+    platform: string;
+    trayEnabled: boolean;
+    globalShortcutRegistered: boolean;
+    globalShortcutAccelerator: string;
+    notificationsSupported: boolean;
+    activeRequests: number;
+    backgroundMode: boolean;
+  };
+  updates: UpdateState;
+};
+
+export type UpdateState = {
+  ok: boolean;
+  configured: boolean;
+  status: string;
+  reason?: string;
+  updateUrl?: string;
+  version?: string;
+  updateInfo?: unknown;
+  progress?: unknown;
+};
+
+export type BackgroundTask = {
+  id: string;
+  title: string;
+  body: string;
+  runAt: number;
+  intervalMs: number;
+  status: "scheduled" | "completed" | "cancelled";
+  workspace: string;
+  sessionId: string;
+  requestId: string;
+  createdAt: number;
+  updatedAt: number;
+  lastRunAt: number;
+  runs: number;
+};
 
 export type AutoApprovalRequest = {
   enabled: boolean;

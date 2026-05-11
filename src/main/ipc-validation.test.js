@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   validateAgentSendPayload,
   validateAttachmentPathsPayload,
+  validateBackgroundTaskPayload,
+  validateDesktopNotificationPayload,
   validateFileReadPayload,
+  validateOpenPathsPayload,
   validateTokenCountPayload
 } from "./ipc-validation.js";
 
@@ -47,5 +50,19 @@ describe("IPC payload validation", () => {
       paths: ["C:/work/a.txt", "C:/work/b.txt"]
     });
     expect(() => validateAttachmentPathsPayload({ paths: [{ path: "C:/work/a.txt", content: "renderer content" }] })).toThrow(/Invalid IPC payload/);
+  });
+
+  it("validates desktop integration payloads", () => {
+    expect(validateDesktopNotificationPayload({ title: "Done", body: "Task completed" })).toEqual({
+      title: "Done",
+      body: "Task completed",
+      silent: false
+    });
+    expect(validateOpenPathsPayload({ paths: ["C:/work/a.txt"] })).toEqual({ paths: ["C:/work/a.txt"] });
+    expect(validateBackgroundTaskPayload({ title: "Ping", delayMinutes: 5, intervalMinutes: 0 })).toMatchObject({
+      title: "Ping",
+      delayMinutes: 5,
+      intervalMinutes: 0
+    });
   });
 });

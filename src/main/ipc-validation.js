@@ -1,6 +1,7 @@
 const MAX_ID_LENGTH = 128;
 const MAX_PATH_LENGTH = 4096;
 const MAX_TEXT_LENGTH = 1_000_000;
+const MAX_NOTIFICATION_TEXT = 2000;
 const MAX_MESSAGES = 500;
 const MAX_ATTACHMENTS = 50;
 const CHAT_ROLES = new Set(["user", "assistant", "tool", "system"]);
@@ -111,6 +112,38 @@ export function validateAutoApprovalPayload(value) {
   return {
     enabled: Boolean(payload.enabled),
     workspace: validateWorkspace(payload.workspace),
+    sessionId: optionalString(payload.sessionId, "sessionId", { max: MAX_ID_LENGTH }),
+    requestId: optionalString(payload.requestId, "requestId", { max: MAX_ID_LENGTH })
+  };
+}
+
+export function validateDesktopNotificationPayload(value) {
+  const payload = requireObject(value ?? {}, "desktop notification payload");
+  return {
+    title: optionalString(payload.title, "title", { max: 120 }) || "AgentDesk",
+    body: optionalString(payload.body, "body", { max: MAX_NOTIFICATION_TEXT, trim: false }) || "",
+    silent: Boolean(payload.silent)
+  };
+}
+
+export function validateOpenPathsPayload(value) {
+  const payload = requireObject(value, "open paths payload");
+  if (!Array.isArray(payload.paths)) invalid("paths", "an array");
+  if (payload.paths.length > MAX_ATTACHMENTS) invalid("paths", `at most ${MAX_ATTACHMENTS} items`);
+  return {
+    paths: payload.paths.map((item, index) => requireString(item, `paths[${index}]`, { max: MAX_PATH_LENGTH }))
+  };
+}
+
+export function validateBackgroundTaskPayload(value) {
+  const payload = requireObject(value, "background task payload");
+  return {
+    title: optionalString(payload.title, "title", { max: 120 }) || "AgentDesk background task",
+    body: optionalString(payload.body, "body", { max: MAX_NOTIFICATION_TEXT, trim: false }) || "",
+    runAt: optionalString(payload.runAt ?? payload.run_at, "runAt", { max: 128 }),
+    delayMinutes: optionalNumber(payload.delayMinutes ?? payload.delay_minutes, "delayMinutes", 0, 525_600),
+    intervalMinutes: optionalNumber(payload.intervalMinutes ?? payload.interval_minutes, "intervalMinutes", 0, 525_600),
+    workspace: optionalString(payload.workspace, "workspace", { max: MAX_PATH_LENGTH }) || "",
     sessionId: optionalString(payload.sessionId, "sessionId", { max: MAX_ID_LENGTH }),
     requestId: optionalString(payload.requestId, "requestId", { max: MAX_ID_LENGTH })
   };

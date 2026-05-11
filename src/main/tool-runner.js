@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { normalizeLanguage, t } from "./i18n.js";
 import { webSearch } from "./web-search.js";
+import { executeSystemTool, isSystemTool } from "./system-tools.js";
 import { searchWorkspaceTextWithRg } from "../shared/ripgrep.js";
 import { extractPdfText, isPdfExtension, looksBinaryBuffer } from "../shared/pdfReader.js";
 
@@ -40,6 +41,7 @@ export async function executeToolCall(toolCall, context) {
 
 async function executeToolImplementation(name, args, context) {
   const workspace = context.workspace;
+  if (isSystemTool(name)) return executeSystemTool(name, args, context);
   switch (name) {
     case "list_files":
       return listFiles(workspace, args.directory || "", args.max_files || 120, context.language);

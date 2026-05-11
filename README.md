@@ -32,6 +32,8 @@ The goal is to provide an installable local window where you can choose a worksp
 - 完全访问权限模式会在当前聊天和 workspace 内自动执行命令和文件变更，同时保留 `ask_user` 用于需求澄清。
 - Main-process persistence for sessions, pending approvals, activity logs, and provider settings.
 - 通过主进程持久化保存会话、待审批项、Activity 日志和 provider 设置。
+- Desktop agent layer: tray background mode, native notifications, global show/hide shortcut, Explorer context menu registration, clipboard/window-info tools, and persistent background notification tasks.
+- 桌面 agent 系统层：托盘后台常驻、系统通知、全局显示/隐藏快捷键、Explorer 右键菜单注册、剪贴板/窗口信息工具，以及持久化后台提醒任务。
 - Encoding check, typecheck, tests, and production build are combined in `npm run check`.
 - `npm run check` 集成编码检查、类型检查、测试和生产构建。
 
@@ -191,6 +193,25 @@ Avoid testing drag-and-drop from an administrator terminal, sandbox host, or spe
 
 避免从管理员终端、沙盒宿主或特殊自动化环境中直接启动应用来测试拖拽。
 
+## Desktop Agent Layer / 桌面 Agent 系统层
+
+AgentDesk now runs more like a desktop agent instead of only a coding-agent window:
+
+AgentDesk 现在更接近桌面 agent，而不只是 coding-agent 窗口：
+
+- Closing the window hides it to the tray. Use the tray menu to show or quit the app.
+- 关闭窗口会隐藏到托盘；可以从托盘菜单重新显示或退出。
+- Global shortcut: `Ctrl+Shift+Space` on Windows/Linux, `Command+Shift+Space` on macOS.
+- 全局快捷键：Windows/Linux 为 `Ctrl+Shift+Space`，macOS 为 `Command+Shift+Space`。
+- Native notifications are shown when the agent waits for approval/input, fails, or finishes while the window is not focused.
+- 当 agent 等待确认/输入、失败，或窗口未聚焦时完成任务，会弹出系统通知。
+- The installed Windows NSIS build registers Explorer context menu entries for files and folders. A file opens as an attachment; a folder opens as the workspace. Portable builds do not write registry entries.
+- Windows 安装版会注册资源管理器文件/文件夹右键菜单。文件会作为附件打开，文件夹会作为 workspace 打开；便携版不会写注册表。
+- The model can call `system_clipboard`, `system_window_info`, `system_notify`, and `background_task` when the user asks for desktop/system behavior.
+- 当用户提出桌面/系统层需求时，模型可以调用 `system_clipboard`、`system_window_info`、`system_notify` 和 `background_task`。
+- Background tasks are persistent notification tasks. They survive app restarts while AgentDesk is installed, but they are not yet autonomous model runs.
+- 后台任务目前是持久化系统提醒任务，安装后可跨重启保留；它们还不是完全自主的模型后台运行。
+
 ## Build Windows Packages / 打包 Windows 安装包
 
 Normal Windows build:
@@ -301,13 +322,13 @@ The encoding check scans for common mojibake markers so damaged Chinese strings 
 2. Build Windows artifacts.
 3. Commit source changes.
 4. Push to GitHub.
-5. Create or update a GitHub Release and upload installer, portable app, and zip package.
+5. Create or update a GitHub Release and upload installer, portable app, zip package, and update metadata.
 
 1. 确认本地检查通过。
 2. 构建 Windows 安装包。
 3. 提交源码改动。
 4. 推送到 GitHub。
-5. 创建或更新 GitHub Release，并上传安装器、便携版和 zip 包。
+5. 创建或更新 GitHub Release，并上传安装器、便携版、zip 包和更新元数据。
 
 Example:
 
@@ -322,10 +343,39 @@ git push agentdesk main:main --force-with-lease
 gh release create v0.1.0 --repo Bruce082608/AgentDesk --title "AgentDesk v0.1.0" --notes-file release/release-notes-v0.1.0.md
 ```
 
+### Auto Update / 自动更新
+
+The update checker is wired through `electron-updater`, but it is disabled until a feed URL is available. In a packaged app, set:
+
+自动更新检查已通过 `electron-updater` 接好，但需要发布 feed URL 后才会启用。打包后的应用可设置：
+
+```powershell
+$env:AGENTDESK_UPDATE_URL="https://your-domain.example/agentdesk-updates"
+```
+
+The feed must host electron-builder update metadata such as `latest.yml` and the matching artifacts.
+
+该 feed 需要托管 electron-builder 生成的更新元数据，例如 `latest.yml` 和对应安装包。
+
+### Signed Packages / 签名安装包
+
+Code signing is feasible but requires real signing credentials:
+
+签名安装包可行，但需要真实签名凭据：
+
+- Windows: provide `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`, or configure a certificate file for electron-builder.
+- Windows：提供 `WIN_CSC_LINK` 和 `WIN_CSC_KEY_PASSWORD`，或为 electron-builder 配置证书文件。
+- macOS: remove the current unsigned local-only identity override before release, then provide Apple Developer signing and notarization credentials.
+- macOS：正式发布前移除当前仅本地未签名的 identity override，并提供 Apple Developer 签名和 notarization 凭据。
+
 ## Current Limits / 当前限制
 
 - Unsigned Windows packages may show system security warnings.
 - Windows 未签名安装包会出现系统安全提示。
+- Auto update needs a hosted update feed and signed release artifacts before it should be enabled for users.
+- 自动更新需要已托管的更新 feed 和已签名发布产物，之后才适合面向用户启用。
+- File context menu registration is implemented for Windows NSIS installers only.
+- 文件右键菜单注册目前只针对 Windows NSIS 安装版实现。
 - The Vite JavaScript chunk is currently larger than 500 KB. This is a build warning and does not block runtime.
 - Vite 输出的 JS chunk 当前超过 500 KB，这只是构建警告，不影响运行。
 - Full access mode is persisted per chat and workspace until you switch back to default mode.

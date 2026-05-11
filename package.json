@@ -24,6 +24,7 @@
     "ci": "npm run check"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "gpt-tokenizer": "^3.4.0",
     "pdf-parse": "^2.4.5",
     "react-markdown": "^10.1.0",
@@ -130,6 +131,7 @@
     },
     "nsis": {
       "artifactName": "${productName}-${version}-Setup-${arch}.${ext}",
+      "include": "build/installer.nsh",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,

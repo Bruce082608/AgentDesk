@@ -259,7 +259,7 @@ function getApprovalScopesPath() {
   return path.join(getStateDirectory(), APPROVAL_SCOPE_FILE_NAME);
 }
 
-function getStateDirectory() {
+export function getStateDirectory() {
   if (process.env.AGENTDESK_USER_DATA_DIR) {
     return process.env.AGENTDESK_USER_DATA_DIR;
   }

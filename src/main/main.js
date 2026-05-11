@@ -3,21 +3,38 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resumeAgentContinuation, runAgentTurn } from "./agent.js";
 import { readAttachmentFiles, readUploadedFiles } from "./attachments.js";
+import { configureBackgroundTasks, listBackgroundTasks, scheduleBackgroundTask, cancelBackgroundTask } from "./background-tasks.js";
+import { checkForUpdates, getUpdateState, setupAutoUpdates } from "./desktop-updates.js";
+import {
+  getDesktopIntegrationState,
+  handleAgentDesktopEvent,
+  keepsAppRunningInBackground,
+  refreshDesktopIntegrationState,
+  setupDesktopIntegration,
+  shouldHideToTrayOnClose,
+  showDesktopNotification,
+  showMainWindow
+} from "./desktop-integration.js";
 import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setFullAccessAutoApproval, setPatchAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
 import { listPendingApprovals, loadPersistedActivityEvents, loadPersistedSessions, savePersistedActivityEvents, savePersistedSessions } from "./persistence.js";
+import { classifyLaunchPaths, extractLaunchPaths } from "./launch-paths.js";
 import { normalizeLanguage, t } from "./i18n.js";
+import { configureSystemToolRuntime } from "./system-tools.js";
 import {
   validateAgentSendPayload,
   validateAttachmentPathsPayload,
   validateAutoApprovalPayload,
+  validateBackgroundTaskPayload,
   validateCommandApprovalPayload,
   validateCommandId,
   validateConfigPayload,
+  validateDesktopNotificationPayload,
   validateFileReadPayload,
   validateFileSearchPayload,
+  validateOpenPathsPayload,
   validatePatchPayload,
   validateRequestId,
   validateTokenCountPayload,
@@ -32,8 +49,25 @@ const isDev = !app.isPackaged;
 
 let mainWindow;
 const activeRequests = new Map();
+let pendingOpenPathPayloads = [];
+let openPathsRendererReady = false;
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    void queueOpenPaths(extractLaunchPaths(argv, { isPackaged: app.isPackaged }));
+  });
+}
+
+app.on("open-file", (event, filePath) => {
+  event.preventDefault();
+  void queueOpenPaths([filePath]);
+});
 
 function createWindow() {
+  openPathsRendererReady = false;
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 780,
@@ -48,24 +82,69 @@ function createWindow() {
     }
   });
 
+  mainWindow.on("close", (event) => {
+    if (!shouldHideToTrayOnClose()) return;
+    event.preventDefault();
+    mainWindow.hide();
+  });
+
+  mainWindow.webContents.on("did-start-loading", () => {
+    openPathsRendererReady = false;
+  });
+
   if (isDev) {
     mainWindow.loadURL("http://127.0.0.1:5173");
   } else {
     mainWindow.loadFile(path.join(__dirname, "../../dist/index.html"));
   }
+
+  return mainWindow;
 }
 
 app.whenReady().then(() => {
+  if (!hasSingleInstanceLock) return;
+  configureSystemToolRuntime({
+    notify: showDesktopNotification,
+    getDesktopState: getDesktopIntegrationState
+  });
   createWindow();
+  setupDesktopIntegration({
+    getMainWindow: () => mainWindow,
+    createWindow,
+    getActiveRequestCount: () => activeRequests.size
+  });
+  configureBackgroundTasks({ notify: showDesktopNotification });
+  void setupAutoUpdates({ notify: showDesktopNotification });
+  void queueOpenPaths(extractLaunchPaths(process.argv, { isPackaged: app.isPackaged }));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    showMainWindow();
   });
 });
 
 app.on("window-all-closed", () => {
+  if (keepsAppRunningInBackground()) return;
   if (process.platform !== "darwin") app.quit();
 });
+
+async function queueOpenPaths(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) return { ok: true, queued: 0 };
+  const payload = await classifyLaunchPaths(paths);
+  if (payload.paths.length === 0 && payload.missing.length === 0) return { ok: true, queued: 0 };
+  pendingOpenPathPayloads.push(payload);
+  showMainWindow();
+  flushQueuedOpenPaths();
+  return { ok: true, queued: payload.paths.length, missing: payload.missing.length };
+}
+
+function flushQueuedOpenPaths() {
+  if (!openPathsRendererReady || !mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) return;
+  while (pendingOpenPathPayloads.length > 0) {
+    const payload = pendingOpenPathPayloads.shift();
+    mainWindow.webContents.send("system:open-paths", payload);
+  }
+}
 
 ipcMain.handle("workspace:choose", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -84,6 +163,43 @@ ipcMain.handle("config:load", async () => {
 
 ipcMain.handle("config:save", async (_event, config) => {
   return await saveAppConfig(validateConfigPayload(config));
+});
+
+ipcMain.handle("system:state", async () => {
+  return {
+    desktop: getDesktopIntegrationState(),
+    updates: getUpdateState()
+  };
+});
+
+ipcMain.handle("system:notify", async (_event, payload) => {
+  return showDesktopNotification(validateDesktopNotificationPayload(payload));
+});
+
+ipcMain.handle("system:open-paths", async (_event, payload) => {
+  return await queueOpenPaths(validateOpenPathsPayload(payload).paths);
+});
+
+ipcMain.handle("system:open-paths-ready", async () => {
+  openPathsRendererReady = true;
+  flushQueuedOpenPaths();
+  return { ok: true };
+});
+
+ipcMain.handle("updates:check", async () => {
+  return await checkForUpdates();
+});
+
+ipcMain.handle("background:list", async (_event, payload = {}) => {
+  return await listBackgroundTasks({ includeCompleted: Boolean(payload.includeCompleted) });
+});
+
+ipcMain.handle("background:schedule", async (_event, payload) => {
+  return await scheduleBackgroundTask(validateBackgroundTaskPayload(payload));
+});
+
+ipcMain.handle("background:cancel", async (_event, id) => {
+  return await cancelBackgroundTask(validateCommandId(id));
 });
 
 ipcMain.handle("sessions:load", async () => {
@@ -161,8 +277,10 @@ ipcMain.handle("agent:send", async (event, payload) => {
   }
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
+  refreshDesktopIntegrationState();
   const emit = (message) => {
     event.sender.send("agent:event", { requestId, ...message });
+    handleAgentDesktopEvent(message);
   };
 
   try {
@@ -181,6 +299,7 @@ ipcMain.handle("agent:send", async (event, payload) => {
     return { ok: false };
   } finally {
     activeRequests.delete(requestId);
+    refreshDesktopIntegrationState();
   }
 });
 
@@ -205,8 +324,10 @@ ipcMain.handle("agent:resume", async (event, payload) => {
 
   const controller = new AbortController();
   activeRequests.set(requestId, controller);
+  refreshDesktopIntegrationState();
   const emit = (message) => {
     event.sender.send("agent:event", { requestId, ...message });
+    handleAgentDesktopEvent(message);
   };
 
   try {
@@ -224,6 +345,7 @@ ipcMain.handle("agent:resume", async (event, payload) => {
     };
   } finally {
     activeRequests.delete(requestId);
+    refreshDesktopIntegrationState();
   }
 });
 

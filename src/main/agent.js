@@ -42,6 +42,8 @@ export async function runAgentTurn(payload, emit) {
     content: [
       "You are a local coding agent running inside a desktop demo app.",
       "You can inspect and edit files through the provided tools.",
+      "You also have limited desktop-level tools for clipboard text, AgentDesk/window/display information, native notifications, and persistent background notification tasks.",
+      "Use desktop-level tools only when the user asks for system or desktop behavior. Foreground window inspection may be limited by operating-system permissions.",
       "You may create, overwrite, or delete files with write_file/delete_file when that is clearer than a patch.",
       "If you need a missing decision or clarification from the user, call ask_user with one concise question and 2-6 clear options, then stop and wait for the user's selected option.",
       fullAccess

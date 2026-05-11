@@ -18,6 +18,14 @@ contextBridge.exposeInMainWorld("agentWindow", {
   getAutoApprovalState: (payload) => ipcRenderer.invoke("permissions:state", payload),
   loadConfig: () => ipcRenderer.invoke("config:load"),
   saveConfig: (config) => ipcRenderer.invoke("config:save", config),
+  getSystemState: () => ipcRenderer.invoke("system:state"),
+  showNotification: (payload) => ipcRenderer.invoke("system:notify", payload),
+  openSystemPaths: (payload) => ipcRenderer.invoke("system:open-paths", payload),
+  setOpenPathsReady: () => ipcRenderer.invoke("system:open-paths-ready"),
+  checkForUpdates: () => ipcRenderer.invoke("updates:check"),
+  listBackgroundTasks: (payload) => ipcRenderer.invoke("background:list", payload || {}),
+  scheduleBackgroundTask: (payload) => ipcRenderer.invoke("background:schedule", payload),
+  cancelBackgroundTask: (id) => ipcRenderer.invoke("background:cancel", id),
   sendMessage: (payload) => ipcRenderer.invoke("agent:send", payload),
   resumeApproval: (payload) => ipcRenderer.invoke("agent:resume", payload),
   cancelMessage: (requestId) => ipcRenderer.invoke("agent:cancel", requestId),
@@ -35,5 +43,10 @@ contextBridge.exposeInMainWorld("agentWindow", {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on("agent:event", listener);
     return () => ipcRenderer.removeListener("agent:event", listener);
+  },
+  onOpenPaths: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on("system:open-paths", listener);
+    return () => ipcRenderer.removeListener("system:open-paths", listener);
   }
 });

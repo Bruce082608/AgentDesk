@@ -142,22 +142,12 @@ export function Conversation({
     <>
       {messages.length === 0 && (
         <div className="empty-state">
-          <h2>{t.emptyTitle}</h2>
-          <p>{t.emptyBody}</p>
+          <div className="empty-state-copy">
+            <h2>{t.emptyTitle}</h2>
+            <p>{t.emptyBody}</p>
+          </div>
           <div className="empty-guide-actions">
             <button type="button" className="primary" disabled={busy} onClick={chooseWorkspace}>{t.chooseFolder}</button>
-            <span className="empty-workspace-label">{workspace || t.notSelected}</span>
-          </div>
-          <div className="empty-guide-grid">
-            <button type="button" onClick={() => setInput(language === "zh" ? "阅读这个项目的 README，并告诉我如何启动。" : "Read this project's README and tell me how to start it.")}>
-              {language === "zh" ? "理解项目" : "Understand project"}
-            </button>
-            <button type="button" onClick={() => setInput(language === "zh" ? "检查这个项目的代码结构，并提出工程和体验优化建议。" : "Inspect the code structure and suggest engineering and UX improvements.")}>
-              {language === "zh" ? "检查代码" : "Inspect code"}
-            </button>
-            <button type="button" onClick={() => setInput(language === "zh" ? "运行测试和构建，修复发现的问题。" : "Run tests and build, then fix any issues you find.")}>
-              {language === "zh" ? "验证项目" : "Verify project"}
-            </button>
           </div>
         </div>
       )}
@@ -437,7 +427,7 @@ export function Conversation({
       )}
 
       <div
-        className={`message-list${draggingFiles ? " dragging-files" : ""}`}
+        className={`message-list${draggingFiles ? " dragging-files" : ""}${messages.length === 0 ? " is-empty" : ""}`}
         ref={messageListRef}
       >
         {draggingFiles && (

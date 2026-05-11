@@ -153,6 +153,67 @@ export const toolDefinitions = [
   {
     type: "function",
     function: {
+      name: "system_clipboard",
+      description: "Read, write, or clear the operating system clipboard text. Use only when the user asks for clipboard-level desktop behavior.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["read_text", "write_text", "clear"], description: "Clipboard operation. Default is read_text." },
+          text: { type: "string", description: "Text to write when action is write_text." }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "system_window_info",
+      description: "Inspect AgentDesk window/display state and best-effort foreground window information from the operating system.",
+      parameters: {
+        type: "object",
+        properties: {}
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "system_notify",
+      description: "Show a native desktop notification. Use for user-visible desktop reminders or important background status.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          body: { type: "string" },
+          silent: { type: "boolean" }
+        },
+        required: ["title"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "background_task",
+      description: "Create, list, or cancel persistent background notification tasks. Scheduled tasks survive app restarts while AgentDesk is installed.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["list", "schedule", "cancel"], description: "Task action. Default is list." },
+          id: { type: "string", description: "Task id for cancel." },
+          title: { type: "string", description: "Notification title for a scheduled task." },
+          body: { type: "string", description: "Notification body for a scheduled task." },
+          run_at: { type: "string", description: "ISO timestamp for when the task should fire." },
+          delay_minutes: { type: "number", description: "Delay before firing if run_at is not supplied." },
+          interval_minutes: { type: "number", description: "Repeat interval. Omit or set 0 for a one-time task." },
+          include_completed: { type: "boolean", description: "Include completed/cancelled tasks when listing." }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "run_command",
       description: "Run a shell command in the workspace and return stdout/stderr. Uses PowerShell on Windows and bash on macOS/Linux. High-risk or side-effecting commands require user approval unless future approvals were enabled.",
       parameters: {

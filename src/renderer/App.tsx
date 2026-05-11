@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { ActivityPanel } from "./components/ActivityPanel";
 import { Conversation } from "./components/Conversation";
 import { Sidebar } from "./components/Sidebar";
+import type { AttachedFile, OpenPathsPayload } from "./global";
 import type { Language } from "./i18n";
 import { translations } from "./i18n";
 import { useActivityLog } from "./hooks/useActivityLog";
@@ -132,6 +133,43 @@ function App() {
     tokenUsage,
     workspace: workspaceState.workspace
   });
+
+  useEffect(() => {
+    const unsubscribe = window.agentWindow.onOpenPaths(async (payload: OpenPathsPayload) => {
+      const workspaceHint = payload.workspaceHint || payload.directories[0] || "";
+      try {
+        if (workspaceHint) {
+          workspaceState.setWorkspace(workspaceHint);
+          workspaceState.setSearchResults([]);
+          workspaceState.setFileSearch("");
+          await workspaceState.refreshWorkspace(workspaceHint);
+          await workspaceState.refreshGit(workspaceHint);
+        }
+        if (payload.files.length > 0) {
+          const files = await window.agentWindow.readAttachmentFiles({ paths: payload.files });
+          workspaceState.setAttachedFiles((current) => mergeOpenPathAttachments(current, files));
+        }
+        appendEvent("tool", "System open paths", JSON.stringify({
+          workspace: workspaceHint,
+          files: payload.files.length,
+          directories: payload.directories.length,
+          missing: payload.missing.length
+        }, null, 2));
+      } catch (error) {
+        appendEvent("error", "System open paths failed", error instanceof Error ? error.message : String(error));
+      }
+    });
+    void window.agentWindow.setOpenPathsReady();
+    return unsubscribe;
+  }, [
+    appendEvent,
+    workspaceState.refreshGit,
+    workspaceState.refreshWorkspace,
+    workspaceState.setAttachedFiles,
+    workspaceState.setFileSearch,
+    workspaceState.setSearchResults,
+    workspaceState.setWorkspace
+  ]);
 
   useEffect(() => {
     if (!sessionState.sessionsLoaded) return;
@@ -670,6 +708,25 @@ function App() {
       />
     </div>
   );
+}
+
+function mergeOpenPathAttachments(current: AttachedFile[], incoming: AttachedFile[]) {
+  const next = [...current];
+  const indexByPath = new Map(next.map((file, index) => [file.path, index]));
+  for (const file of incoming) {
+    const existingIndex = indexByPath.get(file.path);
+    if (existingIndex === undefined) {
+      indexByPath.set(file.path, next.length);
+      next.push(file);
+      continue;
+    }
+    const existing = next[existingIndex];
+    next[existingIndex] = {
+      ...existing,
+      duplicateCount: (existing.duplicateCount || 1) + 1
+    };
+  }
+  return next;
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(
