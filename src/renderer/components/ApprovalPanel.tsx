@@ -54,7 +54,7 @@ export function ApprovalPanel({
                   {question.options.map((option) => (
                     <button className="primary small question-option" key={option} disabled={busy} onClick={() => answerQuestion(question.id, option)}>{option}</button>
                   ))}
-                  <button className="secondary small" onClick={() => dismissQuestion(question.id)}>{t.dismiss}</button>
+                  <button className="secondary small" disabled={busy} onClick={() => dismissQuestion(question.id)}>{t.dismiss}</button>
                 </div>
               </div>
             ))}
@@ -72,8 +72,8 @@ export function ApprovalPanel({
                 <pre>{patch.patch}</pre>
                 {patch.error && <div className="patch-error">{patch.error}</div>}
                 <div className="patch-actions">
-                  <button className="primary small" disabled={patch.status !== "pending"} onClick={() => applyPatch(patch.id)}>{t.apply}</button>
-                  <button className="secondary small" disabled={patch.status !== "pending"} onClick={() => discardPatch(patch.id)}>{t.discard}</button>
+                  <button className="primary small" disabled={busy || patch.status !== "pending"} onClick={() => applyPatch(patch.id)}>{t.apply}</button>
+                  <button className="secondary small" disabled={busy || patch.status !== "pending"} onClick={() => discardPatch(patch.id)}>{t.discard}</button>
                 </div>
               </details>
             ))}
@@ -117,9 +117,9 @@ export function ApprovalPanel({
                 </dl>
                 {command.result && <pre>{command.result}</pre>}
                 <div className="patch-actions">
-                  <button className="primary small" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id)}>{t.execute}</button>
-                  <button className="primary small allow-future" disabled={command.status !== "pending"} onClick={() => approveCommand(command.id, true)}>{t.executeAllowFuture}</button>
-                  <button className="secondary small" disabled={command.status !== "pending"} onClick={() => discardCommand(command.id)}>{t.discard}</button>
+                  <button className="primary small" disabled={busy || command.status !== "pending"} onClick={() => approveCommand(command.id)}>{t.execute}</button>
+                  <button className="primary small allow-future" disabled={busy || command.status !== "pending"} onClick={() => approveCommand(command.id, true)}>{t.executeAllowFuture}</button>
+                  <button className="secondary small" disabled={busy || command.status !== "pending"} onClick={() => discardCommand(command.id)}>{t.discard}</button>
                 </div>
               </details>
             ))}

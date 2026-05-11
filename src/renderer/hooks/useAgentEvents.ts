@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Language } from "../i18n";
-import type { AgentEvent, ChatMessage } from "../global";
+import type { AgentEvent, ApprovalRecord, ChatMessage } from "../global";
 import type { CommandItem, ContextCompressionState, EventLogItem, PatchItem, PlanItem, StreamRecoveryStatus, TaskStatus, TokenUsageStats, ToolDraft, ToolRun, UserQuestionItem } from "../types";
-import { formatQuestionMessage, normalizeQuestionOptions } from "../utils";
+import { formatQuestionAnswer, formatQuestionMessage, normalizeQuestionOptions } from "../utils";
 
 type AppendEvent = (kind: EventLogItem["kind"], title: string, body: string) => void;
 
@@ -334,7 +334,7 @@ export function useAgentEvents({
       const options = normalizeQuestionOptions(event.options, event.question, language);
       const assistantQuestion = formatQuestionMessage(event.question, event.context, options);
       setQuestions((current) => [
-        { id: crypto.randomUUID(), question: event.question, context: event.context, options, status: "pending" },
+        { id: event.questionId, question: event.question, context: event.context, options, status: "pending" },
         ...current
       ]);
       setMessages((current) => [...current, { role: "assistant", content: assistantQuestion, createdAt: Date.now() }]);
@@ -383,62 +383,72 @@ export function useAgentEvents({
     setPlanItems([{ step: waitingPlan, status: "in_progress" }]);
   }, [setTaskPhase]);
 
-  const cancelActiveRequest = useCallback(async () => {
-    if (!activeRequest.current) return;
-    await window.agentWindow.cancelMessage(activeRequest.current);
+  const loadPendingApprovals = useCallback(async (sessionId: string) => {
+    try {
+      const approvals = await window.agentWindow.listPendingApprovals({ sessionId });
+      const patchItems: PatchItem[] = [];
+      const commandItems: CommandItem[] = [];
+      const questionItems: UserQuestionItem[] = [];
+
+      for (const approval of approvals as ApprovalRecord[]) {
+        if (approval.kind === "patch") {
+          patchItems.push({
+            id: approval.id,
+            summary: approval.summary || "Proposed patch",
+            patch: approval.patch || "",
+            status: "pending"
+          });
+        } else if (approval.kind === "command") {
+          commandItems.push({
+            id: approval.id,
+            command: approval.command || "",
+            reason: approval.reason || "",
+            cwd: approval.cwd,
+            timeoutMs: approval.timeoutMs,
+            shell: approval.shell,
+            inheritedEnv: approval.inheritedEnv,
+            highRisk: Boolean(approval.highRisk),
+            status: "pending"
+          });
+        } else if (approval.kind === "question") {
+          questionItems.push({
+            id: approval.id,
+            question: approval.question || "",
+            context: approval.context,
+            options: Array.isArray(approval.options) ? approval.options : [],
+            status: "pending"
+          });
+        }
+      }
+
+      setPatches(patchItems);
+      setCommands(commandItems);
+      setQuestions(questionItems);
+    } catch {
+      setPatches([]);
+      setCommands([]);
+      setQuestions([]);
+    }
   }, []);
 
-  const applyPatch = useCallback(async (patchId: string) => {
-    setPatches((current) => current.map((patch) => patch.id === patchId ? { ...patch, status: "pending", error: undefined } : patch));
-    const result = await window.agentWindow.applyPatch({ patchId, language });
-    if (result.ok) {
-      setPatches((current) => current.map((patch) => patch.id === patchId ? { ...patch, status: "applied" } : patch));
-      const ui = getAgentEventLabels(language);
-      appendEvent("patch", ui.patchApplied, `${result.result.summary}${result.result.strategy ? ` (${result.result.strategy})` : ""}`);
-      await refreshWorkspace();
-      await refreshGit();
+  const clearApprovalItem = useCallback((kind: "patch" | "command" | "question", id: string) => {
+    if (kind === "patch") {
+      setPatches((current) => current.filter((item) => item.id !== id));
+    } else if (kind === "command") {
+      setCommands((current) => current.filter((item) => item.id !== id));
     } else {
-      setPatches((current) => current.map((patch) => patch.id === patchId ? { ...patch, status: "failed", error: result.error } : patch));
-      appendEvent("error", getAgentEventLabels(language).patchApplyFailed, result.error);
+      setQuestions((current) => current.filter((item) => item.id !== id));
     }
-  }, [appendEvent, language, refreshGit, refreshWorkspace]);
+  }, []);
 
-  const discardPatch = useCallback(async (patchId: string) => {
-    await window.agentWindow.discardPatch(patchId);
-    setPatches((current) => current.map((patch) => patch.id === patchId ? { ...patch, status: "discarded" } : patch));
-    appendEvent("patch", getAgentEventLabels(language).patchDiscarded, patchId);
-  }, [appendEvent, language]);
-
-  const approveCommand = useCallback(async (commandId: string, allowFuture = false) => {
-    const result = await window.agentWindow.approveCommand({ commandId, allowFuture, language });
-    if (result.ok) {
-      setCommands((current) => current.map((command) => command.id === commandId ? {
-        ...command,
-        status: "approved",
-        result: result.result.result,
-        cwd: result.result.cwd || command.cwd,
-        timeoutMs: result.result.timeoutMs || command.timeoutMs,
-        shell: result.result.shell || command.shell,
-        inheritedEnv: result.result.inheritedEnv ?? command.inheritedEnv
-      } : command));
-      const ui = getAgentEventLabels(language);
-      appendEvent("tool", `${ui.commandExecuted}: ${result.result.command}`, result.result.result);
-      setCommandAutoApproval(result.result.commandAutoApproval);
-      setPatchAutoApproval(result.result.patchAutoApproval);
-      setCommandAutoApprovalExpiresAt(result.result.commandAutoApprovalExpiresAt || null);
-      setPatchAutoApprovalExpiresAt(result.result.patchAutoApprovalExpiresAt || null);
-      if (result.result.autoApproveFutureCommands) {
-        appendEvent("status", ui.futureCommandsAllowed, ui.futureCommandsAllowedBody);
-      }
+  const markApprovalFailed = useCallback((kind: "patch" | "command" | "question", id: string, error: string) => {
+    if (kind === "patch") {
+      setPatches((current) => current.map((item) => item.id === id ? { ...item, status: "failed", error } : item));
+    } else if (kind === "command") {
+      setCommands((current) => current.map((item) => item.id === id ? { ...item, status: "failed", error } : item));
     } else {
-      setCommands((current) => current.map((command) => command.id === commandId ? { ...command, status: "failed", error: result.error } : command));
-      appendEvent("error", getAgentEventLabels(language).commandFailed, result.error);
+      setQuestions((current) => current.filter((item) => item.id !== id));
     }
-  }, [appendEvent, language]);
-
-  const discardCommand = useCallback(async (commandId: string) => {
-    await window.agentWindow.discardCommand(commandId);
-    setCommands((current) => current.map((command) => command.id === commandId ? { ...command, status: "discarded" } : command));
   }, []);
 
   const applyAutoApprovalState = useCallback((result: { commandAutoApproval: boolean; patchAutoApproval: boolean; fullAccessAutoApproval?: boolean; commandAutoApprovalExpiresAt?: number | null; patchAutoApprovalExpiresAt?: number | null }) => {
@@ -447,6 +457,185 @@ export function useAgentEvents({
     setCommandAutoApprovalExpiresAt(result.commandAutoApprovalExpiresAt || null);
     setPatchAutoApprovalExpiresAt(result.patchAutoApprovalExpiresAt || null);
   }, []);
+
+  const cancelActiveRequest = useCallback(async () => {
+    if (!activeRequest.current) return;
+    await window.agentWindow.cancelMessage(activeRequest.current);
+  }, []);
+
+  const startApprovalContinuation = useCallback(() => {
+    const requestId = crypto.randomUUID();
+    beginRequest(requestId, language === "zh" ? "等待审批结果" : "Awaiting approval result");
+    return requestId;
+  }, [beginRequest, language]);
+
+  const applyPatch = useCallback(async (patchId: string) => {
+    if (busy) return;
+    const patch = patches.find((item) => item.id === patchId);
+    if (!patch) return;
+    const requestId = startApprovalContinuation();
+    const result = await window.agentWindow.resumeApproval({
+      requestId,
+      continuationId: patchId,
+      kind: "patch",
+      decision: "approved",
+      language
+    });
+    if (!result.ok) {
+      markApprovalFailed("patch", patchId, result.error || getAgentEventLabels(language).patchApplyFailed);
+      setBusy(false);
+      activeRequest.current = null;
+      setActiveToolRuns([]);
+      setTaskPhase("error", result.error || getAgentEventLabels(language).patchApplyFailed);
+      appendEvent("error", getAgentEventLabels(language).patchApplyFailed, result.error || "Unknown error");
+      return;
+    }
+    clearApprovalItem("patch", patchId);
+  }, [appendEvent, busy, clearApprovalItem, language, markApprovalFailed, patches, startApprovalContinuation]);
+
+  const discardPatch = useCallback(async (patchId: string) => {
+    if (busy) return;
+    const requestId = startApprovalContinuation();
+    const result = await window.agentWindow.resumeApproval({
+      requestId,
+      continuationId: patchId,
+      kind: "patch",
+      decision: "discarded",
+      language
+    });
+    if (!result.ok) {
+      setBusy(false);
+      activeRequest.current = null;
+      setActiveToolRuns([]);
+      setTaskPhase("error", result.error || getAgentEventLabels(language).patchApplyFailed);
+      appendEvent("error", getAgentEventLabels(language).patchApplyFailed, result.error || "Unknown error");
+      return;
+    }
+    clearApprovalItem("patch", patchId);
+    appendEvent("patch", getAgentEventLabels(language).patchDiscarded, patchId);
+  }, [appendEvent, busy, clearApprovalItem, language, startApprovalContinuation]);
+
+  const approveCommand = useCallback(async (commandId: string, allowFuture = false) => {
+    if (busy) return;
+    const command = commands.find((item) => item.id === commandId);
+    if (!command) return;
+    const requestId = startApprovalContinuation();
+    const result = await window.agentWindow.resumeApproval({
+      requestId,
+      continuationId: commandId,
+      kind: "command",
+      decision: "approved",
+      allowFuture,
+      language
+    });
+    if (result.ok) {
+      const approvalState = result.result as Record<string, unknown> | undefined;
+      if (typeof approvalState?.commandAutoApproval === "boolean" && typeof approvalState?.patchAutoApproval === "boolean") {
+        applyAutoApprovalState({
+          commandAutoApproval: approvalState.commandAutoApproval,
+          patchAutoApproval: approvalState.patchAutoApproval,
+          fullAccessAutoApproval: Boolean(approvalState.fullAccessAutoApproval),
+          commandAutoApprovalExpiresAt: Number(approvalState.commandAutoApprovalExpiresAt || null) || null,
+          patchAutoApprovalExpiresAt: Number(approvalState.patchAutoApprovalExpiresAt || null) || null
+        });
+      }
+      if (Boolean(approvalState?.autoApproveFutureCommands)) {
+        const ui = getAgentEventLabels(language);
+        appendEvent("status", ui.futureCommandsAllowed, ui.futureCommandsAllowedBody);
+      }
+      clearApprovalItem("command", commandId);
+    } else {
+      markApprovalFailed("command", commandId, result.error || getAgentEventLabels(language).commandFailed);
+      setBusy(false);
+      activeRequest.current = null;
+      setActiveToolRuns([]);
+      setTaskPhase("error", result.error || getAgentEventLabels(language).commandFailed);
+      appendEvent("error", getAgentEventLabels(language).commandFailed, result.error || "Unknown error");
+    }
+  }, [activeRequest, appendEvent, applyAutoApprovalState, busy, clearApprovalItem, commands, language, markApprovalFailed, setActiveToolRuns, setBusy, startApprovalContinuation, setTaskPhase]);
+
+  const discardCommand = useCallback(async (commandId: string) => {
+    if (busy) return;
+    const requestId = startApprovalContinuation();
+    const result = await window.agentWindow.resumeApproval({
+      requestId,
+      continuationId: commandId,
+      kind: "command",
+      decision: "discarded",
+      language
+    });
+    if (!result.ok) {
+      markApprovalFailed("command", commandId, result.error || getAgentEventLabels(language).commandFailed);
+      setBusy(false);
+      activeRequest.current = null;
+      setActiveToolRuns([]);
+      setTaskPhase("error", result.error || getAgentEventLabels(language).commandFailed);
+      appendEvent("error", getAgentEventLabels(language).commandFailed, result.error || "Unknown error");
+      return;
+    }
+    clearApprovalItem("command", commandId);
+  }, [activeRequest, appendEvent, busy, clearApprovalItem, language, markApprovalFailed, setActiveToolRuns, setBusy, startApprovalContinuation, setTaskPhase]);
+
+  const answerQuestion = useCallback(async (questionId: string, option: string) => {
+    if (busy) return;
+    const question = questions.find((item) => item.id === questionId);
+    if (!question) return;
+    const requestId = startApprovalContinuation();
+    const answer = formatQuestionAnswer(question.question, option);
+    setMessages((current) => [...current, { role: "user", content: answer, createdAt: Date.now() }]);
+    const result = await window.agentWindow.resumeApproval({
+      requestId,
+      continuationId: questionId,
+      kind: "question",
+      decision: "approved",
+      answer: option,
+      option,
+      language
+    });
+    if (!result.ok) {
+      markApprovalFailed("question", questionId, result.error || getAgentEventLabels(language).agentError);
+      setBusy(false);
+      activeRequest.current = null;
+      setActiveToolRuns([]);
+      setTaskPhase("error", result.error || getAgentEventLabels(language).agentError);
+      appendEvent("error", getAgentEventLabels(language).agentError, result.error || "Unknown error");
+      return;
+    }
+    clearApprovalItem("question", questionId);
+  }, [activeRequest, appendEvent, busy, clearApprovalItem, language, markApprovalFailed, questions, setActiveToolRuns, setBusy, setMessages, startApprovalContinuation, setTaskPhase]);
+
+  const dismissQuestion = useCallback(async (questionId: string) => {
+    if (busy) return;
+    const question = questions.find((item) => item.id === questionId);
+    if (!question) return;
+    const requestId = startApprovalContinuation();
+    const result = await window.agentWindow.resumeApproval({
+      requestId,
+      continuationId: questionId,
+      kind: "question",
+      decision: "dismissed",
+      language
+    });
+    if (!result.ok) {
+      markApprovalFailed("question", questionId, result.error || getAgentEventLabels(language).agentError);
+      setBusy(false);
+      activeRequest.current = null;
+      setActiveToolRuns([]);
+      setTaskPhase("error", result.error || getAgentEventLabels(language).agentError);
+      appendEvent("error", getAgentEventLabels(language).agentError, result.error || "Unknown error");
+      return;
+    }
+    clearApprovalItem("question", questionId);
+  }, [activeRequest, appendEvent, busy, clearApprovalItem, language, markApprovalFailed, questions, setActiveToolRuns, setBusy, startApprovalContinuation, setTaskPhase]);
+
+  const loadAutoApprovalState = useCallback(async (context: { workspace: string; sessionId?: string }) => {
+    try {
+      const result = await window.agentWindow.getAutoApprovalState({ ...context, enabled: false });
+      applyAutoApprovalState(result);
+    } catch {
+      // Keep the current local UI state if the persisted scope cannot be read.
+    }
+  }, [applyAutoApprovalState]);
 
   const resetCommandAutoApproval = useCallback(async (context: { workspace: string; sessionId?: string }) => {
     const result = await window.agentWindow.setCommandAutoApproval({ ...context, enabled: false });
@@ -515,6 +704,7 @@ export function useAgentEvents({
   return {
     activeToolRuns,
     activeRequest,
+    answerQuestion,
     applyPatch,
     approveCommand,
     beginRequest,
@@ -527,6 +717,9 @@ export function useAgentEvents({
     contextCompression,
     discardCommand,
     discardPatch,
+    dismissQuestion,
+    loadAutoApprovalState,
+    loadPendingApprovals,
     patches,
     patchAutoApproval,
     patchAutoApprovalExpiresAt,
@@ -601,7 +794,7 @@ function getAgentEventLabels(language: Language) {
       patchDiscarded: "Patch discarded",
       commandExecuted: "Command executed",
       futureCommandsAllowed: "Future commands allowed",
-      futureCommandsAllowedBody: "Future command requests in this chat and workspace will run automatically until you switch back or restart the app.",
+      futureCommandsAllowedBody: "Future command requests in this chat and workspace will run automatically until you switch back.",
       commandFailed: "Command failed",
       commandConfirmRestored: "Future command confirmation restored",
       commandConfirmRestoredBody: "Future high-risk or side-effect commands will ask for confirmation again.",
@@ -609,7 +802,7 @@ function getAgentEventLabels(language: Language) {
       patchAutoApplyDisabledBody: "Future file changes will ask for confirmation again.",
       commandAutoRunEnabled: "Command auto-run enabled",
       commandAutoRunDisabled: "Command auto-run disabled",
-      autoPermissionScoped: "Only applies to this chat and workspace until you switch back or restart the app.",
+      autoPermissionScoped: "Only applies to this chat and workspace until you switch back.",
       commandNeedsConfirm: "High-risk or side-effect commands will ask for confirmation.",
       patchAutoApplyEnabled: "Patch auto-apply enabled",
       patchNeedsConfirm: "File writes, deletes, and patches will ask for confirmation."
@@ -637,7 +830,7 @@ function getAgentEventLabels(language: Language) {
     patchDiscarded: "Patch 已放弃",
     commandExecuted: "命令已执行",
     futureCommandsAllowed: "后续命令已允许",
-    futureCommandsAllowedBody: "当前会话和 workspace 内，后续命令请求将自动执行，直到你切回默认权限或应用重启。",
+    futureCommandsAllowedBody: "当前会话和 workspace 内，后续命令请求将自动执行，直到你切回默认权限。",
     commandFailed: "命令执行失败",
     commandConfirmRestored: "后续命令确认已恢复",
     commandConfirmRestoredBody: "agent 后续高危或副作用命令会再次请求确认。",
@@ -645,7 +838,7 @@ function getAgentEventLabels(language: Language) {
     patchAutoApplyDisabledBody: "agent 后续文件变更会再次请求确认。",
     commandAutoRunEnabled: "已启用命令自动执行",
     commandAutoRunDisabled: "已关闭命令自动执行",
-    autoPermissionScoped: "仅当前会话和 workspace 生效，直到你切回默认权限或应用重启。",
+    autoPermissionScoped: "仅当前会话和 workspace 生效，直到你切回默认权限。",
     commandNeedsConfirm: "高危或副作用命令会请求确认。",
     patchAutoApplyEnabled: "已启用 Patch 自动应用",
     patchNeedsConfirm: "文件写入、删除和 patch 会请求确认。"

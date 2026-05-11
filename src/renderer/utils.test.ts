@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createBlankSession, loadChatSessions, safeHref, saveChatSessions } from "./utils";
+import { createBlankSession, loadChatSessions, safeHref } from "./utils";
 
 function installLocalStorageMock() {
   const store = new Map<string, string>();
@@ -31,13 +31,13 @@ describe("chat session storage", () => {
     installLocalStorageMock();
   });
 
-  it("saves and reloads normalized sessions", () => {
+  it("loads normalized legacy localStorage sessions", () => {
     const session = {
       ...createBlankSession("/tmp/workspace"),
       title: "Example",
       messages: [{ role: "user" as const, content: "hello" }]
     };
-    saveChatSessions([session]);
+    localStorage.setItem("agent-chat-sessions", JSON.stringify([session]));
     const loaded = loadChatSessions();
     expect(loaded).toHaveLength(1);
     expect(loaded[0].title).toBe("Example");

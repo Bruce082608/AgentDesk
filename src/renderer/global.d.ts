@@ -12,16 +12,23 @@ declare global {
       getPathForFile: (file: File) => string;
       getGitSummary: (workspace: string) => Promise<GitSummary>;
       getGitDiff: (workspace: string) => Promise<{ diff: string }>;
+      loadSessions: () => Promise<PersistedChatSession[]>;
+      saveSessions: (sessions: PersistedChatSession[]) => Promise<{ ok: boolean; count: number; path: string }>;
+      loadActivityEvents: () => Promise<PersistedEventLogItem[]>;
+      saveActivityEvents: (events: PersistedEventLogItem[]) => Promise<{ ok: boolean; count: number; path: string }>;
+      listPendingApprovals: (payload?: { sessionId?: string }) => Promise<Array<ApprovalRecord>>;
+      getAutoApprovalState: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       loadConfig: () => Promise<{ config: ProviderConfig & { recoveredFromError?: string }; path: string }>;
       saveConfig: (config: ProviderConfig) => Promise<{ ok: boolean; path: string }>;
       sendMessage: (payload: AgentRequest) => Promise<{ ok: boolean; cancelled?: boolean }>;
+      resumeApproval: (payload: ApprovalResumeRequest) => Promise<{ ok: boolean; result?: unknown; error?: string }>;
       cancelMessage: (requestId: string) => Promise<{ ok: boolean }>;
       testProvider: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderTestResult } | { ok: false; error: string }>;
       getBalance: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderBalanceResult } | { ok: false; error: string }>;
       countTokens: (payload: { messages: ChatMessage[]; input: string; attachments: AttachedFile[] }) => Promise<{ tokens: number }>;
       applyPatch: (payload: string | { patchId: string; language?: "zh" | "en" }) => Promise<{ ok: true; result: { ok: boolean; patchId: string; summary: string; strategy?: string; warning?: string } } | { ok: false; error: string }>;
       discardPatch: (patchId: string) => Promise<{ ok: boolean; patchId: string }>;
-      approveCommand: (payload: { commandId: string; allowFuture?: boolean; language?: "zh" | "en" }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; cwd?: string; timeoutMs?: number; shell?: string; inheritedEnv?: boolean; highRisk: boolean; autoApproveFutureCommands: boolean; commandAutoApproval: boolean; patchAutoApproval: boolean; commandAutoApprovalExpiresAt?: number | null; patchAutoApprovalExpiresAt?: number | null } } | { ok: false; error: string }>;
+      approveCommand: (payload: { commandId: string; allowFuture?: boolean; language?: "zh" | "en" }) => Promise<{ ok: true; result: { ok: boolean; commandId: string; command: string; result: string; cwd?: string; timeoutMs?: number; shell?: string; inheritedEnv?: boolean; highRisk: boolean; autoApproveFutureCommands: boolean; commandAutoApproval: boolean; patchAutoApproval: boolean; fullAccessAutoApproval?: boolean; commandAutoApprovalExpiresAt?: number | null; patchAutoApprovalExpiresAt?: number | null } } | { ok: false; error: string }>;
       discardCommand: (commandId: string) => Promise<{ ok: boolean; commandId: string }>;
       setCommandAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       setPatchAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
@@ -102,6 +109,84 @@ export type AgentRequest = {
   providerConfig: ProviderConfig;
   messages: ChatMessage[];
   attachments: AttachedFile[];
+  permissionMode?: PermissionMode;
+};
+
+export type PersistedEventLogItem = {
+  id: string;
+  title: string;
+  body: string;
+  kind: "status" | "tool" | "error" | "model" | "patch";
+  createdAt: number;
+};
+
+export type PersistedChatSession = {
+  id: string;
+  title: string;
+  titleEdited: boolean;
+  workspace: string;
+  messages: ChatMessage[];
+  tokenUsage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    requests: number;
+  };
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ApprovalRecord =
+  | {
+      kind: "command";
+      id: string;
+      continuationId: string;
+      sessionId: string;
+      workspace: string;
+      requestId: string;
+      createdAt: number;
+      command: string;
+      reason: string;
+      cwd?: string;
+      timeoutMs?: number | null;
+      shell?: string;
+      inheritedEnv?: boolean;
+      highRisk?: boolean;
+    }
+  | {
+      kind: "patch";
+      id: string;
+      continuationId: string;
+      sessionId: string;
+      workspace: string;
+      requestId: string;
+      createdAt: number;
+      summary: string;
+      patch: string;
+      toolName?: string;
+    }
+  | {
+      kind: "question";
+      id: string;
+      continuationId: string;
+      sessionId: string;
+      workspace: string;
+      requestId: string;
+      createdAt: number;
+      question: string;
+      context?: string;
+      options: string[];
+    };
+
+export type ApprovalResumeRequest = {
+  requestId: string;
+  continuationId: string;
+  kind: "command" | "patch" | "question";
+  decision?: "approved" | "discarded" | "dismissed";
+  answer?: string;
+  option?: string;
+  allowFuture?: boolean;
+  language?: "zh" | "en";
 };
 
 export type WorkspaceTreeItem = {
@@ -175,7 +260,7 @@ export type AgentEvent =
   | { requestId: string; type: "patch_proposed"; patchId: string; summary: string; patch: string }
   | { requestId: string; type: "patch_applied"; patchId: string; summary: string; strategy?: string }
   | { requestId: string; type: "command_pending"; commandId: string; command: string; reason: string; cwd?: string; timeoutMs?: number | null; shell?: string; inheritedEnv?: boolean; highRisk?: boolean }
-  | { requestId: string; type: "ask_user_pending"; question: string; context?: string; options?: string[] }
+  | { requestId: string; type: "ask_user_pending"; questionId: string; question: string; context?: string; options?: string[] }
   | { requestId: string; type: "error"; message: string }
   | { requestId: string; type: "cancelled"; message: string }
   | { requestId: string; type: "done" };

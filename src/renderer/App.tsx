@@ -38,7 +38,6 @@ import {
 import {
   copyText,
   filterActivityEvents,
-  formatQuestionAnswer,
   readStoredNumber
 } from "./utils";
 import { getInputBudgetTokens } from "../shared/contextBudget";
@@ -133,6 +132,15 @@ function App() {
     tokenUsage,
     workspace: workspaceState.workspace
   });
+
+  useEffect(() => {
+    if (!sessionState.sessionsLoaded) return;
+    void agentState.loadPendingApprovals(sessionState.activeSessionId);
+    void agentState.loadAutoApprovalState({
+      workspace: workspaceState.workspace || ".",
+      sessionId: sessionState.activeSessionId
+    });
+  }, [agentState.loadAutoApprovalState, agentState.loadPendingApprovals, sessionState.activeSessionId, sessionState.sessionsLoaded, workspaceState.workspace]);
 
   // ---- Document-level drag-and-drop ----
   // On Windows Electron, the window must call preventDefault() on dragover
@@ -375,7 +383,8 @@ function App() {
       input: inputText,
       providerConfig: providerState.config,
       messages: priorMessages,
-      attachments: workspaceState.attachedFiles
+      attachments: workspaceState.attachedFiles,
+      permissionMode: agentState.commandAutoApproval && agentState.patchAutoApproval ? "full" : "default"
     });
     if (result.ok) {
       setRetryRequest(null);
@@ -391,6 +400,8 @@ function App() {
     t.offlineBody,
     t.offlineTitle,
     t.waitingPlan,
+    agentState.commandAutoApproval,
+    agentState.patchAutoApproval,
     workspaceState.attachedFiles,
     workspaceState.workspace
   ]);
@@ -433,21 +444,12 @@ function App() {
   }, [agentState.busy, messages, startAgentRequest]);
 
   const answerQuestion = useCallback(async (questionId: string, option: string) => {
-    if (agentState.busy) return;
-    const question = agentState.questions.find((item) => item.id === questionId);
-    if (!question) return;
-    agentState.setQuestions((current) => current.map((item) => item.id === questionId ? { ...item, status: "dismissed" } : item));
-    const answer = formatQuestionAnswer(question.question, option);
-    await startAgentRequest({
-      inputText: answer,
-      priorMessages: messages,
-      nextMessages: [...messages, { role: "user", content: answer, createdAt: Date.now() }]
-    });
-  }, [agentState.busy, agentState.questions, agentState.setQuestions, messages, startAgentRequest]);
+    await agentState.answerQuestion(questionId, option);
+  }, [agentState.answerQuestion]);
 
   const dismissQuestion = useCallback((questionId: string) => {
-    agentState.setQuestions((current) => current.map((item) => item.id === questionId ? { ...item, status: "dismissed" } : item));
-  }, [agentState.setQuestions]);
+    void agentState.dismissQuestion(questionId);
+  }, [agentState.dismissQuestion]);
 
   const updateReasoningView = useCallback((key: string, view: ReasoningView) => {
     setReasoningViews((current) => ({ ...current, [key]: view }));

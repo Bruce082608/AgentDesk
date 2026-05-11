@@ -1,12 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runAgentTurn } from "./agent.js";
+import { resumeAgentContinuation, runAgentTurn } from "./agent.js";
 import { readAttachmentFiles, readUploadedFiles } from "./attachments.js";
 import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setFullAccessAutoApproval, setPatchAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
+import { listPendingApprovals, loadPersistedActivityEvents, loadPersistedSessions, savePersistedActivityEvents, savePersistedSessions } from "./persistence.js";
 import { normalizeLanguage, t } from "./i18n.js";
 import {
   validateAgentSendPayload,
@@ -24,6 +25,7 @@ import {
   validateWorkspaceTreePayload
 } from "./ipc-validation.js";
 import { countAgentRequestTokens } from "../shared/tokenCounter.js";
+import { getAutoApprovalState } from "./patch-approval.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
@@ -82,6 +84,30 @@ ipcMain.handle("config:load", async () => {
 
 ipcMain.handle("config:save", async (_event, config) => {
   return await saveAppConfig(validateConfigPayload(config));
+});
+
+ipcMain.handle("sessions:load", async () => {
+  return await loadPersistedSessions();
+});
+
+ipcMain.handle("sessions:save", async (_event, sessions) => {
+  return await savePersistedSessions(Array.isArray(sessions) ? sessions : []);
+});
+
+ipcMain.handle("activity:load", async () => {
+  return await loadPersistedActivityEvents();
+});
+
+ipcMain.handle("activity:save", async (_event, events) => {
+  return await savePersistedActivityEvents(Array.isArray(events) ? events : []);
+});
+
+ipcMain.handle("approvals:list", async (_event, payload = {}) => {
+  return await listPendingApprovals({ sessionId: String(payload.sessionId || "") });
+});
+
+ipcMain.handle("permissions:state", async (_event, payload) => {
+  return getAutoApprovalState(validateAutoApprovalPayload(payload));
 });
 
 ipcMain.handle("workspace:tree", async (_event, workspace) => {
@@ -153,6 +179,49 @@ ipcMain.handle("agent:send", async (event, payload) => {
       message: error instanceof Error ? error.message : String(error)
     });
     return { ok: false };
+  } finally {
+    activeRequests.delete(requestId);
+  }
+});
+
+ipcMain.handle("agent:resume", async (event, payload) => {
+  let validatedPayload;
+  try {
+    validatedPayload = {
+      ...payload,
+      requestId: validateRequestId(payload?.requestId)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+
+  const requestId = validatedPayload.requestId;
+  if (activeRequests.has(requestId)) {
+    return { ok: false, error: "Duplicate requestId." };
+  }
+
+  const controller = new AbortController();
+  activeRequests.set(requestId, controller);
+  const emit = (message) => {
+    event.sender.send("agent:event", { requestId, ...message });
+  };
+
+  try {
+    const result = await resumeAgentContinuation({ ...validatedPayload, signal: controller.signal }, emit);
+    emit({ type: "done" });
+    return { ok: true, result };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      emit({ type: "cancelled", message: t(normalizeLanguage(validatedPayload.language), "agent.cancelled") });
+      return { ok: false, cancelled: true };
+    }
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
   } finally {
     activeRequests.delete(requestId);
   }

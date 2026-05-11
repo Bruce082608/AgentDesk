@@ -28,10 +28,10 @@ The goal is to provide an installable local window where you can choose a worksp
 - 支持 Git 状态、变更文件、diff 查看和 commit message 草稿。
 - Default permission mode asks before writes, deletes, patches, and high-risk commands.
 - 默认权限模式会在写入、删除、patch 和高风险命令前请求确认。
-- Full access mode lets command and file-change tools run without approval for the current app session, while preserving `ask_user` for clarifying requirements.
-- 完全访问权限模式会在当前应用会话内自动执行命令和文件变更，同时保留 `ask_user` 用于需求澄清。
-- Local persistence for sessions, theme, language, sidebar width, and provider settings.
-- 本地保存会话、主题、语言、侧栏宽度和 provider 设置。
+- Full access mode lets command and file-change tools run without approval for the current chat and workspace, while preserving `ask_user` for clarifying requirements.
+- 完全访问权限模式会在当前聊天和 workspace 内自动执行命令和文件变更，同时保留 `ask_user` 用于需求澄清。
+- Main-process persistence for sessions, pending approvals, activity logs, and provider settings.
+- 通过主进程持久化保存会话、待审批项、Activity 日志和 provider 设置。
 - Encoding check, typecheck, tests, and production build are combined in `npm run check`.
 - `npm run check` 集成编码检查、类型检查、测试和生产构建。
 
@@ -158,8 +158,8 @@ The permission switch is near the input box.
 
 - Default access: read-only and low-risk commands can run automatically; writes, deletes, patches, and high-risk commands ask for approval.
 - 默认权限：只读和低风险命令可自动运行；写入、删除、patch 和高风险命令会请求确认。
-- Full access: command and file-change tools run automatically for the current app session and workspace, without permission popups.
-- 完全访问权限：当前应用会话和工作目录内，命令和文件变更会自动执行，不再弹出权限审批。
+- Full access: command and file-change tools run automatically for the current chat and workspace, without permission popups.
+- 完全访问权限：当前聊天和工作目录内，命令和文件变更会自动执行，不再弹出权限审批。
 
 `ask_user` is not a permission approval. Even in full access mode, the agent can still ask you clarifying questions when requirements are unclear.
 
@@ -328,7 +328,7 @@ gh release create v0.1.0 --repo Bruce082608/AgentDesk --title "AgentDesk v0.1.0"
 - Windows 未签名安装包会出现系统安全提示。
 - The Vite JavaScript chunk is currently larger than 500 KB. This is a build warning and does not block runtime.
 - Vite 输出的 JS chunk 当前超过 500 KB，这只是构建警告，不影响运行。
-- Full access mode is an in-process app state. After restarting AgentDesk, permissions return to default mode.
-- 完全访问权限是当前应用进程内状态。重启 AgentDesk 后会恢复默认权限。
+- Full access mode is persisted per chat and workspace until you switch back to default mode.
+- 完全访问权限会按当前会话和 workspace 持久化，直到你手动切回默认权限。
 - Cross-platform packaging may require each target platform's native toolchain.
 - 跨平台打包仍可能需要对应平台工具链。

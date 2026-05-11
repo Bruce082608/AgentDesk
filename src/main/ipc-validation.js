@@ -8,6 +8,7 @@ const PROVIDERS = new Set(["deepseek", "openai-compatible"]);
 const THINKING_MODES = new Set(["enabled", "disabled"]);
 const REASONING_EFFORTS = new Set(["low", "medium", "high", "max"]);
 const LANGUAGES = new Set(["zh", "en"]);
+const PERMISSION_MODES = new Set(["default", "full"]);
 
 export function validateWorkspace(value, field = "workspace") {
   return requireString(value, field, { max: MAX_PATH_LENGTH });
@@ -62,7 +63,8 @@ export function validateAgentSendPayload(value) {
     input: requireString(payload.input, "input", { max: MAX_TEXT_LENGTH, trim: false }),
     providerConfig: validateProviderConfig(payload.providerConfig, { allowEmptyApiKey: true }),
     messages: validateMessages(payload.messages),
-    attachments: validateAttachments(payload.attachments)
+    attachments: validateAttachments(payload.attachments),
+    permissionMode: validatePermissionMode(payload.permissionMode)
   };
 }
 
@@ -200,6 +202,11 @@ function validateAttachments(value) {
 function validateLanguage(value) {
   const language = optionalString(value, "language", { max: 8 }) || "zh";
   return LANGUAGES.has(language) ? language : "zh";
+}
+
+function validatePermissionMode(value) {
+  const mode = optionalString(value, "permissionMode", { max: 16 }) || "default";
+  return PERMISSION_MODES.has(mode) ? mode : "default";
 }
 
 function requireObject(value, field) {

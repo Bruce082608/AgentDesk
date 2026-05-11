@@ -117,34 +117,6 @@ function normalizeStoredToolCalls(value: unknown): ChatToolCall[] {
   return toolCalls;
 }
 
-export function saveChatSessions(sessions: ChatSession[]): "saved" | "compacted" | "failed" {
-  try {
-    localStorage.setItem("agent-chat-sessions", JSON.stringify(sessions));
-    return "saved";
-  } catch (error) {
-    try {
-      localStorage.setItem("agent-chat-sessions", JSON.stringify(compactSessionsForStorage(sessions)));
-      console.warn("Chat sessions were compacted before saving.", error);
-      return "compacted";
-    } catch (fallbackError) {
-      console.warn("Failed to save chat sessions.", fallbackError);
-      return "failed";
-    }
-  }
-}
-
-function compactSessionsForStorage(sessions: ChatSession[]): ChatSession[] {
-  return sessions.slice(0, 10).map((session) => ({
-    ...session,
-    messages: session.messages.slice(-40).map((message) => ({
-      ...message,
-      content: String(message.content || "").slice(-20000),
-      reasoning: message.reasoning ? String(message.reasoning).slice(-8000) : undefined,
-      tool_calls: normalizeStoredToolCalls(message.tool_calls)
-    }))
-  }));
-}
-
 export function deriveSessionTitle(messages: ChatMessage[], fallback: string) {
   const firstUserMessage = messages.find((message) => message.role === "user")?.content.trim();
   if (!firstUserMessage) return fallback || translations.zh.newChatTitle;

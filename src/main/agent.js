@@ -1,10 +1,12 @@
 import { completeChat, normalizeProviderConfig, streamWithTools } from "./providers.js";
-import { executeToolCall, toolDefinitions } from "./tools.js";
+import { applyPatchRecord, discardPendingCommand, discardPendingPatch, executeCommandRecord, executeToolCall, toolDefinitions } from "./tools.js";
 import { getAutoApprovalState } from "./patch-approval.js";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { normalizeLanguage, t } from "./i18n.js";
 import { getDynamicSafetyMarginTokens, getInputBudgetTokens } from "../shared/contextBudget.js";
 import { countChatMessageTokens, countChatMessagesTokens, countTextTokens } from "../shared/tokenCounter.js";
+import { deleteAgentContinuation, getAgentContinuation, upsertAgentContinuation } from "./persistence.js";
+import { loadAppConfig } from "./config.js";
 
 const DEFAULT_MAX_AGENT_STEPS = 64;
 const RECENT_HISTORY_RATIO_AFTER_SUMMARY = 0.45;
@@ -87,18 +89,102 @@ export async function runAgentTurn(payload, emit) {
       ? t(language, "agent.sendCompressed", { context: formatTokens(contextTokens), input: formatTokens(inputBudgetTokens) })
       : t(language, "agent.sendNormal", { context: formatTokens(contextTokens), input: formatTokens(inputBudgetTokens) })
   });
+
+  await runAgentLoop({
+    workspace,
+    providerConfig,
+    language,
+    requestId: payload.requestId || "",
+    sessionId: payload.sessionId || "",
+    attachments,
+    permissionMode: payload.permissionMode,
+    maxAgentSteps,
+    messages,
+    signal,
+    startStep: 0
+  }, emit);
+}
+
+export async function resumeAgentContinuation(payload, emit) {
+  const continuationId = String(payload.continuationId || payload.approvalId || payload.commandId || payload.patchId || payload.questionId || "");
+  if (!continuationId) throw new Error("Missing continuation id.");
+  const continuation = await getAgentContinuation(continuationId);
+  if (!continuation) throw new Error("Pending approval does not exist or was already handled.");
+
+  const language = normalizeLanguage(payload.language || continuation.language);
+  const providerConfig = await hydrateContinuationProviderConfig(continuation.providerConfig);
+  const runtime = {
+    ...continuation,
+    requestId: payload.requestId || continuation.requestId || "",
+    language,
+    providerConfig,
+    signal: payload.signal,
+    messages: Array.isArray(continuation.messages) ? continuation.messages : [],
+    attachments: Array.isArray(continuation.attachments) ? continuation.attachments : [],
+    startStep: Math.min((Number(continuation.step) || 0) + 1, Math.max(1, Number(continuation.maxAgentSteps) || DEFAULT_MAX_AGENT_STEPS))
+  };
+  const pendingToolCall = continuation.pendingToolCall;
+  const toolName = pendingToolCall?.function?.name || continuation.approval?.toolName || continuation.kind || "tool";
+  const toolCallId = pendingToolCall?.id || "";
+  if (!toolCallId) throw new Error("Pending approval is missing the original tool_call id.");
+
+  const resumeResult = await resolveContinuationDecision(continuation, payload, language);
+  const parsed = parseToolResult(resumeResult.result);
+  const response = buildResumeResponse(continuation, resumeResult);
+
+  if (parsed?.ok === false) {
+    emit({ type: "tool_error", name: toolName, message: parsed.error || "Tool failed.", toolCallId, result: resumeResult.result });
+  } else {
+    emit({ type: "tool_result", name: toolName, result: resumeResult.result, toolCallId });
+  }
+
+  runtime.messages.push({
+    role: "tool",
+    tool_call_id: toolCallId,
+    name: toolName,
+    content: resumeResult.result
+  });
+
+  if (resumeResult.domainEvent) emit(resumeResult.domainEvent);
+  await deleteAgentContinuation(continuationId);
+
+  if (parsed?.ok === false) {
+    runtime.messages.push(buildToolRecoveryMessage(toolName, pendingToolCall.function?.arguments || "{}", parsed, 1, 1));
+  }
+
+  if (Array.isArray(continuation.remainingToolCalls) && continuation.remainingToolCalls.length > 0) {
+    const toolProcessing = await processToolCalls({
+      runtime,
+      emit,
+      toolCalls: continuation.remainingToolCalls,
+      step: Number(continuation.step) || 0,
+      toolFailures: new Map(),
+      counters: createToolCounters()
+    });
+    if (toolProcessing.paused) return response;
+  }
+
+  await runAgentLoop(runtime, emit);
+  return response;
+}
+
+async function runAgentLoop(runtime, emit) {
   const toolFailures = new Map();
   let lastFailedToolName = "";
   let consecutiveFailedToolCount = 0;
   let streamRecoveryAttempts = 0;
+  const messages = runtime.messages;
+  const maxAgentSteps = runtime.maxAgentSteps;
+  const language = runtime.language;
+  const signal = runtime.signal;
 
-  for (let step = 0; step < maxAgentSteps; step += 1) {
+  for (let step = runtime.startStep || 0; step < maxAgentSteps; step += 1) {
     throwIfAborted(signal, language);
     if (step > 0) {
       emit({ type: "status", message: t(language, "agent.toolLoop", { step: step + 1, max: maxAgentSteps }) });
     }
     const { message, usage, provider, finishReason, interrupted, streamError } = await streamWithTools({
-      config: providerConfig,
+      config: runtime.providerConfig,
       messages,
       tools: toolDefinitions,
       signal,
@@ -160,165 +246,456 @@ export async function runAgentTurn(payload, emit) {
       return;
     }
 
-    const recoveryMessages = [];
-    let shouldWaitForUserAnswer = false;
-
-    for (const toolCall of toolCalls) {
-      throwIfAborted(signal, language);
-      const name = toolCall.function?.name ?? "unknown";
-      const rawArgs = toolCall.function?.arguments ?? "{}";
-      emit({ type: "tool_start", name, args: rawArgs });
-
-      let result = "";
-      let parsed = null;
-      try {
-        result = await executeToolCall(toolCall, {
-          workspace,
-          requestId: payload.requestId || "",
-          sessionId: payload.sessionId || "",
-          language,
-          fullAccessAutoApproval: fullAccess,
-          attachments
-        });
-        parsed = parseToolResult(result);
-      } catch (error) {
-        const messageText = error instanceof Error ? error.message : String(error);
-        parsed = {
-          ok: false,
-          tool: name,
-          error: messageText,
-          errorType: "unexpected_tool_runner_error",
-          detail: "",
-          recoverable: true
-        };
-        result = JSON.stringify(parsed, null, 2);
+    const toolProcessing = await processToolCalls({
+      runtime,
+      emit,
+      toolCalls,
+      step,
+      toolFailures,
+      counters: {
+        get lastFailedToolName() {
+          return lastFailedToolName;
+        },
+        set lastFailedToolName(value) {
+          lastFailedToolName = value;
+        },
+        get consecutiveFailedToolCount() {
+          return consecutiveFailedToolCount;
+        },
+        set consecutiveFailedToolCount(value) {
+          consecutiveFailedToolCount = value;
+        }
       }
+    });
 
-      if (parsed?.ok === false) {
-        const failureKey = `${name}:${rawArgs}`;
-        const failureCount = (toolFailures.get(failureKey) || 0) + 1;
-        toolFailures.set(failureKey, failureCount);
-        if (lastFailedToolName === name) {
-          consecutiveFailedToolCount += 1;
-        } else {
-          lastFailedToolName = name;
-          consecutiveFailedToolCount = 1;
-        }
-
-        emit({ type: "tool_error", name, message: parsed.error || "Tool failed.", toolCallId: toolCall.id, result });
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: result
-        });
-        recoveryMessages.push(buildToolRecoveryMessage(name, rawArgs, parsed, failureCount, consecutiveFailedToolCount));
-
-        if (consecutiveFailedToolCount >= 3) {
-          emit({
-            type: "status",
-            message: t(language, "agent.repeatedToolFailure", { name, count: consecutiveFailedToolCount })
-          });
-        }
-        continue;
-      }
-
-      lastFailedToolName = "";
-      consecutiveFailedToolCount = 0;
-      emit({ type: "tool_result", name, result, toolCallId: toolCall.id });
-      messages.push({
-        role: "tool",
-        tool_call_id: toolCall.id,
-        content: result
-      });
-
-      try {
-        if (name === "update_plan") {
-          emit({ type: "plan_update", items: parsed.items ?? [] });
-        }
-        if (name === "apply_patch") {
-          if (parsed.applied) {
-            emit({
-              type: "patch_applied",
-              patchId: parsed.patchId,
-              summary: parsed.summary,
-              strategy: parsed.strategy
-            });
-          } else {
-            emit({
-              type: "patch_proposed",
-              patchId: parsed.patchId,
-              summary: parsed.summary,
-              patch: parseToolArguments(rawArgs).patch ?? ""
-            });
-          }
-        }
-        if (name === "write_file" || name === "delete_file") {
-          if (parsed.pending) {
-            emit({
-              type: "patch_proposed",
-              patchId: parsed.patchId,
-              summary: parsed.summary,
-              patch: parsed.patch || ""
-            });
-          } else if (parsed.written || parsed.deleted) {
-            emit({
-              type: "patch_applied",
-              patchId: parsed.path,
-              summary: parsed.written ? `Wrote ${parsed.path}` : `Deleted ${parsed.path}`,
-              strategy: name
-            });
-          }
-        }
-        if (name === "run_command") {
-          if (parsed.pending) {
-            emit({
-              type: "command_pending",
-              commandId: parsed.commandId,
-              command: parsed.command,
-              cwd: parsed.cwd || "",
-              timeoutMs: parsed.timeoutMs || null,
-              shell: parsed.shell || "",
-              inheritedEnv: parsed.inheritedEnv !== false,
-              highRisk: Boolean(parsed.highRisk),
-              reason: parsed.riskReason || commandApprovalReason(parsed.highRisk, language)
-            });
-          }
-        }
-        if (name === "ask_user") {
-          if (parsed.pending) {
-            emit({
-              type: "ask_user_pending",
-              question: parsed.question,
-              context: parsed.context || "",
-              options: Array.isArray(parsed.options) ? parsed.options : []
-            });
-            shouldWaitForUserAnswer = true;
-          }
-        }
-      } catch (error) {
-        const messageText = error instanceof Error ? error.message : String(error);
-        emit({
-          type: "status",
-          message: t(language, "agent.toolEventFailed", { name, message: messageText })
-        });
-      }
-    }
-
-    if (recoveryMessages.length > 0) {
-      messages.push(...recoveryMessages);
-      emit({
-        type: "status",
-        message: t(language, "agent.toolFailuresRecorded")
-      });
-    }
-
-    if (shouldWaitForUserAnswer) {
-      emit({ type: "status", message: t(language, "agent.waitingUser") });
+    if (toolProcessing.paused) {
       return;
     }
   }
 
   throw new Error(t(language, "agent.maxSteps", { max: maxAgentSteps }));
+}
+
+async function processToolCalls({
+  runtime,
+  emit,
+  toolCalls,
+  step,
+  toolFailures,
+  counters
+}) {
+  const recoveryMessages = [];
+  const language = runtime.language;
+
+  for (let index = 0; index < toolCalls.length; index += 1) {
+    throwIfAborted(runtime.signal, language);
+    const toolCall = toolCalls[index];
+    const name = toolCall.function?.name ?? "unknown";
+    const rawArgs = toolCall.function?.arguments ?? "{}";
+    emit({ type: "tool_start", name, args: rawArgs });
+
+    let result = "";
+    let parsed = null;
+    try {
+      result = await executeToolCall(toolCall, {
+        workspace: runtime.workspace,
+        requestId: runtime.requestId || "",
+        sessionId: runtime.sessionId || "",
+        language,
+        fullAccessAutoApproval: isRuntimeFullAccess(runtime),
+        attachments: runtime.attachments
+      });
+      parsed = parseToolResult(result);
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      parsed = {
+        ok: false,
+        tool: name,
+        error: messageText,
+        errorType: "unexpected_tool_runner_error",
+        detail: "",
+        recoverable: true
+      };
+      result = JSON.stringify(parsed, null, 2);
+    }
+
+    if (isPendingApprovalTool(name, parsed)) {
+      await pauseForApproval({
+        runtime,
+        emit,
+        toolCall,
+        rawArgs,
+        parsed,
+        toolCalls,
+        nextToolIndex: index + 1,
+        step
+      });
+      emit({ type: "status", message: t(language, "agent.waitingUser") });
+      return { paused: true };
+    }
+
+    if (parsed?.ok === false) {
+      const failureKey = `${name}:${rawArgs}`;
+      const failureCount = (toolFailures.get(failureKey) || 0) + 1;
+      toolFailures.set(failureKey, failureCount);
+      if (counters.lastFailedToolName === name) {
+        counters.consecutiveFailedToolCount += 1;
+      } else {
+        counters.lastFailedToolName = name;
+        counters.consecutiveFailedToolCount = 1;
+      }
+
+      emit({ type: "tool_error", name, message: parsed.error || "Tool failed.", toolCallId: toolCall.id, result });
+      runtime.messages.push({
+        role: "tool",
+        tool_call_id: toolCall.id,
+        name,
+        content: result
+      });
+      recoveryMessages.push(buildToolRecoveryMessage(name, rawArgs, parsed, failureCount, counters.consecutiveFailedToolCount));
+
+      if (counters.consecutiveFailedToolCount >= 3) {
+        emit({
+          type: "status",
+          message: t(language, "agent.repeatedToolFailure", { name, count: counters.consecutiveFailedToolCount })
+        });
+      }
+      continue;
+    }
+
+    counters.lastFailedToolName = "";
+    counters.consecutiveFailedToolCount = 0;
+    emit({ type: "tool_result", name, result, toolCallId: toolCall.id });
+    runtime.messages.push({
+      role: "tool",
+      tool_call_id: toolCall.id,
+      name,
+      content: result
+    });
+
+    emitToolDomainEvents({ emit, name, parsed, rawArgs, language });
+  }
+
+  if (recoveryMessages.length > 0) {
+    runtime.messages.push(...recoveryMessages);
+    emit({
+      type: "status",
+      message: t(language, "agent.toolFailuresRecorded")
+    });
+  }
+
+  return { paused: false };
+}
+
+async function pauseForApproval({
+  runtime,
+  emit,
+  toolCall,
+  rawArgs,
+  parsed,
+  toolCalls,
+  nextToolIndex,
+  step
+}) {
+  const approval = buildPendingApproval(toolCall.function?.name || "unknown", rawArgs, parsed, runtime.language);
+  const continuation = {
+    id: approval.id,
+    kind: approval.kind,
+    requestId: runtime.requestId || "",
+    sessionId: runtime.sessionId || "",
+    workspace: runtime.workspace,
+    language: runtime.language,
+    providerConfig: runtime.providerConfig,
+    permissionMode: runtime.permissionMode,
+    attachments: runtime.attachments,
+    messages: runtime.messages,
+    pendingToolCall: normalizeToolCalls([toolCall])[0],
+    remainingToolCalls: normalizeToolCalls(toolCalls.slice(nextToolIndex)),
+    step,
+    maxAgentSteps: runtime.maxAgentSteps,
+    approval,
+    createdAt: Date.now()
+  };
+  await upsertAgentContinuation(continuation);
+  emitPendingApprovalEvent(emit, approval, runtime.language);
+}
+
+function buildPendingApproval(name, rawArgs, parsed, language) {
+  if (name === "run_command") {
+    return {
+      kind: "command",
+      id: parsed.commandId,
+      command: parsed.command,
+      reason: parsed.riskReason || commandApprovalReason(parsed.highRisk, language),
+      cwd: parsed.cwd || "",
+      timeoutMs: parsed.timeoutMs || null,
+      shell: parsed.shell || "",
+      inheritedEnv: parsed.inheritedEnv !== false,
+      highRisk: Boolean(parsed.highRisk)
+    };
+  }
+
+  if (name === "ask_user") {
+    return {
+      kind: "question",
+      id: randomUUID(),
+      question: parsed.question,
+      context: parsed.context || "",
+      options: Array.isArray(parsed.options) ? parsed.options : []
+    };
+  }
+
+  const args = parseToolArguments(rawArgs);
+  return {
+    kind: "patch",
+    id: parsed.patchId,
+    summary: parsed.summary || "Proposed patch",
+    patch: parsed.patch || (name === "apply_patch" ? args.patch || "" : ""),
+    toolName: name
+  };
+}
+
+function emitPendingApprovalEvent(emit, approval, language) {
+  if (approval.kind === "command") {
+    emit({
+      type: "command_pending",
+      commandId: approval.id,
+      command: approval.command,
+      cwd: approval.cwd || "",
+      timeoutMs: approval.timeoutMs || null,
+      shell: approval.shell || "",
+      inheritedEnv: approval.inheritedEnv !== false,
+      highRisk: Boolean(approval.highRisk),
+      reason: approval.reason || commandApprovalReason(approval.highRisk, language)
+    });
+    return;
+  }
+
+  if (approval.kind === "question") {
+    emit({
+      type: "ask_user_pending",
+      questionId: approval.id,
+      question: approval.question,
+      context: approval.context || "",
+      options: Array.isArray(approval.options) ? approval.options : []
+    });
+    return;
+  }
+
+  emit({
+    type: "patch_proposed",
+    patchId: approval.id,
+    summary: approval.summary,
+    patch: approval.patch || ""
+  });
+}
+
+function emitToolDomainEvents({ emit, name, parsed, rawArgs, language }) {
+  try {
+    if (name === "update_plan") {
+      emit({ type: "plan_update", items: parsed.items ?? [] });
+    }
+    if (name === "apply_patch" && parsed.applied) {
+      emit({
+        type: "patch_applied",
+        patchId: parsed.patchId,
+        summary: parsed.summary,
+        strategy: parsed.strategy
+      });
+    }
+    if (name === "write_file" || name === "delete_file") {
+      if (parsed.written || parsed.deleted) {
+        emit({
+          type: "patch_applied",
+          patchId: parsed.path,
+          summary: parsed.written ? `Wrote ${parsed.path}` : `Deleted ${parsed.path}`,
+          strategy: name
+        });
+      }
+    }
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : String(error);
+    emit({
+      type: "status",
+      message: t(language, "agent.toolEventFailed", { name, message: messageText })
+    });
+  }
+}
+
+function isPendingApprovalTool(name, parsed) {
+  return Boolean(
+    parsed?.pending &&
+    ["run_command", "apply_patch", "write_file", "delete_file", "ask_user"].includes(name)
+  );
+}
+
+function isRuntimeFullAccess(runtime) {
+  const permissions = getAutoApprovalState({
+    workspace: runtime.workspace,
+    sessionId: runtime.sessionId || ""
+  });
+  return runtime.permissionMode === "full" || permissions.fullAccessAutoApproval;
+}
+
+function createToolCounters() {
+  const state = {
+    lastFailedToolName: "",
+    consecutiveFailedToolCount: 0
+  };
+  return {
+    get lastFailedToolName() {
+      return state.lastFailedToolName;
+    },
+    set lastFailedToolName(value) {
+      state.lastFailedToolName = value;
+    },
+    get consecutiveFailedToolCount() {
+      return state.consecutiveFailedToolCount;
+    },
+    set consecutiveFailedToolCount(value) {
+      state.consecutiveFailedToolCount = value;
+    }
+  };
+}
+
+async function hydrateContinuationProviderConfig(providerConfig = {}) {
+  const saved = await loadAppConfig().catch(() => ({}));
+  return {
+    ...saved,
+    ...providerConfig,
+    apiKey: providerConfig.apiKey || saved.apiKey || ""
+  };
+}
+
+async function resolveContinuationDecision(continuation, payload, language) {
+  const approval = continuation.approval || {};
+  const decision = payload.decision === "discarded" || payload.decision === "dismissed" ? payload.decision : "approved";
+  const toolName = continuation.pendingToolCall?.function?.name || approval.toolName || approval.kind || "tool";
+
+  if (decision !== "approved") {
+    if (approval.kind === "command") discardPendingCommand(approval.id);
+    if (approval.kind === "patch") discardPendingPatch(approval.id);
+    return {
+      result: JSON.stringify({
+        ok: true,
+        tool: toolName,
+        approved: false,
+        discarded: true,
+        message: decision === "dismissed" ? "The user dismissed this request." : "The user rejected this request."
+      }, null, 2)
+    };
+  }
+
+  if (approval.kind === "command") {
+    const commandRecord = {
+      ...approval,
+      id: approval.id,
+      workspace: continuation.workspace,
+      requestId: continuation.requestId,
+      sessionId: continuation.sessionId,
+      language
+    };
+    try {
+      discardPendingCommand(approval.id);
+      const commandResult = await executeCommandRecord(commandRecord, { allowFuture: Boolean(payload.allowFuture), language });
+      const output = parseToolResult(commandResult.result);
+      return {
+        result: JSON.stringify({ ok: true, tool: "run_command", ...output }, null, 2),
+        state: commandResult
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        result: JSON.stringify({
+          ok: false,
+          tool: "run_command",
+          error: message,
+          detail: [error?.stdout, error?.stderr].filter(Boolean).join("\n").trim(),
+          errorType: "command_failed",
+          recoverable: true
+        }, null, 2)
+      };
+    }
+  }
+
+  if (approval.kind === "patch") {
+    try {
+      const patchResult = await applyPatchRecord({
+        id: approval.id,
+        workspace: continuation.workspace,
+        patch: approval.patch,
+        summary: approval.summary,
+        language
+      });
+      discardPendingPatch(approval.id);
+      return {
+        result: JSON.stringify({
+          ok: true,
+          tool: toolName,
+          applied: true,
+          patchId: patchResult.patchId,
+          summary: patchResult.summary,
+          strategy: patchResult.strategy
+        }, null, 2),
+        state: patchResult,
+        domainEvent: {
+          type: "patch_applied",
+          patchId: patchResult.patchId,
+          summary: patchResult.summary,
+          strategy: patchResult.strategy
+        }
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        result: JSON.stringify({
+          ok: false,
+          tool: toolName,
+          error: message,
+          errorType: "command_failed",
+          recoverable: true
+        }, null, 2)
+      };
+    }
+  }
+
+  if (approval.kind === "question") {
+    return {
+      result: JSON.stringify({
+        ok: true,
+        tool: "ask_user",
+        question: approval.question,
+        answer: String(payload.answer || payload.option || "")
+      }, null, 2)
+    };
+  }
+
+  return {
+    result: JSON.stringify({
+      ok: false,
+      tool: toolName,
+      error: "Unknown pending approval type.",
+      errorType: "invalid_arguments",
+      recoverable: true
+    }, null, 2)
+  };
+}
+
+function buildResumeResponse(continuation, resumeResult) {
+  const state = resumeResult.state || {};
+  return {
+    ok: true,
+    kind: continuation.kind,
+    continuationId: continuation.id,
+    commandAutoApproval: typeof state.commandAutoApproval === "boolean" ? state.commandAutoApproval : undefined,
+    patchAutoApproval: typeof state.patchAutoApproval === "boolean" ? state.patchAutoApproval : undefined,
+    fullAccessAutoApproval: typeof state.fullAccessAutoApproval === "boolean" ? state.fullAccessAutoApproval : undefined,
+    autoApproveFutureCommands: typeof state.autoApproveFutureCommands === "boolean" ? state.autoApproveFutureCommands : undefined,
+    commandAutoApprovalExpiresAt: typeof state.commandAutoApprovalExpiresAt === "number" ? state.commandAutoApprovalExpiresAt : null,
+    patchAutoApprovalExpiresAt: typeof state.patchAutoApprovalExpiresAt === "number" ? state.patchAutoApprovalExpiresAt : null,
+    summary: state.summary || undefined,
+    strategy: state.strategy || undefined
+  };
 }
 
 function buildAttachmentMessage(attachments) {

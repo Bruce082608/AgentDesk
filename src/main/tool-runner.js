@@ -423,6 +423,10 @@ export async function approvePendingCommand(commandId, options = {}) {
   const pending = pendingCommands.get(commandId);
   if (!pending) throw localizedError(language, "tools.pendingCommandMissing");
   pendingCommands.delete(commandId);
+  return executeCommandRecord(pending, options);
+}
+
+export async function executeCommandRecord(pending, options = {}) {
   let permissionState = getAutoApprovalState(pending);
   if (options.allowFuture) {
     permissionState = setScopedAutoApproval({
@@ -434,7 +438,7 @@ export async function approvePendingCommand(commandId, options = {}) {
   const result = await executeCommand(pending.workspace, pending.command, pending.timeoutMs);
   return {
     ok: true,
-    commandId,
+    commandId: pending.id || pending.commandId,
     command: pending.command,
     result,
     cwd: pending.cwd,

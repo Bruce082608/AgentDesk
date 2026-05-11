@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { translations } from "../i18n";
 import type { ChatMessage, ChatSession, TokenUsageStats } from "../types";
 import { MAX_SAVED_SESSIONS } from "../types";
-import { createBlankSession, deriveSessionTitle, loadChatSessions, saveChatSessions } from "../utils";
+import { createBlankSession, deriveSessionTitle, loadChatSessions } from "../utils";
 
 type Translation = typeof translations[keyof typeof translations];
 
@@ -49,7 +49,7 @@ export function useSessions({
   const pendingSaveRef = useRef<ChatSession[] | null>(null);
   const storageWarningRef = useRef("");
 
-  const flushSessionSave = useCallback(() => {
+  const flushSessionSave = useCallback(async () => {
     if (saveTimerRef.current) {
       window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -57,14 +57,17 @@ export function useSessions({
     const pending = pendingSaveRef.current;
     if (!pending) return;
     pendingSaveRef.current = null;
-    const result = saveChatSessions(pending);
-    if (result === "compacted" && storageWarningRef.current !== "compacted") {
-      storageWarningRef.current = "compacted";
-      appendEvent("status", t.sessionStorageCompacted, t.sessionStorageCompactedBody);
-    }
-    if (result === "failed" && storageWarningRef.current !== "failed") {
-      storageWarningRef.current = "failed";
-      appendEvent("error", t.sessionStorageFailed, t.sessionStorageFailedBody);
+    try {
+      const result = await window.agentWindow.saveSessions(pending);
+      if (result.ok && result.count < pending.length && storageWarningRef.current !== "compacted") {
+        storageWarningRef.current = "compacted";
+        appendEvent("status", t.sessionStorageCompacted, t.sessionStorageCompactedBody);
+      }
+    } catch (error) {
+      if (storageWarningRef.current !== "failed") {
+        storageWarningRef.current = "failed";
+        appendEvent("error", t.sessionStorageFailed, error instanceof Error ? error.message : t.sessionStorageFailedBody);
+      }
     }
   }, [appendEvent, t]);
 
@@ -75,30 +78,70 @@ export function useSessions({
       saveTimerRef.current = null;
     }
     if (immediate) {
-      flushSessionSave();
+      void flushSessionSave();
       return;
     }
-    saveTimerRef.current = window.setTimeout(flushSessionSave, 600);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      void flushSessionSave();
+    }, 350);
   }, [flushSessionSave]);
 
   useEffect(() => {
-    return () => flushSessionSave();
+    return () => {
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+      void flushSessionSave();
+    };
   }, [flushSessionSave]);
 
   useEffect(() => {
-    const savedSessions = loadChatSessions();
-    const initialSession = savedSessions[0] ?? createBlankSession(workspace);
-    const nextSessions = savedSessions.length > 0 ? savedSessions : [initialSession];
-    setSessions(nextSessions);
-    setActiveSessionId(initialSession.id);
-    setMessages(initialSession.messages);
-    setTokenUsage(initialSession.tokenUsage);
-    if (initialSession.workspace) {
-      setWorkspace(initialSession.workspace);
-      refreshWorkspace(initialSession.workspace);
-      refreshGit(initialSession.workspace);
-    }
-    setSessionsLoaded(true);
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const savedSessions = await window.agentWindow.loadSessions();
+        let nextSessions = Array.isArray(savedSessions) ? savedSessions : [];
+        if (nextSessions.length === 0) {
+          const legacySessions = loadChatSessions();
+          if (legacySessions.length > 0) {
+            nextSessions = legacySessions;
+            await window.agentWindow.saveSessions(nextSessions);
+            localStorage.removeItem("agent-chat-sessions");
+          }
+        }
+        if (nextSessions.length === 0) {
+          nextSessions = [createBlankSession(workspace)];
+        }
+
+        if (cancelled) return;
+        setSessions(nextSessions);
+        const initialSession = nextSessions[0];
+        setActiveSessionId(initialSession.id);
+        setMessages(initialSession.messages);
+        setTokenUsage(initialSession.tokenUsage);
+        if (initialSession.workspace) {
+          setWorkspace(initialSession.workspace);
+          await refreshWorkspace(initialSession.workspace);
+          await refreshGit(initialSession.workspace);
+        }
+        setSessionsLoaded(true);
+        scheduleSessionSave(nextSessions, true);
+      } catch (error) {
+        if (cancelled) return;
+        appendEvent("error", t.sessionStorageFailed, error instanceof Error ? error.message : t.sessionStorageFailedBody);
+        const fallback = [createBlankSession(workspace)];
+        setSessions(fallback);
+        setActiveSessionId(fallback[0].id);
+        setMessages(fallback[0].messages);
+        setTokenUsage(fallback[0].tokenUsage);
+        setSessionsLoaded(true);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
     // Initial load intentionally runs once; refresh functions are stable enough for follow-up calls.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

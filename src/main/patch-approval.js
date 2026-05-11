@@ -10,10 +10,11 @@ import {
   normalizeWorkspacePath as normalizeSharedWorkspacePath,
   resolveInsideWorkspace as resolveSharedInsideWorkspace
 } from "../shared/pathSecurity.js";
+import { loadPersistedApprovalScopesSync, savePersistedApprovalScopesSync } from "./persistence.js";
 
 const execFileAsync = promisify(execFile);
 const pendingPatches = new Map();
-const autoApprovalScopes = new Map();
+const autoApprovalScopes = new Map(Object.entries(loadPersistedApprovalScopesSync()));
 
 export async function proposePatch(context, patch, summary = "") {
   const workspace = context.workspace;
@@ -58,6 +59,7 @@ export async function proposePatch(context, patch, summary = "") {
     pending: true,
     patchId,
     summary: String(summary || "Proposed patch"),
+    patch: patchText,
     message: t(context.language, "tools.patchQueued")
   });
 }
@@ -81,7 +83,7 @@ export async function applyPendingPatch(patchId, options = {}) {
   const pending = pendingPatches.get(patchId);
   if (!pending) throw localizedError(language, "tools.pendingPatchMissing");
 
-  const result = await applyPatchText(pending);
+  const result = await applyPatchRecord(pending);
   pendingPatches.delete(patchId);
   return result;
 }
@@ -108,6 +110,16 @@ async function applyPatchText(pending) {
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {});
   }
+}
+
+export async function applyPatchRecord(pending) {
+  return applyPatchText({
+    id: pending.id || pending.patchId || randomUUID(),
+    workspace: pending.workspace,
+    patch: pending.patch,
+    summary: pending.summary || "Proposed patch",
+    language: normalizeLanguage(pending.language)
+  });
 }
 
 export function resolveInsideWorkspace(workspace, targetPath, language) {
@@ -261,6 +273,7 @@ export function getAutoApprovalState(context) {
   const patchAutoApproval = Boolean(state.patchEnabled) || Number(state.patchExpiresAt || 0) > now;
   if (!commandAutoApproval && !patchAutoApproval && autoApprovalScopes.has(key)) {
     autoApprovalScopes.delete(key);
+    savePersistedApprovalScopesSync(Object.fromEntries(autoApprovalScopes.entries()));
   }
   return {
     ok: true,
@@ -297,10 +310,12 @@ export function setScopedAutoApproval(context) {
     next.patchExpiresAt = 0;
   }
   autoApprovalScopes.set(key, next);
+  savePersistedApprovalScopesSync(Object.fromEntries(autoApprovalScopes.entries()));
   return getAutoApprovalState(context);
 }
 
 export function isAutoApprovalEnabled(kind, context) {
+  if (context?.fullAccessAutoApproval) return true;
   const state = getAutoApprovalState(context);
   return kind === "command" ? state.commandAutoApproval : state.patchAutoApproval;
 }

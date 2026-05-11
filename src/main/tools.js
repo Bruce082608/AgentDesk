@@ -2,9 +2,11 @@ export { toolDefinitions } from "./tool-defs.js";
 export {
   approvePendingCommand,
   discardPendingCommand,
+  executeCommandRecord,
   executeToolCall
 } from "./tool-runner.js";
 export {
+  applyPatchRecord,
   applyPendingPatch,
   discardPendingPatch,
   getPendingPatch,

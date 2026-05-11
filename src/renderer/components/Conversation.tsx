@@ -131,7 +131,7 @@ export function Conversation({
   const hasAutoPermissions = commandAutoApproval || patchAutoApproval;
   const fullAccessEnabled = commandAutoApproval && patchAutoApproval;
   const autoPermissionTitle = [
-    language === "zh" ? "完全访问权限仅限当前会话和 workspace，直到你切回默认权限或应用重启。" : "Full access is scoped to this chat and workspace until you switch back to default permissions or restart the app.",
+    language === "zh" ? "完全访问权限仅限当前会话和 workspace，直到你切回默认权限。" : "Full access is scoped to this chat and workspace until you switch back to default permissions.",
     commandAutoApproval ? (language === "zh" ? "命令无需审批。" : "Commands do not require approval.") : "",
     patchAutoApproval ? (language === "zh" ? "文件变更无需审批。" : "File changes do not require approval.") : ""
   ].filter(Boolean).join(" ");
@@ -570,13 +570,13 @@ const ToolCallCard = memo(function ToolCallCard({ args, copiedLabel, copyLabel, 
       <div className="tool-call-details">
         {argsCode && (
           <div className="tool-call-section">
-            <div className="tool-call-section-title">{language === "zh" ? "鍙傛暟" : "Args"}</div>
+            <div className="tool-call-section-title">{language === "zh" ? "参数" : "Args"}</div>
             <CodeBlock code={argsCode} language="json" copyLabel={copyLabel} copiedLabel={copiedLabel} />
           </div>
         )}
         {resultCode && (
           <div className="tool-call-section">
-            <div className="tool-call-section-title">{effectiveStatus === "error" ? (language === "zh" ? "閿欒" : "Error") : (language === "zh" ? "缁撴灉" : "Result")}</div>
+            <div className="tool-call-section-title">{effectiveStatus === "error" ? (language === "zh" ? "错误" : "Error") : (language === "zh" ? "结果" : "Result")}</div>
             <CodeBlock code={resultCode} language="json" copyLabel={copyLabel} copiedLabel={copiedLabel} />
           </div>
         )}
