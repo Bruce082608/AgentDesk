@@ -73,6 +73,12 @@ export type ChatMessage = {
   tool_calls?: ChatToolCall[];
   tool_call_id?: string;
   name?: string;
+  toolArgs?: string;
+  startedAt?: number;
+  endedAt?: number;
+  durationMs?: number;
+  toolStatus?: "running" | "completed" | "error";
+  toolError?: string;
 };
 
 export type ProviderConfig = {
@@ -321,7 +327,7 @@ export type AgentEvent =
   | { requestId: string; type: "stream_recovery"; message: string; attempt: number; maxAttempts: number; recovering: boolean }
   | { requestId: string; type: "plan_update"; items: PlanItem[] }
   | { requestId: string; type: "model"; message: string; provider: string; model: string; finishReason?: string | null; reasoning?: string; usage?: unknown; tool_calls?: ChatToolCall[] }
-  | { requestId: string; type: "tool_start"; name: string; args: string }
+  | { requestId: string; type: "tool_start"; name: string; args: string; toolCallId?: string }
   | { requestId: string; type: "tool_result"; name: string; result: string; toolCallId?: string }
   | { requestId: string; type: "tool_error"; name: string; message: string; toolCallId?: string; result?: string }
   | { requestId: string; type: "patch_proposed"; patchId: string; summary: string; patch: string }

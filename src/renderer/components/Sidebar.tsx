@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { Check, ChevronDown, ChevronRight, FileText, FolderOpen, LoaderCircle, MessageSquareMore, PencilLine, Plus, Search, Settings2, Trash2, X } from "lucide-react";
 import type { Language, translations } from "../i18n";
 import type {
   ChatSession,
@@ -124,21 +125,24 @@ export const Sidebar = memo(function Sidebar({
       </div>
 
       <nav className="section-tabs sidebar-nav" aria-label={t.sidebarNav}>
-        <button className={sidebarSection === "chats" ? "active" : ""} onClick={() => setSidebarSection("chats")} title={t.chats} aria-label={t.chats}>☰</button>
-        <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")} title={t.files} aria-label={t.files}>
-          <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M3.75 6.5h6.1l1.65 2h8.75v8.75a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6.5Z" />
-            <path d="M3.75 8.5V6.75A2.25 2.25 0 0 1 6 4.5h3.15l1.65 2H18a2.25 2.25 0 0 1 2.25 2" />
-          </svg>
+        <button className={sidebarSection === "chats" ? "active" : ""} onClick={() => setSidebarSection("chats")} title={t.chats} aria-label={t.chats}>
+          <MessageSquareMore size={18} strokeWidth={2.3} aria-hidden="true" />
         </button>
-        <button className={sidebarSection === "advanced" ? "active" : ""} onClick={() => setSidebarSection("advanced")} title={t.advanced} aria-label={t.advanced}>⚙</button>
+        <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")} title={t.files} aria-label={t.files}>
+          <FolderOpen size={18} strokeWidth={2.3} aria-hidden="true" />
+        </button>
+        <button className={sidebarSection === "advanced" ? "active" : ""} onClick={() => setSidebarSection("advanced")} title={t.advanced} aria-label={t.advanced}>
+          <Settings2 size={18} strokeWidth={2.3} aria-hidden="true" />
+        </button>
       </nav>
 
       {sidebarSection === "chats" && (
         <section className="panel chat-panel">
           <div className="panel-title row-title">
             <span>{t.chats}</span>
-            <button className="icon-button new-chat-button" onClick={startNewSession} disabled={busy} title={t.newChat} aria-label={t.newChat}>+</button>
+            <button className="icon-button new-chat-button" onClick={startNewSession} disabled={busy} title={t.newChat} aria-label={t.newChat}>
+              <Plus size={16} strokeWidth={2.6} aria-hidden="true" />
+            </button>
           </div>
           <div className="session-list grouped">
             {sessionGroups.map((group) => (
@@ -171,13 +175,21 @@ export const Sidebar = memo(function Sidebar({
                     <div className="session-actions">
                       {renamingSessionId === session.id ? (
                         <>
-                          <button type="button" disabled={!renamingTitle.trim()} onClick={() => commitRenameSession(session.id)} title={t.rename} aria-label={t.rename}>✓</button>
-                          <button type="button" onClick={cancelRenameSession} title={t.discard} aria-label={t.discard}>×</button>
+                          <button type="button" disabled={!renamingTitle.trim()} onClick={() => commitRenameSession(session.id)} title={t.rename} aria-label={t.rename}>
+                            <Check size={13} strokeWidth={2.6} aria-hidden="true" />
+                          </button>
+                          <button type="button" onClick={cancelRenameSession} title={t.discard} aria-label={t.discard}>
+                            <X size={13} strokeWidth={2.6} aria-hidden="true" />
+                          </button>
                         </>
                       ) : (
                         <>
-                          <button type="button" disabled={busy} onClick={() => startRenameSession(session.id)} title={t.rename} aria-label={t.rename}>✎</button>
-                          <button type="button" disabled={busy || sessions.length <= 1} onClick={() => deleteSession(session.id)} title={t.deleteSession} aria-label={t.deleteSession}>×</button>
+                          <button type="button" disabled={busy} onClick={() => startRenameSession(session.id)} title={t.rename} aria-label={t.rename}>
+                            <PencilLine size={13} strokeWidth={2.4} aria-hidden="true" />
+                          </button>
+                          <button type="button" disabled={busy || sessions.length <= 1} onClick={() => deleteSession(session.id)} title={t.deleteSession} aria-label={t.deleteSession}>
+                            <Trash2 size={13} strokeWidth={2.4} aria-hidden="true" />
+                          </button>
                         </>
                       )}
                     </div>
@@ -193,7 +205,10 @@ export const Sidebar = memo(function Sidebar({
         <section className="panel compact-panel file-panel">
           <div className="panel-title row-title">
             <span>{t.files}</span>
-            <button className="secondary tiny" onClick={chooseWorkspace}>{t.chooseFolder}</button>
+            <button className="secondary tiny icon-text-button" onClick={chooseWorkspace}>
+              <FolderOpen size={13} strokeWidth={2.4} aria-hidden="true" />
+              <span>{t.chooseFolder}</span>
+            </button>
           </div>
           <div className="path-box">{workspace || t.notSelected}</div>
           <div className="file-search">
@@ -206,8 +221,14 @@ export const Sidebar = memo(function Sidebar({
                 if (event.key === "Enter") searchWorkspace();
               }}
             />
-            <button className="secondary" disabled={!workspace || (!fileSearch.trim() && !searchingFiles)} onClick={searchingFiles ? cancelSearchWorkspace : searchWorkspace}>
-              {searchingFiles ? t.cancel : t.search}
+            <button
+              className="secondary icon-only-button"
+              disabled={!workspace || (!fileSearch.trim() && !searchingFiles)}
+              onClick={searchingFiles ? cancelSearchWorkspace : searchWorkspace}
+              title={searchingFiles ? t.cancel : t.search}
+              aria-label={searchingFiles ? t.cancel : t.search}
+            >
+              {searchingFiles ? <X size={15} strokeWidth={2.5} aria-hidden="true" /> : <Search size={15} strokeWidth={2.5} aria-hidden="true" />}
             </button>
           </div>
           {searchResults.length > 0 && (
@@ -229,7 +250,15 @@ export const Sidebar = memo(function Sidebar({
                 style={{ paddingLeft: `${8 + item.depth * 12}px` }}
                 onClick={() => item.type === "directory" ? toggleDirectory(item.path) : openFile(item.path)}
               >
-                <span className="file-node-icon">{item.type === "directory" ? (loadingDirs.has(item.path) ? "\u2026" : expandedDirs.has(item.path) ? "\u25BE" : "\u25B8") : "\u00B7"}</span>
+                <span className="file-node-icon">
+                  {item.type === "directory"
+                    ? loadingDirs.has(item.path)
+                      ? <LoaderCircle className="status-icon spin" size={13} strokeWidth={2.4} aria-hidden="true" />
+                      : expandedDirs.has(item.path)
+                        ? <ChevronDown size={13} strokeWidth={2.5} aria-hidden="true" />
+                        : <ChevronRight size={13} strokeWidth={2.5} aria-hidden="true" />
+                    : <FileText size={12} strokeWidth={2.4} aria-hidden="true" />}
+                </span>
                 <span className="file-node-name" title={item.path}>{item.name}</span>
                 {item.type === "directory" && item.hasChildren === false && !hasTreeChildren(tree, item.path) && <small>{t.emptyDir}</small>}
               </button>

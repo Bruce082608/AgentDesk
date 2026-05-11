@@ -1,5 +1,6 @@
 import { memo } from "react";
 import type { RefObject } from "react";
+import { Activity, ArrowDown, CheckCircle2, Clock3, ListTodo, LoaderCircle, MessageSquareMore, ShieldCheck, TriangleAlert, Workflow } from "lucide-react";
 import type { Language, translations } from "../i18n";
 import type { ActivityFilter, EventLogItem, PlanItem, RightSidebarSection } from "../types";
 
@@ -41,8 +42,14 @@ export const ActivityPanel = memo(function ActivityPanel({
   return (
     <aside className="activity">
       <nav className="right-tabs" aria-label={language === "zh" ? "右侧栏页面" : "Right sidebar sections"}>
-        <button className={rightSidebarSection === "plan" ? "active" : ""} onClick={() => setRightSidebarSection("plan")}>{t.plan}</button>
-        <button className={rightSidebarSection === "activity" ? "active" : ""} onClick={() => setRightSidebarSection("activity")}>{t.activity}</button>
+        <button className={rightSidebarSection === "plan" ? "active" : ""} onClick={() => setRightSidebarSection("plan")} title={t.plan} aria-label={t.plan}>
+          <ListTodo size={15} strokeWidth={2.4} aria-hidden="true" />
+          <span>{t.plan}</span>
+        </button>
+        <button className={rightSidebarSection === "activity" ? "active" : ""} onClick={() => setRightSidebarSection("activity")} title={t.activity} aria-label={t.activity}>
+          <Activity size={15} strokeWidth={2.4} aria-hidden="true" />
+          <span>{t.activity}</span>
+        </button>
       </nav>
 
       {rightSidebarSection === "plan" && (
@@ -52,7 +59,7 @@ export const ActivityPanel = memo(function ActivityPanel({
             <ol className="plan-list">
               {planItems.map((item, index) => (
                 <li className={`plan-row ${item.status}`} key={`${item.step}-${index}`}>
-                  <span className="plan-check">{item.status === "completed" ? "✓" : item.status === "in_progress" ? "•" : ""}</span>
+                  <span className="plan-check"><PlanStatusIcon status={item.status} /></span>
                   <span>{item.step}</span>
                 </li>
               ))}
@@ -92,7 +99,13 @@ export const ActivityPanel = memo(function ActivityPanel({
             {filteredEvents.length === 0 && <div className="muted">{events.length === 0 ? t.activityEmpty : t.activitySearchPlaceholder}</div>}
             {filteredEvents.map((event) => (
               <details className={`event ${event.kind}`} key={event.id} open={event.kind === "error"} title={formatEventTimestamp(event.createdAt, language)}>
-                <summary>{event.title}</summary>
+                <summary>
+                  <span className="event-summary-main">
+                    <EventKindIcon kind={event.kind} />
+                    <span>{event.title}</span>
+                  </span>
+                  <small>{formatEventTime(event.createdAt, language)}</small>
+                </summary>
                 <pre>{event.body}</pre>
               </details>
             ))}
@@ -105,7 +118,7 @@ export const ActivityPanel = memo(function ActivityPanel({
               title={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
               aria-label={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
             >
-              ↓
+              <ArrowDown size={17} strokeWidth={2.5} aria-hidden="true" />
             </button>
           )}
         </>
@@ -113,6 +126,29 @@ export const ActivityPanel = memo(function ActivityPanel({
     </aside>
   );
 });
+
+function PlanStatusIcon({ status }: { status: PlanItem["status"] }) {
+  if (status === "completed") return <CheckCircle2 size={15} strokeWidth={2.5} aria-hidden="true" />;
+  if (status === "in_progress") return <LoaderCircle className="status-icon spin" size={15} strokeWidth={2.5} aria-hidden="true" />;
+  return <Clock3 size={15} strokeWidth={2.4} aria-hidden="true" />;
+}
+
+function EventKindIcon({ kind }: { kind: EventLogItem["kind"] }) {
+  if (kind === "error") return <TriangleAlert size={14} strokeWidth={2.5} aria-hidden="true" />;
+  if (kind === "patch") return <ShieldCheck size={14} strokeWidth={2.5} aria-hidden="true" />;
+  if (kind === "tool") return <Workflow size={14} strokeWidth={2.5} aria-hidden="true" />;
+  if (kind === "model") return <MessageSquareMore size={14} strokeWidth={2.5} aria-hidden="true" />;
+  return <Activity size={14} strokeWidth={2.5} aria-hidden="true" />;
+}
+
+function formatEventTime(timestamp: number | undefined, language: Language) {
+  if (!timestamp) return "--:--";
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(timestamp);
+}
 
 function formatEventTimestamp(timestamp: number | undefined, language: Language) {
   if (!timestamp) return language === "zh" ? "未记录时间" : "Timestamp not recorded";

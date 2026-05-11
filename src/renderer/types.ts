@@ -55,12 +55,15 @@ export type ToolDraft = {
 
 export type ToolRun = {
   id: string;
+  toolCallId?: string;
   name: string;
   args: string;
   startedAt: number;
+  status?: "running";
+  durationMs?: number;
 };
 
-export type TaskStatusPhase = "idle" | "understanding" | "searching" | "editing" | "waiting" | "error";
+export type TaskStatusPhase = "idle" | "understanding" | "searching" | "editing" | "waiting" | "running" | "completed" | "error";
 
 export type TaskStatus = {
   phase: TaskStatusPhase;

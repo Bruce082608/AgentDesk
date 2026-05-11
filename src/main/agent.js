@@ -294,7 +294,7 @@ async function processToolCalls({
     const toolCall = toolCalls[index];
     const name = toolCall.function?.name ?? "unknown";
     const rawArgs = toolCall.function?.arguments ?? "{}";
-    emit({ type: "tool_start", name, args: rawArgs });
+    emit({ type: "tool_start", name, args: rawArgs, toolCallId: toolCall.id });
 
     let result = "";
     let parsed = null;

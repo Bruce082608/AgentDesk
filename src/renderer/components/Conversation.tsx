@@ -1,4 +1,31 @@
-﻿import { memo, useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
+﻿import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
+import {
+  ArrowDown,
+  Bell,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  ClipboardPaste,
+  Clock3,
+  Copy,
+  FileDiff,
+  FileText,
+  Files,
+  ListTodo,
+  LoaderCircle,
+  MessageSquareMore,
+  Paperclip,
+  PenLine,
+  RefreshCcw,
+  Search,
+  Send,
+  ShieldCheck,
+  Square,
+  Terminal,
+  TriangleAlert,
+  Workflow,
+  X
+} from "lucide-react";
 import type { Language, translations } from "../i18n";
 import type { AttachedFile, ChatMessage, ContextCompressionState, ReasoningView, StreamRecoveryStatus, TaskStatus, ToolDraft, ToolRun } from "../types";
 import { CodeBlock, MarkdownContent, formatToolDraftText } from "../utils";
@@ -138,6 +165,14 @@ export function Conversation({
   const streamingMessageIndex = streamingResponse ? getStreamingAssistantIndex(messages) : -1;
   const dragDepthRef = useRef(0);
   const [draggingFiles, setDraggingFiles] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (activeToolRuns.length === 0) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(timer);
+  }, [activeToolRuns.length]);
+
   const messageListContent = useMemo(() => (
     <>
       {messages.length === 0 && (
@@ -157,28 +192,35 @@ export function Conversation({
           return (
             <ToolCallCard
               key={`${message.tool_call_id || message.name || "tool"}-${index}`}
-              args=""
+              args={message.toolArgs || ""}
               copyLabel={t.copy}
               copiedLabel={t.copied}
+              durationMs={message.durationMs}
+              endedAt={message.endedAt}
               language={language}
               name={message.name || ""}
               result={message.content}
-              status={isToolResultError(message.content) ? "error" : "completed"}
+              startedAt={message.startedAt}
+              status={message.toolStatus === "error" || isToolResultError(message.content) ? "error" : "completed"}
               title={formatMessageTimestamp(message.createdAt, language)}
             />
           );
         }
         if (message.role === "assistant" && !message.content && !message.reasoning && message.tool_calls?.length) return null;
         const reasoningKey = `${message.role}-${index}`;
-        const reasoningView = reasoningViews[reasoningKey] || "preview";
+        const reasoningView = reasoningViews[reasoningKey] || "collapsed";
         return (
           <article className={`message ${message.role}${index === streamingMessageIndex ? " streaming" : ""}`} key={`${message.role}-${index}`} title={formatMessageTimestamp(message.createdAt, language)}>
             <div className="message-meta">
               <div className="role">{message.role === "user" ? t.you : t.agent}</div>
               <div className="message-actions">
-                <button type="button" onClick={() => copyMessage(message)} title={t.copy} aria-label={t.copy}>⧉</button>
+                <button type="button" onClick={() => copyMessage(message)} title={t.copy} aria-label={t.copy}>
+                  <Copy size={14} strokeWidth={2.4} aria-hidden="true" />
+                </button>
                 {message.role === "assistant" && (
-                  <button type="button" onClick={() => regenerateMessage(index)} disabled={busy} title={t.regenerate} aria-label={t.regenerate}>↻</button>
+                  <button type="button" onClick={() => regenerateMessage(index)} disabled={busy} title={t.regenerate} aria-label={t.regenerate}>
+                    <RefreshCcw size={14} strokeWidth={2.4} aria-hidden="true" />
+                  </button>
                 )}
               </div>
             </div>
@@ -193,13 +235,18 @@ export function Conversation({
                       title={t.reasoning}
                       aria-label={t.reasoning}
                     >
-                      💡
+                      <Workflow size={15} strokeWidth={2.3} aria-hidden="true" />
+                      <span>{t.reasoning}</span>
                     </button>
                     <div className="reasoning-actions">
                       {reasoningView === "full" ? (
-                        <button type="button" onClick={() => updateReasoningView(reasoningKey, "preview")} title={t.previewReasoning} aria-label={t.previewReasoning}>≡</button>
+                        <button type="button" onClick={() => updateReasoningView(reasoningKey, "preview")} title={t.previewReasoning} aria-label={t.previewReasoning}>
+                          <ChevronUp size={14} strokeWidth={2.4} aria-hidden="true" />
+                        </button>
                       ) : (
-                        <button type="button" onClick={() => updateReasoningView(reasoningKey, "full")} title={t.expandReasoning} aria-label={t.expandReasoning}>↕</button>
+                        <button type="button" onClick={() => updateReasoningView(reasoningKey, "full")} title={t.expandReasoning} aria-label={t.expandReasoning}>
+                          <ChevronDown size={14} strokeWidth={2.4} aria-hidden="true" />
+                        </button>
                       )}
                       <button
                         type="button"
@@ -207,7 +254,7 @@ export function Conversation({
                         title={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
                         aria-label={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
                       >
-                        {reasoningView === "collapsed" ? "≡" : "×"}
+                        {reasoningView === "collapsed" ? <ChevronDown size={14} strokeWidth={2.4} aria-hidden="true" /> : <X size={14} strokeWidth={2.4} aria-hidden="true" />}
                       </button>
                     </div>
                   </div>
@@ -225,8 +272,10 @@ export function Conversation({
           args={tool.args}
           copyLabel={t.copy}
           copiedLabel={t.copied}
+          durationMs={Math.max(0, now - tool.startedAt)}
           language={language}
           name={tool.name}
+          startedAt={tool.startedAt}
           status="running"
           title={formatMessageTimestamp(tool.startedAt, language)}
         />
@@ -267,21 +316,28 @@ export function Conversation({
       )}
       {taskStatus.phase !== "idle" && (
         <div className={`task-status-bar ${taskStatus.phase}`} role="status" aria-live="polite">
-          <span className={`tool-status-indicator ${taskStatus.phase === "error" ? "error" : "running"}`} aria-hidden="true" />
-          <strong>{taskStatus.label}</strong>
-          {taskStatus.detail && <span>{taskStatus.detail}</span>}
+          <span className="task-status-icon" aria-hidden="true">
+            <TaskStatusIcon phase={taskStatus.phase} />
+          </span>
+          <span className="task-status-copy">
+            <strong>{taskStatus.label}</strong>
+            {taskStatus.detail && <span>{taskStatus.detail}</span>}
+          </span>
         </div>
       )}
       {streamRecoveryStatus && (
         <div className={`stream-recovery-status ${streamRecoveryStatus.recovering ? "recovering" : "failed"}`} role="status">
-          <span className="tool-status-indicator running" aria-hidden="true" />
+          <LoaderCircle className="status-icon spin" size={15} strokeWidth={2.4} aria-hidden="true" />
           <span>{streamRecoveryStatus.message}</span>
         </div>
       )}
       {retryRequestPending && (
         <div className="network-retry-banner" role="status">
           <span>{t.networkRestoredBody}</span>
-          <button type="button" className="secondary tiny" disabled={busy} onClick={retryLastRequest}>{t.retryLastRequest}</button>
+          <button type="button" className="secondary tiny icon-text-button" disabled={busy} onClick={retryLastRequest}>
+            <RefreshCcw size={13} strokeWidth={2.4} aria-hidden="true" />
+            <span>{t.retryLastRequest}</span>
+          </button>
         </div>
       )}
       {showScrollToBottom && (
@@ -292,7 +348,7 @@ export function Conversation({
           title={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
           aria-label={language === "zh" ? "滚动到底部" : "Scroll to bottom"}
         >
-          ↓
+          <ArrowDown size={17} strokeWidth={2.5} aria-hidden="true" />
         </button>
       )}
       {busy && <div className="thinking">{t.thinking}</div>}
@@ -315,6 +371,7 @@ export function Conversation({
     dismissQuestion,
     language,
     messages,
+    now,
     reasoningViews,
     regenerateMessage,
     resetCommandAutoApproval,
@@ -325,6 +382,7 @@ export function Conversation({
     streamRecoveryStatus,
     streamingMessageIndex,
     t,
+    taskStatus,
     toolDraft,
     updateReasoningView,
     workspace
@@ -410,7 +468,12 @@ export function Conversation({
               <option value="en">English</option>
             </select>
           </label>
-          {busy && <button className="secondary danger" onClick={cancelActiveRequest}>{t.stop}</button>}
+          {busy && (
+            <button className="secondary danger icon-text-button" onClick={cancelActiveRequest}>
+              <Square size={13} strokeWidth={2.5} aria-hidden="true" />
+              <span>{t.stop}</span>
+            </button>
+          )}
         </div>
       </header>
 
@@ -419,7 +482,10 @@ export function Conversation({
           <details className="file-preview">
             <summary>
               <span>{previewFile.path}</span>
-              <button onClick={(event) => { event.preventDefault(); attachFile(previewFile.path); }}>{t.addContext}</button>
+              <button className="icon-text-button" onClick={(event) => { event.preventDefault(); attachFile(previewFile.path); }}>
+                <Paperclip size={13} strokeWidth={2.4} aria-hidden="true" />
+                <span>{t.addContext}</span>
+              </button>
             </summary>
             <pre>{previewFile.content}</pre>
           </details>
@@ -468,7 +534,7 @@ export function Conversation({
                   <span className="attachment-name">{file.path}</span>
                   <span className={`attachment-badge ${file.status || "ready"}`}>{formatAttachmentStatus(file, language)}</span>
                   {file.duplicateCount && file.duplicateCount > 1 && <span className="attachment-badge duplicate">×{file.duplicateCount}</span>}
-                  <span aria-hidden="true">×</span>
+                  <X size={13} strokeWidth={2.4} aria-hidden="true" />
                 </button>
               ))}
             </div>
@@ -516,9 +582,17 @@ export function Conversation({
               >
                 {contextUsageLabel}
               </span>
-              <button className="composer-icon" type="button" disabled={busy} onClick={uploadAttachmentFiles} title={t.uploadFiles} aria-label={t.uploadFiles}>+</button>
-              {busy && <button className="composer-icon danger" type="button" onClick={cancelActiveRequest} title={t.stop} aria-label={t.stop}>■</button>}
-              <button className="send composer-send" type="button" disabled={busy || !input.trim()} onClick={send} title={t.send} aria-label={t.send}>↑</button>
+              <button className="composer-icon" type="button" disabled={busy} onClick={uploadAttachmentFiles} title={t.uploadFiles} aria-label={t.uploadFiles}>
+                <Paperclip size={17} strokeWidth={2.4} aria-hidden="true" />
+              </button>
+              {busy && (
+                <button className="composer-icon danger" type="button" onClick={cancelActiveRequest} title={t.stop} aria-label={t.stop}>
+                  <Square size={15} strokeWidth={2.6} aria-hidden="true" />
+                </button>
+              )}
+              <button className="send composer-send" type="button" disabled={busy || !input.trim()} onClick={send} title={t.send} aria-label={t.send}>
+                <Send size={18} strokeWidth={2.5} aria-hidden="true" />
+              </button>
             </div>
           </div>
         </div>
@@ -533,14 +607,17 @@ type ToolCallCardProps = {
   args?: string;
   copiedLabel: string;
   copyLabel: string;
+  durationMs?: number;
+  endedAt?: number;
   language: Language;
   name: string;
   result?: string;
+  startedAt?: number;
   status: ToolCardStatus;
   title?: string;
 };
 
-const ToolCallCard = memo(function ToolCallCard({ args, copiedLabel, copyLabel, language, name, result, status, title }: ToolCallCardProps) {
+const ToolCallCard = memo(function ToolCallCard({ args, copiedLabel, copyLabel, durationMs, endedAt, language, name, result, startedAt, status, title }: ToolCallCardProps) {
   const parsedResult = parseToolPayload(result);
   const displayName = name || stringValue(parsedResult?.tool) || "tool";
   const effectiveStatus = status === "completed" && parsedResult?.ok === false ? "error" : status;
@@ -548,14 +625,29 @@ const ToolCallCard = memo(function ToolCallCard({ args, copiedLabel, copyLabel, 
   const argsCode = formatToolCardPayload(args);
   const resultCode = formatToolCardPayload(result);
   const statusLabel = toolStatusLabel(effectiveStatus, language);
+  const actionLabel = toolActionLabel(displayName, language);
+  const measuredDuration = durationMs ?? (startedAt && endedAt ? Math.max(0, endedAt - startedAt) : undefined);
+  const durationLabel = formatDuration(measuredDuration, language);
 
   return (
-    <details className={`tool-call-card ${effectiveStatus}`} open={effectiveStatus === "running"} title={title}>
+    <details className={`tool-call-card ${effectiveStatus}`} open={effectiveStatus === "running" || effectiveStatus === "error"} title={title}>
       <summary>
-        <span className={`tool-status-indicator ${effectiveStatus}`} aria-hidden="true" />
-        <span className="tool-call-name">{displayName}</span>
-        <span className="tool-call-status">{statusLabel}</span>
-        <span className="tool-call-summary">{summary}</span>
+        <span className={`tool-call-icon ${effectiveStatus}`} aria-hidden="true">
+          <ToolIcon name={displayName} />
+        </span>
+        <span className="tool-call-copy">
+          <span className="tool-call-name">{actionLabel}</span>
+          <span className="tool-call-summary">{summary}</span>
+        </span>
+        <span className="tool-call-meta">
+          {durationLabel && (
+            <span className="tool-call-duration">
+              <Clock3 size={12} strokeWidth={2.4} aria-hidden="true" />
+              {durationLabel}
+            </span>
+          )}
+          <span className={`tool-call-status ${effectiveStatus}`}>{statusLabel}</span>
+        </span>
       </summary>
       <div className="tool-call-details">
         {argsCode && (
@@ -575,6 +667,34 @@ const ToolCallCard = memo(function ToolCallCard({ args, copiedLabel, copyLabel, 
   );
 });
 
+function TaskStatusIcon({ phase }: { phase: TaskStatus["phase"] }) {
+  if (phase === "searching") return <Files size={16} strokeWidth={2.4} aria-hidden="true" />;
+  if (phase === "editing") return <PenLine size={16} strokeWidth={2.4} aria-hidden="true" />;
+  if (phase === "waiting") return <ShieldCheck size={16} strokeWidth={2.4} aria-hidden="true" />;
+  if (phase === "running") return <Terminal size={16} strokeWidth={2.4} aria-hidden="true" />;
+  if (phase === "completed") return <CheckCircle2 size={16} strokeWidth={2.4} aria-hidden="true" />;
+  if (phase === "error") return <TriangleAlert size={16} strokeWidth={2.4} aria-hidden="true" />;
+  return <LoaderCircle className="status-icon spin" size={16} strokeWidth={2.4} aria-hidden="true" />;
+}
+
+function ToolIcon({ name }: { name: string }) {
+  const normalized = String(name || "").toLowerCase();
+  const props = { size: 15, strokeWidth: 2.35, "aria-hidden": true as const };
+  if (normalized === "list_files") return <Files {...props} />;
+  if (normalized === "read_file") return <FileText {...props} />;
+  if (normalized === "search_files" || normalized === "web_search") return <Search {...props} />;
+  if (normalized === "run_command") return <Terminal {...props} />;
+  if (normalized === "apply_patch") return <FileDiff {...props} />;
+  if (normalized === "write_file" || normalized === "delete_file") return <PenLine {...props} />;
+  if (normalized === "ask_user") return <MessageSquareMore {...props} />;
+  if (normalized === "update_plan") return <ListTodo {...props} />;
+  if (normalized === "system_clipboard") return <ClipboardPaste {...props} />;
+  if (normalized === "system_notify") return <Bell {...props} />;
+  if (normalized === "background_task") return <Clock3 {...props} />;
+  if (normalized === "system_window_info") return <Workflow {...props} />;
+  return <Workflow {...props} />;
+}
+
 function formatMessageTimestamp(timestamp: number | undefined, language: Language) {
   if (!timestamp) return language === "zh" ? "未记录时间" : "Timestamp not recorded";
   return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
@@ -583,18 +703,53 @@ function formatMessageTimestamp(timestamp: number | undefined, language: Languag
   }).format(timestamp);
 }
 
+function formatDuration(durationMs: number | undefined, language: Language) {
+  if (!Number.isFinite(durationMs) || Number(durationMs) < 0) return "";
+  const locale = language === "zh" ? "zh-CN" : "en-US";
+  const value = Number(durationMs);
+  if (value < 1000) return `${Math.max(1, Math.round(value))}ms`;
+  if (value < 60000) {
+    return `${(value / 1000).toLocaleString(locale, { maximumFractionDigits: value < 10000 ? 1 : 0 })}s`;
+  }
+  const minutes = Math.floor(value / 60000);
+  const seconds = Math.round((value % 60000) / 1000);
+  return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
 function toolStatusLabel(status: ToolCardStatus, language: Language) {
   if (status === "running") return language === "zh" ? "执行中" : "Running";
   if (status === "error") return language === "zh" ? "失败" : "Failed";
   return language === "zh" ? "完成" : "Done";
 }
 
+function toolActionLabel(name: string, language: Language) {
+  const zh = language === "zh";
+  const normalized = String(name || "").toLowerCase();
+  const labels: Record<string, [string, string]> = {
+    list_files: ["List files", "列出文件"],
+    read_file: ["Read file", "读取文件"],
+    search_files: ["Search files", "搜索文件"],
+    web_search: ["Web search", "联网搜索"],
+    write_file: ["Write file", "写入文件"],
+    delete_file: ["Delete file", "删除文件"],
+    apply_patch: ["Apply patch", "应用 Patch"],
+    ask_user: ["Ask user", "询问用户"],
+    update_plan: ["Update plan", "更新计划"],
+    run_command: ["Run command", "运行命令"],
+    system_clipboard: ["Clipboard", "剪贴板"],
+    system_window_info: ["Window info", "窗口信息"],
+    system_notify: ["Notify", "系统通知"],
+    background_task: ["Background task", "后台任务"]
+  };
+  return labels[normalized]?.[zh ? 1 : 0] || name || (zh ? "工具调用" : "Tool call");
+}
+
 function summarizeToolCall(name: string, rawArgs: string | undefined, rawResult: string | undefined, status: ToolCardStatus, language: Language) {
   const zh = language === "zh";
-  if (status === "running") return zh ? "正在调用工具..." : "Calling tool...";
-
   const args = parseToolPayload(rawArgs);
   const result = parseToolPayload(rawResult);
+  if (status === "running") return summarizeRunningTool(name, args, language);
+
   if (status === "error" || result?.ok === false) {
     const message = stringValue(result?.error) || stringValue(result?.message) || (zh ? "工具调用失败" : "Tool call failed");
     return zh ? `失败：${truncateInline(message, 80)}` : `Failed: ${truncateInline(message, 80)}`;
@@ -642,6 +797,38 @@ function summarizeToolCall(name: string, rawArgs: string | undefined, rawResult:
 
   const message = stringValue(result?.message) || stringValue(result?.result);
   return message ? truncateInline(message, 90) : (zh ? "工具调用完成" : "Tool call completed");
+}
+
+function summarizeRunningTool(name: string, args: Record<string, unknown> | null, language: Language) {
+  const zh = language === "zh";
+  const normalized = String(name || "").toLowerCase();
+  if (normalized === "read_file") {
+    const path = stringValue(args?.path);
+    return path ? (zh ? `正在读取 ${truncateInline(path, 62)}` : `Reading ${truncateInline(path, 62)}`) : (zh ? "正在读取文件" : "Reading file");
+  }
+  if (normalized === "list_files") {
+    const directory = stringValue(args?.directory);
+    return directory ? (zh ? `正在列出 ${truncateInline(directory, 62)}` : `Listing ${truncateInline(directory, 62)}`) : (zh ? "正在列出工作区文件" : "Listing workspace files");
+  }
+  if (normalized === "search_files" || normalized === "web_search") {
+    const query = stringValue(args?.query);
+    return query ? (zh ? `正在搜索：${truncateInline(query, 62)}` : `Searching for ${truncateInline(query, 62)}`) : (zh ? "正在搜索" : "Searching");
+  }
+  if (normalized === "run_command") {
+    const command = stringValue(args?.command);
+    return command ? (zh ? `正在运行：${truncateInline(command, 62)}` : `Running ${truncateInline(command, 62)}`) : (zh ? "正在运行命令" : "Running command");
+  }
+  if (normalized === "apply_patch") {
+    const summary = stringValue(args?.summary);
+    return summary ? truncateInline(summary, 80) : (zh ? "正在准备文件变更" : "Preparing file changes");
+  }
+  if (normalized === "write_file" || normalized === "delete_file") {
+    const path = stringValue(args?.path);
+    return path ? (zh ? `正在处理 ${truncateInline(path, 62)}` : `Working on ${truncateInline(path, 62)}`) : (zh ? "正在处理文件" : "Working on files");
+  }
+  if (normalized === "ask_user") return zh ? "正在准备一个确认问题" : "Preparing a question";
+  if (normalized === "update_plan") return zh ? "正在更新执行计划" : "Updating the plan";
+  return zh ? "正在调用工具" : "Calling tool";
 }
 
 function isToolResultError(rawResult: string | undefined) {

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+import { Check, ChevronDown, ChevronUp, Copy } from "lucide-react";
 import hljs from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
 import css from "highlight.js/lib/languages/css";
@@ -91,6 +92,12 @@ function normalizeStoredMessage(value: unknown): ChatMessage | null {
   if (toolCalls.length > 0) normalized.tool_calls = toolCalls;
   if (typeof message.tool_call_id === "string" && message.tool_call_id.trim()) normalized.tool_call_id = message.tool_call_id;
   if (typeof message.name === "string" && message.name.trim()) normalized.name = message.name;
+  if (typeof message.toolArgs === "string") normalized.toolArgs = message.toolArgs;
+  if (typeof message.toolError === "string") normalized.toolError = message.toolError;
+  if (typeof message.toolStatus === "string" && ["running", "completed", "error"].includes(message.toolStatus)) normalized.toolStatus = message.toolStatus;
+  if (Number.isFinite(message.startedAt) && Number(message.startedAt) > 0) normalized.startedAt = Number(message.startedAt);
+  if (Number.isFinite(message.endedAt) && Number(message.endedAt) > 0) normalized.endedAt = Number(message.endedAt);
+  if (Number.isFinite(message.durationMs) && Number(message.durationMs) >= 0) normalized.durationMs = Number(message.durationMs);
   if (normalized.role === "tool" && !normalized.tool_call_id) return null;
   if (!normalized.content && normalized.role !== "assistant") return null;
   if (!normalized.content && !normalized.reasoning && !normalized.tool_calls?.length) return null;
@@ -370,10 +377,12 @@ export function CodeBlock({ code, language, copyLabel, copiedLabel }: { code: st
         <div className="markdown-code-actions">
           {lineCount > 40 && (
             <button type="button" className="code-toggle" onClick={() => setExpanded((value) => !value)} title={expanded ? "Collapse" : "Expand"} aria-label={expanded ? "Collapse" : "Expand"}>
-              {expanded ? "↥" : "↧"}
+              {expanded ? <ChevronUp size={14} strokeWidth={2.4} aria-hidden="true" /> : <ChevronDown size={14} strokeWidth={2.4} aria-hidden="true" />}
             </button>
           )}
-          <button type="button" className="code-copy" onClick={copyCode}>{copied ? copiedLabel : copyLabel}</button>
+          <button type="button" className="code-copy" onClick={copyCode} title={copied ? copiedLabel : copyLabel} aria-label={copied ? copiedLabel : copyLabel}>
+            {copied ? <Check size={14} strokeWidth={2.6} aria-hidden="true" /> : <Copy size={14} strokeWidth={2.4} aria-hidden="true" />}
+          </button>
         </div>
       </div>
       <pre className="markdown-code">

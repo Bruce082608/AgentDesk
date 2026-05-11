@@ -44,10 +44,13 @@ export function useAgentEvents({
   const streamingMessageActive = useRef(false);
   const reasoningMessageActive = useRef(false);
   const compressionStatusTimer = useRef<number | null>(null);
+  const activeToolRunMap = useRef(new Map<string, ToolRun>());
+  const completionTimer = useRef<number | null>(null);
 
   useEffect(() => {
     return () => {
       if (compressionStatusTimer.current) window.clearTimeout(compressionStatusTimer.current);
+      if (completionTimer.current) window.clearTimeout(completionTimer.current);
     };
   }, []);
 
@@ -59,6 +62,38 @@ export function useAgentEvents({
     setStreamRecoveryStatus(null);
   }, []);
 
+  const clearCompletionTimer = useCallback(() => {
+    if (!completionTimer.current) return;
+    window.clearTimeout(completionTimer.current);
+    completionTimer.current = null;
+  }, []);
+
+  const clearActiveToolRuns = useCallback(() => {
+    activeToolRunMap.current.clear();
+    setActiveToolRuns([]);
+  }, []);
+
+  const takeActiveToolRun = useCallback((toolCallId?: string, name?: string) => {
+    const normalizedId = String(toolCallId || "").trim();
+    if (normalizedId && activeToolRunMap.current.has(normalizedId)) {
+      const run = activeToolRunMap.current.get(normalizedId) || null;
+      activeToolRunMap.current.delete(normalizedId);
+      setActiveToolRuns((current) => current.filter((item) => item.id !== normalizedId && item.toolCallId !== normalizedId));
+      return run;
+    }
+
+    if (name) {
+      for (const [id, run] of activeToolRunMap.current.entries()) {
+        if (run.name !== name) continue;
+        activeToolRunMap.current.delete(id);
+        setActiveToolRuns((current) => current.filter((item) => item.id !== id && item.toolCallId !== id));
+        return run;
+      }
+    }
+
+    return null;
+  }, []);
+
   const setTaskPhase = useCallback((phase: TaskStatus["phase"], detail = "") => {
     const labels = getTaskStatusLabels(language);
     setTaskStatus({
@@ -68,15 +103,6 @@ export function useAgentEvents({
       updatedAt: Date.now()
     });
   }, [language]);
-
-  const finishActiveToolRun = useCallback((name: string) => {
-    setActiveToolRuns((current) => {
-      const sameNameIndex = current.findIndex((tool) => tool.name === name);
-      const index = sameNameIndex >= 0 ? sameNameIndex : 0;
-      if (index < 0) return current;
-      return current.filter((_, itemIndex) => itemIndex !== index);
-    });
-  }, []);
 
   const updateCompressionStatus = useCallback((phase: "start" | "done" | "failed", message = "", summary = "") => {
     if (compressionStatusTimer.current) {
@@ -119,12 +145,17 @@ export function useAgentEvents({
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     const ui = getAgentEventLabels(language);
     if (event.type === "done") {
+      clearCompletionTimer();
       setPlanItems((current) => current.map((item) => item.status === "in_progress" ? { ...item, status: "completed" } : item));
       setBusy(false);
       activeRequest.current = null;
-      setActiveToolRuns([]);
-      setTaskPhase("idle");
+      clearActiveToolRuns();
+      setTaskPhase("completed");
       resetStreamState();
+      completionTimer.current = window.setTimeout(() => {
+        setTaskPhase("idle");
+        completionTimer.current = null;
+      }, 1400);
       return;
     }
 
@@ -228,14 +259,20 @@ export function useAgentEvents({
 
     if (event.type === "tool_start") {
       setTaskPhase(classifyToolPhase(event.name), event.name);
+      const startedAt = Date.now();
+      const toolCallId = String(event.toolCallId || `${event.requestId}-${event.name}-${startedAt}`).trim();
+      const run: ToolRun = {
+        id: toolCallId,
+        toolCallId: event.toolCallId || toolCallId,
+        name: event.name,
+        args: event.args,
+        startedAt,
+        status: "running"
+      };
+      activeToolRunMap.current.set(toolCallId, run);
       setActiveToolRuns((current) => [
         ...current,
-        {
-          id: `${event.requestId}-${current.length}-${Date.now()}`,
-          name: event.name,
-          args: event.args,
-          startedAt: Date.now()
-        }
+        run
       ]);
       appendEvent("tool", `${ui.toolStart}: ${event.name}`, event.args);
       return;
@@ -253,16 +290,22 @@ export function useAgentEvents({
     }
 
     if (event.type === "tool_result") {
-      finishActiveToolRun(event.name);
-      if (event.toolCallId) {
-        setMessages((current) => [...current, {
-          role: "tool",
-          content: event.result,
-          createdAt: Date.now(),
-          tool_call_id: event.toolCallId,
-          name: event.name
-        }]);
-      }
+      const startedRun = takeActiveToolRun(event.toolCallId, event.name);
+      const endedAt = Date.now();
+      const startedAt = startedRun?.startedAt ?? endedAt;
+      const durationMs = Math.max(0, endedAt - startedAt);
+      setMessages((current) => [...current, {
+        role: "tool",
+        content: event.result,
+        createdAt: endedAt,
+        tool_call_id: startedRun?.toolCallId || event.toolCallId,
+        name: event.name,
+        toolArgs: startedRun?.args,
+        startedAt,
+        endedAt,
+        durationMs,
+        toolStatus: "completed"
+      }]);
       if (taskStatus.phase !== "waiting") {
         setTaskPhase(classifyToolPhase(event.name), event.name);
       }
@@ -271,17 +314,24 @@ export function useAgentEvents({
     }
 
     if (event.type === "tool_error") {
-      finishActiveToolRun(event.name);
-      if (event.toolCallId) {
-        setMessages((current) => [...current, {
-          role: "tool",
-          content: event.result || event.message,
-          createdAt: Date.now(),
-          tool_call_id: event.toolCallId,
-          name: event.name
-        }]);
-      }
-      setTaskPhase("editing", event.message || event.name);
+      const startedRun = takeActiveToolRun(event.toolCallId, event.name);
+      const endedAt = Date.now();
+      const startedAt = startedRun?.startedAt ?? endedAt;
+      const durationMs = Math.max(0, endedAt - startedAt);
+      setMessages((current) => [...current, {
+        role: "tool",
+        content: event.result || event.message,
+        createdAt: endedAt,
+        tool_call_id: startedRun?.toolCallId || event.toolCallId,
+        name: event.name,
+        toolArgs: startedRun?.args,
+        startedAt,
+        endedAt,
+        durationMs,
+        toolStatus: "error",
+        toolError: event.message
+      }]);
+      setTaskPhase("error", event.message || event.name);
       appendEvent("error", `${ui.toolFailed}: ${event.name}`, event.message);
       return;
     }
@@ -343,25 +393,27 @@ export function useAgentEvents({
     }
 
     if (event.type === "error") {
+      clearCompletionTimer();
       setTaskPhase("error", event.message);
       appendEvent("error", ui.agentError, event.message);
       setMessages((current) => [...current, { role: "assistant", content: `${ui.requestFailed}: ${event.message}`, createdAt: Date.now() }]);
       setBusy(false);
       activeRequest.current = null;
-      setActiveToolRuns([]);
+      clearActiveToolRuns();
       resetStreamState();
     }
 
     if (event.type === "cancelled") {
+      clearCompletionTimer();
       setTaskPhase("idle");
       appendEvent("status", ui.requestCancelled, event.message);
       setMessages((current) => [...current, { role: "assistant", content: ui.requestCancelledBody, createdAt: Date.now() }]);
       setBusy(false);
       activeRequest.current = null;
-      setActiveToolRuns([]);
+      clearActiveToolRuns();
       resetStreamState();
     }
-  }, [appendEvent, finishActiveToolRun, language, recordTokenUsage, refreshGit, refreshWorkspace, resetStreamState, setMessages, taskStatus.phase, updateCompressionStatus, setTaskPhase]);
+  }, [appendEvent, clearActiveToolRuns, clearCompletionTimer, language, recordTokenUsage, refreshGit, refreshWorkspace, resetStreamState, setMessages, takeActiveToolRun, taskStatus.phase, updateCompressionStatus, setTaskPhase]);
 
   useEffect(() => {
     return window.agentWindow.onAgentEvent((event) => {
@@ -371,17 +423,18 @@ export function useAgentEvents({
   }, [handleAgentEvent]);
 
   const beginRequest = useCallback((requestId: string, waitingPlan: string) => {
+    clearCompletionTimer();
     activeRequest.current = requestId;
     streamingMessageActive.current = false;
     reasoningMessageActive.current = false;
     setToolDraft(null);
-    setActiveToolRuns([]);
+    clearActiveToolRuns();
     setStreamingResponse(false);
     setStreamRecoveryStatus(null);
     setBusy(true);
     setTaskPhase("understanding");
     setPlanItems([{ step: waitingPlan, status: "in_progress" }]);
-  }, [setTaskPhase]);
+  }, [clearActiveToolRuns, clearCompletionTimer, setTaskPhase]);
 
   const loadPendingApprovals = useCallback(async (sessionId: string) => {
     try {
@@ -485,13 +538,13 @@ export function useAgentEvents({
       markApprovalFailed("patch", patchId, result.error || getAgentEventLabels(language).patchApplyFailed);
       setBusy(false);
       activeRequest.current = null;
-      setActiveToolRuns([]);
+      clearActiveToolRuns();
       setTaskPhase("error", result.error || getAgentEventLabels(language).patchApplyFailed);
       appendEvent("error", getAgentEventLabels(language).patchApplyFailed, result.error || "Unknown error");
       return;
     }
     clearApprovalItem("patch", patchId);
-  }, [appendEvent, busy, clearApprovalItem, language, markApprovalFailed, patches, startApprovalContinuation]);
+  }, [appendEvent, busy, clearActiveToolRuns, clearApprovalItem, language, markApprovalFailed, patches, startApprovalContinuation, setTaskPhase]);
 
   const discardPatch = useCallback(async (patchId: string) => {
     if (busy) return;
@@ -506,14 +559,14 @@ export function useAgentEvents({
     if (!result.ok) {
       setBusy(false);
       activeRequest.current = null;
-      setActiveToolRuns([]);
+      clearActiveToolRuns();
       setTaskPhase("error", result.error || getAgentEventLabels(language).patchApplyFailed);
       appendEvent("error", getAgentEventLabels(language).patchApplyFailed, result.error || "Unknown error");
       return;
     }
     clearApprovalItem("patch", patchId);
     appendEvent("patch", getAgentEventLabels(language).patchDiscarded, patchId);
-  }, [appendEvent, busy, clearApprovalItem, language, startApprovalContinuation]);
+  }, [appendEvent, busy, clearActiveToolRuns, clearApprovalItem, language, startApprovalContinuation, setTaskPhase]);
 
   const approveCommand = useCallback(async (commandId: string, allowFuture = false) => {
     if (busy) return;
@@ -548,11 +601,11 @@ export function useAgentEvents({
       markApprovalFailed("command", commandId, result.error || getAgentEventLabels(language).commandFailed);
       setBusy(false);
       activeRequest.current = null;
-      setActiveToolRuns([]);
+      clearActiveToolRuns();
       setTaskPhase("error", result.error || getAgentEventLabels(language).commandFailed);
       appendEvent("error", getAgentEventLabels(language).commandFailed, result.error || "Unknown error");
     }
-  }, [activeRequest, appendEvent, applyAutoApprovalState, busy, clearApprovalItem, commands, language, markApprovalFailed, setActiveToolRuns, setBusy, startApprovalContinuation, setTaskPhase]);
+  }, [activeRequest, appendEvent, applyAutoApprovalState, busy, clearActiveToolRuns, clearApprovalItem, commands, language, markApprovalFailed, setBusy, startApprovalContinuation, setTaskPhase]);
 
   const discardCommand = useCallback(async (commandId: string) => {
     if (busy) return;
@@ -568,13 +621,13 @@ export function useAgentEvents({
       markApprovalFailed("command", commandId, result.error || getAgentEventLabels(language).commandFailed);
       setBusy(false);
       activeRequest.current = null;
-      setActiveToolRuns([]);
+      clearActiveToolRuns();
       setTaskPhase("error", result.error || getAgentEventLabels(language).commandFailed);
       appendEvent("error", getAgentEventLabels(language).commandFailed, result.error || "Unknown error");
       return;
     }
     clearApprovalItem("command", commandId);
-  }, [activeRequest, appendEvent, busy, clearApprovalItem, language, markApprovalFailed, setActiveToolRuns, setBusy, startApprovalContinuation, setTaskPhase]);
+  }, [activeRequest, appendEvent, busy, clearActiveToolRuns, clearApprovalItem, language, markApprovalFailed, setBusy, startApprovalContinuation, setTaskPhase]);
 
   const answerQuestion = useCallback(async (questionId: string, option: string) => {
     if (busy) return;
@@ -596,13 +649,13 @@ export function useAgentEvents({
       markApprovalFailed("question", questionId, result.error || getAgentEventLabels(language).agentError);
       setBusy(false);
       activeRequest.current = null;
-      setActiveToolRuns([]);
+      clearActiveToolRuns();
       setTaskPhase("error", result.error || getAgentEventLabels(language).agentError);
       appendEvent("error", getAgentEventLabels(language).agentError, result.error || "Unknown error");
       return;
     }
     clearApprovalItem("question", questionId);
-  }, [activeRequest, appendEvent, busy, clearApprovalItem, language, markApprovalFailed, questions, setActiveToolRuns, setBusy, setMessages, startApprovalContinuation, setTaskPhase]);
+  }, [activeRequest, appendEvent, busy, clearActiveToolRuns, clearApprovalItem, language, markApprovalFailed, questions, setBusy, setMessages, startApprovalContinuation, setTaskPhase]);
 
   const dismissQuestion = useCallback(async (questionId: string) => {
     if (busy) return;
@@ -620,13 +673,13 @@ export function useAgentEvents({
       markApprovalFailed("question", questionId, result.error || getAgentEventLabels(language).agentError);
       setBusy(false);
       activeRequest.current = null;
-      setActiveToolRuns([]);
+      clearActiveToolRuns();
       setTaskPhase("error", result.error || getAgentEventLabels(language).agentError);
       appendEvent("error", getAgentEventLabels(language).agentError, result.error || "Unknown error");
       return;
     }
     clearApprovalItem("question", questionId);
-  }, [activeRequest, appendEvent, busy, clearApprovalItem, language, markApprovalFailed, questions, setActiveToolRuns, setBusy, startApprovalContinuation, setTaskPhase]);
+  }, [activeRequest, appendEvent, busy, clearActiveToolRuns, clearApprovalItem, language, markApprovalFailed, questions, setBusy, startApprovalContinuation, setTaskPhase]);
 
   const loadAutoApprovalState = useCallback(async (context: { workspace: string; sessionId?: string }) => {
     try {
@@ -688,18 +741,19 @@ export function useAgentEvents({
   }, [appendEvent, applyAutoApprovalState, language]);
 
   const resetAgentTransientState = useCallback(() => {
+    clearCompletionTimer();
     setPatches([]);
     setCommands([]);
     setQuestions([]);
     setPlanItems([]);
     setToolDraft(null);
-    setActiveToolRuns([]);
+    clearActiveToolRuns();
     setStreamingResponse(false);
     setStreamRecoveryStatus(null);
     setTaskPhase("idle");
     streamingMessageActive.current = false;
     reasoningMessageActive.current = false;
-  }, [setTaskPhase]);
+  }, [clearActiveToolRuns, clearCompletionTimer, setTaskPhase]);
 
   return {
     activeToolRuns,
@@ -745,7 +799,7 @@ function classifyToolPhase(name: string): TaskStatus["phase"] {
   if (!normalized) return "understanding";
   if (["list_files", "read_file", "search_files", "web_search", "workspace_tree"].includes(normalized)) return "searching";
   if (["write_file", "delete_file", "apply_patch"].includes(normalized)) return "editing";
-  if (["run_command"].includes(normalized)) return "editing";
+  if (["run_command", "system_clipboard", "system_window_info", "system_notify", "background_task"].includes(normalized)) return "running";
   if (["ask_user", "update_plan"].includes(normalized)) return "waiting";
   return "understanding";
 }
@@ -754,20 +808,24 @@ function getTaskStatusLabels(language: Language) {
   if (language === "en") {
     return {
       idle: "",
-      understanding: "Understanding the task",
-      searching: "Looking through files",
-      editing: "Editing code",
-      waiting: "Waiting for your confirmation",
-      error: "Task needs attention"
+      understanding: "Thinking",
+      searching: "Reading files",
+      editing: "Editing files",
+      waiting: "Waiting for approval",
+      running: "Running command",
+      completed: "Completed",
+      error: "Needs attention"
     };
   }
   return {
     idle: "",
-    understanding: "正在理解任务",
-    searching: "正在查文件",
-    editing: "正在改代码",
-    waiting: "正在等你确认",
-    error: "任务需要处理"
+    understanding: "思考中",
+    searching: "读取文件",
+    editing: "编辑文件",
+    waiting: "等待审批",
+    running: "运行命令",
+    completed: "已完成",
+    error: "需要处理"
   };
 }
 
