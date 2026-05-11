@@ -47,6 +47,8 @@ const MESSAGES = {
       patchQueued: "Patch 已加入待确认队列，尚未应用。",
       commandQueued: "命令已加入待确认队列，尚未执行。",
       gitApplyFailed: "Git apply 失败。",
+      pdfError: "PDF {path} 文本提取失败：{message}",
+      binaryFile: "{path} 是二进制文件，无法当作文本读取。当前仅支持 PDF 文件的文本提取。",
       toolErrors: {
         file_not_found: "文件未找到",
         permission_denied: "权限不足",
@@ -107,6 +109,8 @@ const MESSAGES = {
       patchQueued: "Patch queued for user review. It has not been applied yet.",
       commandQueued: "Command queued for user approval. It has not been executed yet.",
       gitApplyFailed: "Git apply failed.",
+      pdfError: "PDF text extraction failed for {path}: {message}",
+      binaryFile: "{path} appears to be a binary file and cannot be read as text. Only PDF text extraction is currently supported.",
       toolErrors: {
         file_not_found: "File not found",
         permission_denied: "Permission denied",

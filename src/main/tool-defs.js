@@ -41,11 +41,11 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "read_file",
-      description: "Read a UTF-8 text file from the workspace.",
+      description: "Read a UTF-8 text file or a PDF from the workspace. Exact absolute paths attached by the user are also readable, including PDFs outside the workspace. PDF files are detected by the .pdf extension and text is extracted. Binary files other than PDF cannot be read.",
       parameters: {
         type: "object",
         properties: {
-          path: { type: "string", description: "Workspace-relative file path." }
+          path: { type: "string", description: "Workspace-relative file path, or an exact absolute path from the attached files list." }
         },
         required: ["path"]
       }

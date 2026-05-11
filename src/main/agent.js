@@ -25,7 +25,7 @@ export async function runAgentTurn(payload, emit) {
     workspace,
     sessionId: payload.sessionId || ""
   });
-  const fullAccess = permissions.fullAccessAutoApproval;
+  const fullAccess = payload.permissionMode === "full" || permissions.fullAccessAutoApproval;
   const contextTokens = normalizedProviderConfig.contextTokens;
   const maxOutputTokens = normalizedProviderConfig.maxTokens;
   const inputBudgetTokens = getInputBudgetTokens(contextTokens, maxOutputTokens);
@@ -57,6 +57,7 @@ export async function runAgentTurn(payload, emit) {
         ? "When editing files, call apply_patch with a unified diff or use write_file/delete_file when clearer. In full access mode these changes are applied automatically."
         : "When editing files, call apply_patch with a unified diff. The user must approve the patch before it is applied.",
       "When you need project context, list files before reading.",
+      "read_file accepts workspace-relative paths. It may also read exact absolute paths that the user attached or dragged into the conversation, including PDFs outside the workspace.",
       "When the user needs current or online information, use web_search and cite the returned URLs in your answer.",
       "Use PowerShell commands on Windows, and POSIX shell commands on macOS/Linux.",
       fullAccess
@@ -175,7 +176,9 @@ export async function runAgentTurn(payload, emit) {
           workspace,
           requestId: payload.requestId || "",
           sessionId: payload.sessionId || "",
-          language
+          language,
+          fullAccessAutoApproval: fullAccess,
+          attachments
         });
         parsed = parseToolResult(result);
       } catch (error) {
@@ -323,7 +326,7 @@ function buildAttachmentMessage(attachments) {
   return {
     role: "user",
     content: [
-      "Attached workspace files for context:",
+      "Attached files for context. Some paths may be outside the workspace; exact attached paths are allowed for read_file:",
       ...attachments.map((file) => `\n--- ${file.path} ---\n${String(file.content ?? "").slice(0, 50000)}`)
     ].join("\n")
   };

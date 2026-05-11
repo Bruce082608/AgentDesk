@@ -6,6 +6,8 @@ import { randomUUID } from "node:crypto";
 import { normalizeLanguage, t } from "./i18n.js";
 import { webSearch } from "./web-search.js";
 import { searchWorkspaceTextWithRg } from "../shared/ripgrep.js";
+import { extractPdfText, isPdfExtension, looksBinaryBuffer } from "../shared/pdfReader.js";
+
 import {
   buildWholeFilePatch,
   getAutoApprovalState,
@@ -42,7 +44,7 @@ async function executeToolImplementation(name, args, context) {
     case "list_files":
       return listFiles(workspace, args.directory || "", args.max_files || 120, context.language);
     case "read_file":
-      return readFile(workspace, args.path, context.language);
+      return readFile(context, args.path);
     case "write_file":
       return writeFile(context, args.path, args.content, args.summary);
     case "delete_file":
@@ -177,14 +179,56 @@ async function listFiles(workspace, directory, maxFiles, language) {
   return JSON.stringify({ files, truncated: files.length >= limit }, null, 2);
 }
 
-async function readFile(workspace, filePath, language) {
-  const absolute = resolveInsideWorkspace(workspace, filePath, language);
+async function readFile(context, filePath) {
+  const workspace = context.workspace;
+  const language = context.language;
+  const absolute = resolveReadableFilePath(context, filePath);
   const stat = await fs.stat(absolute);
   if (!stat.isFile()) throw localizedError(language, "tools.notFile", { path: filePath });
-  if (stat.size > MAX_FILE_BYTES) {
-    throw localizedError(language, "tools.fileTooLarge", { path: filePath, size: stat.size, limit: MAX_FILE_BYTES });
+
+  // PDF files – allow larger sizes and extract text
+  if (isPdfExtension(filePath)) {
+    const result = await extractPdfText(absolute);
+    if (result.error) {
+      throw localizedError(language, "tools.pdfError", {
+        path: filePath,
+        message: result.error
+      });
+    }
+    // Build a helpful header so the agent knows it's reading a PDF
+    const meta = result.pageCount
+      ? `PDF | ${result.pageCount} pages | ${formatToolBytes(result.size)}`
+      : `PDF | ${formatToolBytes(result.size)}`;
+    const header = [
+      `[${meta}]`,
+      result.truncated ? `[Note: extracted text was truncated to display limit]` : "",
+      ""
+    ].filter(Boolean).join("\n");
+    return header + result.text;
   }
-  return await fs.readFile(absolute, "utf8");
+
+  // Regular text files – enforce size limit
+  if (stat.size > MAX_FILE_BYTES) {
+    throw localizedError(language, "tools.fileTooLarge", {
+      path: filePath,
+      size: stat.size,
+      limit: MAX_FILE_BYTES
+    });
+  }
+
+  // Read as buffer to detect binary content
+  const buffer = await fs.readFile(absolute);
+  if (looksBinaryBuffer(buffer)) {
+    throw localizedError(language, "tools.binaryFile", { path: filePath });
+  }
+
+  return buffer.toString("utf8");
+}
+
+function formatToolBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 async function writeFile(context, filePath, content, summary = "") {
@@ -275,7 +319,7 @@ async function searchFiles(workspace, query, maxResults, language) {
   for (const file of files) {
     if (results.length >= limit) break;
     try {
-      const content = await readFile(workspace, file, language);
+      const content = await readFile({ workspace, language, attachments: [] }, file);
       const lines = content.split(/\r?\n/);
       for (let index = 0; index < lines.length; index += 1) {
         if (lines[index].includes(needle)) {
@@ -401,6 +445,7 @@ export async function approvePendingCommand(commandId, options = {}) {
     autoApproveFutureCommands: permissionState.commandAutoApproval,
     commandAutoApproval: permissionState.commandAutoApproval,
     patchAutoApproval: permissionState.patchAutoApproval,
+    fullAccessAutoApproval: permissionState.fullAccessAutoApproval,
     commandAutoApprovalExpiresAt: permissionState.commandAutoApprovalExpiresAt,
     patchAutoApprovalExpiresAt: permissionState.patchAutoApprovalExpiresAt
   };
@@ -455,14 +500,42 @@ function isAutoAllowedCommand(command) {
 
 function normalizeToolContext(context) {
   if (typeof context === "string") {
-    return { workspace: context, requestId: "", sessionId: "" };
+    return { workspace: context, requestId: "", sessionId: "", language: "zh", fullAccessAutoApproval: false, attachments: [] };
   }
   return {
     workspace: context?.workspace || process.cwd(),
     requestId: String(context?.requestId || ""),
     sessionId: String(context?.sessionId || ""),
-    language: normalizeLanguage(context?.language)
+    language: normalizeLanguage(context?.language),
+    fullAccessAutoApproval: Boolean(context?.fullAccessAutoApproval),
+    attachments: normalizeAttachmentPaths(context?.attachments)
   };
+}
+
+function resolveReadableFilePath(context, filePath) {
+  const requestedPath = String(filePath ?? "");
+  if (path.isAbsolute(requestedPath)) {
+    const absolute = path.resolve(requestedPath);
+    if (isAttachedPathAllowed(absolute, context.attachments)) return absolute;
+  }
+  return resolveInsideWorkspace(context.workspace, requestedPath, context.language);
+}
+
+function normalizeAttachmentPaths(attachments) {
+  if (!Array.isArray(attachments)) return [];
+  return attachments
+    .map((file) => typeof file?.path === "string" ? normalizeComparablePath(file.path) : "")
+    .filter(Boolean);
+}
+
+function isAttachedPathAllowed(absolutePath, attachmentPaths) {
+  const comparable = normalizeComparablePath(absolutePath);
+  return attachmentPaths.includes(comparable);
+}
+
+function normalizeComparablePath(filePath) {
+  const resolved = path.resolve(String(filePath || ""));
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
 function pathSecurityOptions(language) {

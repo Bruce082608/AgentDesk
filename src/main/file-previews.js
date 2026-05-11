@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { isPdfExtension, extractPdfText } from "../shared/pdfReader.js";
 
 const previewCache = new Map();
 const MAX_CACHE_ENTRIES = 200;
@@ -17,7 +18,8 @@ export async function readTextPreview(filePath, options = {}) {
   }
 
   let result;
-  if (stat.size > maxBytes) {
+  const isPdf = isPdfExtension(absolutePath);
+  if (stat.size > maxBytes && !isPdf) {
     result = {
       content: renderPreviewMessage(options.largeMessage, {
         size: stat.size,
@@ -32,7 +34,10 @@ export async function readTextPreview(filePath, options = {}) {
   } else {
     const buffer = await fs.readFile(absolutePath);
     const hash = createHash("sha1").update(buffer).digest("hex");
-    if (looksBinary(buffer)) {
+
+    if (isPdf) {
+      result = await readPdfPreview(absolutePath, stat, hash, maxChars, options);
+    } else if (looksBinary(buffer)) {
       result = {
         content: renderPreviewMessage(options.binaryMessage, {
           size: stat.size,
@@ -68,6 +73,42 @@ export async function readTextPreview(filePath, options = {}) {
 
   cachePreview(absolutePath, signature, maxBytes, maxChars, result);
   return { ...result };
+}
+
+async function readPdfPreview(absolutePath, stat, hash, maxChars, options) {
+  const pdfResult = await extractPdfText(absolutePath);
+  if (!pdfResult.text) {
+    return {
+      content: pdfResult.error || renderPreviewMessage(options.binaryMessage, {
+        size: stat.size,
+        path: absolutePath
+      }),
+      status: "binary",
+      size: stat.size,
+      truncated: false,
+      hash: pdfResult.hash || hash
+    };
+  }
+
+  let content = pdfResult.text;
+  let truncated = false;
+  if (maxChars > 0 && content.length > maxChars) {
+    content = `${content.slice(0, maxChars)}\n\n${renderPreviewMessage(options.truncatedMessage, {
+      size: stat.size,
+      maxChars,
+      path: absolutePath
+    })}`;
+    truncated = true;
+  }
+
+  return {
+    content,
+    status: truncated || pdfResult.truncated ? "truncated" : "ready",
+    size: stat.size,
+    chars: content.length,
+    truncated: truncated || Boolean(pdfResult.truncated),
+    hash: pdfResult.hash || hash
+  };
 }
 
 export function clearPreviewCache() {
