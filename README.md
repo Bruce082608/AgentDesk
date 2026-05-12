@@ -1,384 +1,361 @@
 # AgentDesk
 
-AgentDesk is a local desktop coding agent built with Electron, React, and TypeScript. It is designed for DeepSeek by default and also supports OpenAI-compatible Chat Completions providers.
+> A local desktop coding agent — runs on your machine, works in your workspace.
 
-AgentDesk 是一个本地桌面 coding agent 应用，使用 Electron、React 和 TypeScript 构建。它默认面向 DeepSeek API，同时兼容 OpenAI Chat Completions 风格的网关。
+> 一个本地桌面 coding agent — 运行在你的电脑上，操作你的项目目录。
 
-The goal is to provide an installable local window where you can choose a workspace, attach files, ask an agent to read or modify code, run commands, review diffs, and keep task context organized by project.
+---
 
-项目目标是提供一个可安装的本地桌面窗口，让你可以选择工作目录、添加上下文文件、让 agent 阅读或修改代码、运行命令、查看 diff，并按项目管理任务上下文。
+# 中文文档
 
-## Features / 主要能力
+## 上手使用
 
-- Local desktop app with Windows installer, portable build, and zip package.
-- 本地桌面应用，支持 Windows 安装版、便携版和 zip 压缩包。
-- DeepSeek-first provider setup, with OpenAI-compatible provider support.
-- DeepSeek 优先，同时支持 OpenAI-compatible provider。
-- Chat sessions grouped by workspace in the left sidebar.
-- 左侧聊天列表按工作目录分组。
-- New-session guide page with workspace selection and quick-start prompts.
-- 新会话初始引导页，可选择工作目录并使用快捷任务提示。
-- File tree, search, file preview, and attachment support.
-- 文件树、搜索、文件预览和上下文附件支持。
-- Drag-and-drop file attachments when the app is launched from a compatible Windows context.
-- 在兼容的 Windows 启动环境下支持拖拽文件作为附件。
-- Streaming model output, task status bar, tool cards, plan panel, and activity log.
-- 支持流式模型输出、任务状态条、工具卡片、计划面板和活动日志。
-- Git status, changed-file list, diff view, and commit message draft.
-- 支持 Git 状态、变更文件、diff 查看和 commit message 草稿。
-- Default permission mode asks before writes, deletes, patches, and high-risk commands.
-- 默认权限模式会在写入、删除、patch 和高风险命令前请求确认。
-- Full access mode lets command and file-change tools run without approval for the current chat and workspace, while preserving `ask_user` for clarifying requirements.
-- 完全访问权限模式会在当前聊天和 workspace 内自动执行命令和文件变更，同时保留 `ask_user` 用于需求澄清。
-- Main-process persistence for sessions, pending approvals, activity logs, and provider settings.
-- 通过主进程持久化保存会话、待审批项、Activity 日志和 provider 设置。
-- Desktop agent layer: tray background mode, native notifications, global show/hide shortcut, Explorer context menu registration, clipboard/window-info tools, and persistent background notification tasks.
-- 桌面 agent 系统层：托盘后台常驻、系统通知、全局显示/隐藏快捷键、Explorer 右键菜单注册、剪贴板/窗口信息工具，以及持久化后台提醒任务。
-- Encoding check, typecheck, tests, and production build are combined in `npm run check`.
-- `npm run check` 集成编码检查、类型检查、测试和生产构建。
+### 第一步：安装 Node.js
 
-## Quick Start / 快速开始
+需要 Node.js 20+。macOS 推荐：
 
-### Install dependencies / 安装依赖
+```bash
+brew install node
+```
 
-```powershell
+Windows 去 [nodejs.org](https://nodejs.org) 下载安装包。
+
+### 第二步：克隆项目 & 安装依赖
+
+```bash
+git clone https://github.com/Bruce082608/AgentDesk.git
+cd AgentDesk
 npm install
 ```
 
-### Start development app / 启动开发版
+### 第三步：配置 API Key
 
-```powershell
+在应用内的设置面板填写，或者设置环境变量：
+
+```bash
+# macOS / Linux
+export DEEPSEEK_API_KEY="你的-key"
+
+# Windows (PowerShell)
+$env:DEEPSEEK_API_KEY="你的-key"
+```
+
+API Key 使用操作系统级加密存储（macOS Keychain / Windows DPAPI），不会以明文写入配置文件。
+
+### 第四步：启动开发版
+
+```bash
 npm run dev
 ```
 
-Development mode starts the Vite frontend and the Electron window. The frontend uses port `5173` with strict port mode.
+默认前端端口 `5173`。如果端口被占用：
 
-开发模式会启动 Vite 前端服务和 Electron 窗口。默认前端端口为 `5173`，并启用 strict port。
-
-If an old dev process is occupying the port:
-
-如果旧的 dev 进程占用了端口：
-
-```powershell
+```bash
 npm run dev:clean
 npm run dev
 ```
 
-### Configure API Key / 配置 API Key
+### 第五步：选择工作目录
 
-You can enter the API key in the app settings panel, or provide it through an environment variable:
+应用打开后，点击左侧"文件"标签页 → "选择目录"，选一个你想让 agent 操作的项目文件夹。
 
-你可以在应用设置面板中填写 API key，也可以使用环境变量：
+### 第六步：开始对话
 
-```powershell
-$env:DEEPSEEK_API_KEY="your-key"
-npm run dev
+在底部输入框中直接输入任务，例如：
+
+> 阅读 README，告诉我如何启动这个项目。
+
+或者拖拽代码文件到对话框，agent 会把它作为上下文。
+
+---
+
+## 项目完整说明
+
+### 是什么
+
+AgentDesk 是一个使用 Electron + React + TypeScript 构建的本地桌面 coding agent。你选择一个工作目录，agent 可以读取文件、搜索代码、修改代码（生成 diff patch）、运行命令，所有操作都在你的电脑上完成。
+
+默认使用 DeepSeek API（`deepseek-v4-pro`，100 万 context、65536 max tokens、thinking mode），也兼容任何 OpenAI Chat Completions 风格的 API 网关。
+
+### 核心能力
+
+**代码操作**
+- 文件树浏览、全文搜索（基于 ripgrep）
+- 读取文件（UTF-8 文本 + PDF 自动文本提取）
+- 修改文件（unified diff patch，审核后应用或自动应用）
+- 创建 / 删除文件
+- 执行 shell 命令（bash / PowerShell）
+
+**Agent 智能**
+- 执行前制定 2-5 步计划，实时显示进度
+- 上下文过长时自动压缩早期对话为记忆摘要
+- 流式输出中断后自动从断点续接（最多 2 次）
+- 工具调用连续失败时主动提示 agent 换策略
+- Thinking chain（推理链）折叠/展开/预览
+
+**权限与安全**
+- 默认模式：写入、删除、patch、高风险命令需要审批
+- 完全访问模式：当前会话内自动执行，但仍保留需求澄清
+- 路径沙箱：agent 只能操作 workspace 内的文件
+- API Key 用 OS 级安全存储加密（非明文）
+
+**Git 集成**
+- 当前分支显示
+- 变更文件列表
+- 可视化 diff 查看
+- 自动生成 commit message 草稿
+
+**桌面体验**
+- 聊天会话按工作目录分组，可重命名、删除
+- 文件树、搜索和预览
+- 拖拽文件加入上下文
+- 双主题（明/暗/跟随系统）+ 中英双语
+- 两侧 sidebar 和底部输入框均可拖拽调整大小
+- 工具调用卡片（可折叠，带参数、结果和耗时）
+- Activity 日志面板
+- 计划面板
+- 模型接口测试和 DeepSeek 余额查询
+- 全局快捷键 `Ctrl+Shift+Space`（macOS: `Command+Shift+Space`）
+- 窗口关闭时可隐藏到系统托盘
+- 系统桌面通知
+- 后台提醒任务
+
+**工程质量**
+- TypeScript 类型检查
+- 27 个单元测试覆盖核心模块
+- 编码检查（mojibake 扫描）
+- 一条命令 `npm run check` 完成全量质检
+
+### 项目结构
+
 ```
-
-Non-secret settings are stored in `agent-config.json`. API keys are not written to that file.
-
-非密钥配置会保存到 `agent-config.json`。API key 不会写入该文件。
-
-## User Guide / 使用引导
-
-### 1. Create or select a session / 创建或选择会话
-
-After opening AgentDesk, the left sidebar shows chats by default. Sessions are grouped by their bound workspace. New sessions without a workspace appear under the unselected workspace group.
-
-打开 AgentDesk 后，左侧默认显示聊天栏。会话会按绑定的工作目录分组；未选择目录的新会话会显示在未选择工作目录分组下。
-
-Click the `+` button in the sidebar to create a new session. A new session does not inherit the previous workspace. The center panel shows the initial guide page.
-
-点击左侧 `+` 可以创建新会话。新会话不会继承旧工作目录，中间会话区会显示初始引导页。
-
-### 2. Choose a workspace / 选择工作目录
-
-On the guide page, click the folder selection button and choose the project directory you want the agent to work in.
-
-在引导页点击选择目录按钮，选择你希望 agent 操作的项目目录。
-
-After selection:
-
-选择后：
-
-- The current session is bound to that workspace.
-- 当前会话会绑定该工作目录。
-- File tree and Git status refresh.
-- 文件树和 Git 状态会刷新。
-- The session appears under that workspace group in the sidebar.
-- 该会话之后会在左侧按这个目录分组。
-
-### 3. Start a task / 开始任务
-
-Type a task directly, for example:
-
-你可以直接输入任务，例如：
-
-```text
-Read the README and tell me how to start this project.
-```
-
-You can also click a quick task on the guide page to fill the input box.
-
-也可以点击引导页上的快捷任务，让输入框自动填入常见任务提示。
-
-### 4. Add context files / 添加上下文文件
-
-There are three ways to add files:
-
-有三种方式可以添加文件：
-
-- Click the `+` button near the input box.
-- 点击输入框附近的 `+` 上传文件。
-- Drag files from Windows Explorer into the input area.
-- 从系统文件管理器拖拽文件到输入区。
-- Open a file in the Files view and add it to context.
-- 在 Files 视图中打开文件后加入上下文。
-
-Attachments are read through the main process. AgentDesk marks oversized, binary, truncated, and duplicated attachments in the UI.
-
-附件会通过主进程统一读取。AgentDesk 会在界面中标记超大、二进制、截断和重复附件等状态。
-
-### 5. Use sidebar sections / 切换左侧功能页
-
-The top of the sidebar contains three buttons:
-
-左侧顶部包含三个按钮：
-
-- `Chats`: chat sessions grouped by workspace.
-- `Chats`：按工作目录分组的聊天列表。
-- `Files`: file tree, search, and preview entry for the current workspace.
-- `Files`：当前工作目录的文件树、搜索和预览入口。
-- `Settings`: provider, model, API key, token budget, and agent step settings.
-- `Settings`：provider、模型、API key、token、上下文预算和 agent 步数设置。
-
-### 6. Permission modes / 权限模式
-
-The permission switch is near the input box.
-
-权限切换位于输入框附近。
-
-- Default access: read-only and low-risk commands can run automatically; writes, deletes, patches, and high-risk commands ask for approval.
-- 默认权限：只读和低风险命令可自动运行；写入、删除、patch 和高风险命令会请求确认。
-- Full access: command and file-change tools run automatically for the current chat and workspace, without permission popups.
-- 完全访问权限：当前聊天和工作目录内，命令和文件变更会自动执行，不再弹出权限审批。
-
-`ask_user` is not a permission approval. Even in full access mode, the agent can still ask you clarifying questions when requirements are unclear.
-
-`ask_user` 不属于权限审批。即使启用完全访问权限，agent 仍可以在需求不清楚时向你提问。
-
-## Windows Drag-and-Drop Notes / Windows 拖拽说明
-
-Native Windows file drag-and-drop is affected by process integrity level. If Electron is launched from a sandbox host, elevated terminal, MSIX container, or a context that differs from Explorer, Windows may block the drop before the page receives any drag event. In that case the cursor shows the forbidden symbol.
-
-Windows 原生文件拖拽会受到启动进程完整性级别影响。如果 Electron 从沙盒宿主、管理员终端、MSIX 容器，或与 Explorer 不同权限上下文中启动，系统可能会在页面收到拖拽事件前阻止拖放，鼠标会显示“禁止”符号。
-
-Recommended launch method:
-
-推荐启动方式：
-
-```powershell
-.\start-agent-window.cmd
-```
-
-Or start from a normal PowerShell window:
-
-或者从普通 PowerShell 窗口启动：
-
-```powershell
-npm run dev
-```
-
-Avoid testing drag-and-drop from an administrator terminal, sandbox host, or special automation environment.
-
-避免从管理员终端、沙盒宿主或特殊自动化环境中直接启动应用来测试拖拽。
-
-## Desktop Agent Layer / 桌面 Agent 系统层
-
-AgentDesk now runs more like a desktop agent instead of only a coding-agent window:
-
-AgentDesk 现在更接近桌面 agent，而不只是 coding-agent 窗口：
-
-- Closing the window hides it to the tray. Use the tray menu to show or quit the app.
-- 关闭窗口会隐藏到托盘；可以从托盘菜单重新显示或退出。
-- Global shortcut: `Ctrl+Shift+Space` on Windows/Linux, `Command+Shift+Space` on macOS.
-- 全局快捷键：Windows/Linux 为 `Ctrl+Shift+Space`，macOS 为 `Command+Shift+Space`。
-- Native notifications are shown when the agent waits for approval/input, fails, or finishes while the window is not focused.
-- 当 agent 等待确认/输入、失败，或窗口未聚焦时完成任务，会弹出系统通知。
-- The installed Windows NSIS build registers Explorer context menu entries for files and folders. A file opens as an attachment; a folder opens as the workspace. Portable builds do not write registry entries.
-- Windows 安装版会注册资源管理器文件/文件夹右键菜单。文件会作为附件打开，文件夹会作为 workspace 打开；便携版不会写注册表。
-- The model can call `system_clipboard`, `system_window_info`, `system_notify`, and `background_task` when the user asks for desktop/system behavior.
-- 当用户提出桌面/系统层需求时，模型可以调用 `system_clipboard`、`system_window_info`、`system_notify` 和 `background_task`。
-- Background tasks are persistent notification tasks. They survive app restarts while AgentDesk is installed, but they are not yet autonomous model runs.
-- 后台任务目前是持久化系统提醒任务，安装后可跨重启保留；它们还不是完全自主的模型后台运行。
-
-## Build Windows Packages / 打包 Windows 安装包
-
-Normal Windows build:
-
-普通 Windows 构建：
-
-```powershell
-npm run dist:win
-```
-
-If the current Windows environment cannot create signing-tool symlinks, use the unsigned build:
-
-如果当前 Windows 环境无法创建签名工具所需的符号链接，可以使用未签名构建：
-
-```powershell
-npm run dist:win:unsigned
-```
-
-Artifacts are written to `release/`:
-
-产物输出到 `release/`：
-
-- `AgentDesk-0.1.0-Setup-x64.exe`: installer.
-- `AgentDesk-0.1.0-Setup-x64.exe`：安装器。
-- `AgentDesk-0.1.0-Portable-x64.exe`: portable app.
-- `AgentDesk-0.1.0-Portable-x64.exe`：便携版。
-- `AgentDesk-0.1.0-win-x64.zip`: Windows x64 zip package.
-- `AgentDesk-0.1.0-win-x64.zip`：Windows x64 压缩包。
-
-Unsigned packages may trigger Windows SmartScreen or unknown publisher warnings.
-
-未签名安装包可能触发 Windows SmartScreen 或“未知发布者”提示。
-
-## Installer vs Portable / 安装版与便携版
-
-Installer:
-
-安装版：
-
-- Installs into the system user app directory.
-- 会安装到系统用户应用目录。
-- Provides an uninstall entry.
-- 有卸载入口。
-- Better for long-term use.
-- 更适合长期使用。
-
-Portable:
-
-便携版：
-
-- Runs directly without installation.
-- 不需要安装，双击运行。
-- Useful for quick testing or removable drives.
-- 适合临时测试或放在移动盘。
-- Does not fully register a system uninstall entry.
-- 不会完整注册系统卸载项。
-
-## Development Scripts / 开发脚本
-
-```powershell
-npm run dev               # start development app / 启动开发版
-npm run dev:clean         # clean old dev process on port 5173 / 清理占用 5173 的旧 dev 进程
-npm run build             # Vite production build / Vite 生产构建
-npm run pack              # create unpacked Electron app / 生成 unpacked Electron 应用
-npm run dist:win          # build Windows installer, portable app, and zip / 构建 Windows 产物
-npm run dist:win:unsigned # build unsigned Windows artifacts / 构建未签名 Windows 产物
-npm run check             # encoding check + typecheck + tests + build / 编码检查 + 类型检查 + 测试 + 构建
-```
-
-## Project Structure / 项目结构
-
-```text
 src/
-  main/        Electron main process, IPC, agent loop, tools, config, packaging logic
-  renderer/    React UI, sessions, file tree, settings, approvals, activity panels
-  shared/      Shared path safety, token, context budget, and provider logic
-scripts/       Dev/build preflight and encoding checks
-dist/          Vite build output, ignored by git
-release/       electron-builder artifacts, ignored by git
+  main/          Electron 主进程：IPC、Agent 循环、工具执行、Provider、配置、持久化
+  renderer/      React UI：会话管理、文件树、设置面板、审批、Activity 面板
+  shared/        共享模块：路径安全、Token 计数、上下文预算、PDF 提取
+scripts/         开发/构建预检和编码检查
+.hooks/          Git hooks
 ```
 
-## Quality Checks / 质量检查
+### AI 模型配置
 
-Before committing or releasing:
+| 设置 | 默认值 | 说明 |
+|------|--------|------|
+| Provider | DeepSeek | 也支持 OpenAI-compatible |
+| Model | `deepseek-v4-pro` | 100 万 context，最高 65536 输出 |
+| Summary Model | `deepseek-v4-flash` | 用于上下文压缩（更快更便宜） |
+| Thinking Mode | enabled | 推理链 |
+| Reasoning Effort | max | 推理深度 |
+| Temperature | 0.2 | 代码类任务建议低温 |
+| Max Agent Steps | 64 | 工具调用最大轮次（可调 8-256） |
 
-提交或发布前运行：
+### 可用工具
 
-```powershell
-npm run check
+| 工具 | 说明 |
+|------|------|
+| `list_files` | 列出工作区文件 |
+| `read_file` | 读取文本文件或 PDF（自动提取文本） |
+| `write_file` | 创建或覆写文件 |
+| `delete_file` | 删除文件 |
+| `apply_patch` | 应用 unified diff patch |
+| `search_files` | 全文搜索 |
+| `web_search` | 联网搜索 |
+| `run_command` | 执行 shell 命令 |
+| `ask_user` | 向用户提问澄清需求 |
+| `update_plan` | 更新执行计划 |
+
+### NPM 脚本
+
+```bash
+npm run dev               # 启动开发版
+npm run dev:clean         # 清理 dev 端口占用
+npm run build             # Vite 生产构建
+npm run pack              # 生成 unpacked Electron 应用
+npm run dist:win          # 构建 Windows 安装版的安装器和便携版
+npm run dist:win:unsigned # 构建未签名 Windows 产物
+npm run dist:mac          # 构建 macOS 产物
+npm run dist:linux        # 构建 Linux 产物
+npm run check             # 编码检查 + 类型检查 + 测试 + 构建
 ```
 
-This runs:
+---
 
-该命令会依次执行：
+# English
 
-- `npm run check:encoding`
-- `npm run typecheck`
-- `npm test`
-- `npm run build`
+## Quick Start
 
-The encoding check scans for common mojibake markers so damaged Chinese strings do not silently break UI text or logic.
+### Step 1: Install Node.js
 
-编码检查会扫描常见 mojibake 标记，避免中文源码字符串损坏后影响显示或逻辑判断。
+Requires Node.js 20+. On macOS:
 
-## Release Flow / 发布流程
-
-1. Run local checks.
-2. Build Windows artifacts.
-3. Commit source changes.
-4. Push to GitHub.
-5. Create or update a GitHub Release and upload installer, portable app, zip package, and update metadata.
-
-1. 确认本地检查通过。
-2. 构建 Windows 安装包。
-3. 提交源码改动。
-4. 推送到 GitHub。
-5. 创建或更新 GitHub Release，并上传安装器、便携版、zip 包和更新元数据。
-
-Example:
-
-示例：
-
-```powershell
-npm run check
-npm run dist:win:unsigned
-git add .
-git commit -m "Release AgentDesk v0.1.0"
-git push agentdesk main:main --force-with-lease
-gh release create v0.1.0 --repo Bruce082608/AgentDesk --title "AgentDesk v0.1.0" --notes-file release/release-notes-v0.1.0.md
+```bash
+brew install node
 ```
 
-### Auto Update / 自动更新
+On Windows, download from [nodejs.org](https://nodejs.org).
 
-The update checker is wired through `electron-updater`, but it is disabled until a feed URL is available. In a packaged app, set:
+### Step 2: Clone & Install
 
-自动更新检查已通过 `electron-updater` 接好，但需要发布 feed URL 后才会启用。打包后的应用可设置：
-
-```powershell
-$env:AGENTDESK_UPDATE_URL="https://your-domain.example/agentdesk-updates"
+```bash
+git clone https://github.com/Bruce082608/AgentDesk.git
+cd AgentDesk
+npm install
 ```
 
-The feed must host electron-builder update metadata such as `latest.yml` and the matching artifacts.
+### Step 3: Configure API Key
 
-该 feed 需要托管 electron-builder 生成的更新元数据，例如 `latest.yml` 和对应安装包。
+Enter the key in the app settings panel, or set it via environment variable:
 
-### Signed Packages / 签名安装包
+```bash
+# macOS / Linux
+export DEEPSEEK_API_KEY="your-key"
 
-Code signing is feasible but requires real signing credentials:
+# Windows (PowerShell)
+$env:DEEPSEEK_API_KEY="your-key"
+```
 
-签名安装包可行，但需要真实签名凭据：
+API keys are stored using OS-level encryption (macOS Keychain / Windows DPAPI) and are never written to the config file in plaintext.
 
-- Windows: provide `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`, or configure a certificate file for electron-builder.
-- Windows：提供 `WIN_CSC_LINK` 和 `WIN_CSC_KEY_PASSWORD`，或为 electron-builder 配置证书文件。
-- macOS: remove the current unsigned local-only identity override before release, then provide Apple Developer signing and notarization credentials.
-- macOS：正式发布前移除当前仅本地未签名的 identity override，并提供 Apple Developer 签名和 notarization 凭据。
+### Step 4: Start the Dev App
 
-## Current Limits / 当前限制
+```bash
+npm run dev
+```
 
-- Unsigned Windows packages may show system security warnings.
-- Windows 未签名安装包会出现系统安全提示。
-- Auto update needs a hosted update feed and signed release artifacts before it should be enabled for users.
-- 自动更新需要已托管的更新 feed 和已签名发布产物，之后才适合面向用户启用。
-- File context menu registration is implemented for Windows NSIS installers only.
-- 文件右键菜单注册目前只针对 Windows NSIS 安装版实现。
-- The Vite JavaScript chunk is currently larger than 500 KB. This is a build warning and does not block runtime.
-- Vite 输出的 JS chunk 当前超过 500 KB，这只是构建警告，不影响运行。
-- Full access mode is persisted per chat and workspace until you switch back to default mode.
-- 完全访问权限会按当前会话和 workspace 持久化，直到你手动切回默认权限。
-- Cross-platform packaging may require each target platform's native toolchain.
-- 跨平台打包仍可能需要对应平台工具链。
+The frontend runs on port `5173` with strict port mode. If the port is occupied:
+
+```bash
+npm run dev:clean
+npm run dev
+```
+
+### Step 5: Choose a Workspace
+
+In the app, click the "Files" tab → "Choose Folder," and pick the project directory you want the agent to work in.
+
+### Step 6: Start Chatting
+
+Type a task in the input box at the bottom, for example:
+
+> Read the README and tell me how to start this project.
+
+You can also drag and drop source files into the chat area — the agent reads them as context.
+
+---
+
+## Full Project Description
+
+### What It Is
+
+AgentDesk is a local desktop coding agent built with Electron, React, and TypeScript. Pick a workspace directory, and the agent can read files, search code, apply patches, run commands — all on your machine, nothing leaves your computer (except API calls to the model provider).
+
+It defaults to the DeepSeek API (`deepseek-v4-pro`, 1M context window, 65536 max output tokens, thinking mode on), and also supports any OpenAI Chat Completions–compatible gateway.
+
+### Capabilities
+
+**Code Operations**
+- File tree browsing and full‑text search (powered by ripgrep)
+- File reading: UTF‑8 text files, plus automatic PDF text extraction
+- File editing via unified diff patches (review‑and‑approve or auto‑apply)
+- Create / delete files
+- Shell command execution (bash on macOS/Linux, PowerShell on Windows)
+
+**Agent Intelligence**
+- Plan‑before‑act: 2–5 step plan shown in a live panel
+- Context compression: auto‑summarizes early conversation history when tokens run low
+- Stream recovery: resumes streaming from interruption (up to 2 attempts)
+- Tool failure recovery: informs the agent to change strategy after repeated failures
+- Thinking chain display: collapsible, preview, and full‑view modes
+
+**Permissions & Security**
+- Default mode: writes, deletes, patches, and high‑risk commands require user approval
+- Full access mode: commands and file changes auto‑execute for the current session only
+- Path sandbox: the agent can only touch files inside the workspace directory
+- API keys stored with OS‑level encryption (non‑plaintext, atomic writes)
+
+**Git Integration**
+- Current branch display
+- Changed‑file list
+- Visual diff viewer
+- Auto‑drafted commit message
+
+**Desktop Experience**
+- Chat sessions grouped by workspace, with rename and delete
+- File tree, search, and preview
+- Drag‑and‑drop file attachments
+- Dual theme (light / dark / follow system) + bilingual (Chinese / English)
+- Resizable sidebars and composer area
+- Tool call cards (collapsible, with args, results, and duration)
+- Activity log panel
+- Plan panel
+- Provider connection test + DeepSeek balance query
+- Global shortcut `Ctrl+Shift+Space` (`Command+Shift+Space` on macOS)
+- Hide to tray on close
+- Native desktop notifications
+- Background reminder tasks
+
+**Engineering Quality**
+- TypeScript across the stack
+- 27 unit tests covering core modules
+- Encoding check (mojibake scan for Chinese source strings)
+- One‑command quality gate: `npm run check`
+
+### Project Structure
+
+```
+src/
+  main/          Electron main process: IPC, agent loop, tool execution, providers, config, persistence
+  renderer/      React UI: sessions, file tree, settings, approvals, activity panels
+  shared/        Shared modules: path security, token counting, context budget, PDF extraction
+scripts/         Dev/build preflight and encoding checks
+.hooks/          Git hooks
+```
+
+### Model Configuration
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| Provider | DeepSeek | Also supports OpenAI‑compatible |
+| Model | `deepseek-v4-pro` | 1M context, up to 65536 output |
+| Summary Model | `deepseek-v4-flash` | Used for context compression (faster, cheaper) |
+| Thinking Mode | enabled | Reasoning chain |
+| Reasoning Effort | max | Depth of reasoning |
+| Temperature | 0.2 | Low temperature recommended for code |
+| Max Agent Steps | 64 | Tool call loop limit (adjustable 8–256) |
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_files` | List workspace files |
+| `read_file` | Read a text file or PDF (auto‑extracts text) |
+| `write_file` | Create or overwrite a file |
+| `delete_file` | Delete a file |
+| `apply_patch` | Apply a unified diff patch |
+| `search_files` | Full‑text workspace search |
+| `web_search` | Web search |
+| `run_command` | Execute a shell command |
+| `ask_user` | Ask the user a clarifying question |
+| `update_plan` | Update the visible execution plan |
+
+### NPM Scripts
+
+```bash
+npm run dev               # Start development app
+npm run dev:clean         # Kill old process on port 5173
+npm run build             # Vite production build
+npm run pack              # Create unpacked Electron app
+npm run dist:win          # Build Windows installer, portable, and zip
+npm run dist:win:unsigned # Build unsigned Windows artifacts
+npm run dist:mac          # Build macOS artifacts
+npm run dist:linux        # Build Linux artifacts
+npm run check             # Encoding check + typecheck + tests + build
+```
+
+### Current Limitations
+
+- Unsigned packages may trigger OS security warnings (SmartScreen on Windows, Gatekeeper on macOS).
+- Auto‑update requires a hosted update feed; currently disabled.
+- File context‑menu registration is implemented for Windows NSIS installers only.
+- Full access mode is scoped to the current chat and workspace; restarting the app restores default permissions.
+- Cross‑platform packaging may require each target platform's native toolchain.
