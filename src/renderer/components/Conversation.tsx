@@ -680,12 +680,13 @@ function TaskStatusIcon({ phase }: { phase: TaskStatus["phase"] }) {
 function ToolIcon({ name }: { name: string }) {
   const normalized = String(name || "").toLowerCase();
   const props = { size: 15, strokeWidth: 2.35, "aria-hidden": true as const };
-  if (normalized === "list_files") return <Files {...props} />;
-  if (normalized === "read_file") return <FileText {...props} />;
+  if (normalized === "list_files" || normalized === "workspace_map") return <Files {...props} />;
+  if (normalized === "read_file" || normalized === "read_files" || normalized === "read_file_range" || normalized === "read_result_chunk") return <FileText {...props} />;
   if (normalized === "search_files" || normalized === "web_search") return <Search {...props} />;
-  if (normalized === "run_command") return <Terminal {...props} />;
+  if (normalized === "run_command" || normalized === "start_command" || normalized === "read_command_output" || normalized === "stop_command") return <Terminal {...props} />;
+  if (normalized === "browser_page") return <Workflow {...props} />;
   if (normalized === "apply_patch") return <FileDiff {...props} />;
-  if (normalized === "write_file" || normalized === "delete_file") return <PenLine {...props} />;
+  if (normalized === "write_file" || normalized === "delete_file" || normalized === "replace_text") return <PenLine {...props} />;
   if (normalized === "ask_user") return <MessageSquareMore {...props} />;
   if (normalized === "update_plan") return <ListTodo {...props} />;
   if (normalized === "system_clipboard") return <ClipboardPaste {...props} />;
@@ -727,15 +728,24 @@ function toolActionLabel(name: string, language: Language) {
   const normalized = String(name || "").toLowerCase();
   const labels: Record<string, [string, string]> = {
     list_files: ["List files", "列出文件"],
+    workspace_map: ["Workspace map", "项目地图"],
     read_file: ["Read file", "读取文件"],
+    read_files: ["Read files", "批量读取文件"],
+    read_file_range: ["Read range", "读取行范围"],
+    read_result_chunk: ["Read result chunk", "读取结果分页"],
     search_files: ["Search files", "搜索文件"],
     web_search: ["Web search", "联网搜索"],
     write_file: ["Write file", "写入文件"],
     delete_file: ["Delete file", "删除文件"],
+    replace_text: ["Replace text", "替换文本"],
     apply_patch: ["Apply patch", "应用 Patch"],
     ask_user: ["Ask user", "询问用户"],
     update_plan: ["Update plan", "更新计划"],
     run_command: ["Run command", "运行命令"],
+    start_command: ["Start command", "启动命令"],
+    read_command_output: ["Read output", "读取命令输出"],
+    stop_command: ["Stop command", "停止命令"],
+    browser_page: ["Browser", "浏览器验证"],
     system_clipboard: ["Clipboard", "剪贴板"],
     system_window_info: ["Window info", "窗口信息"],
     system_notify: ["Notify", "系统通知"],
@@ -761,12 +771,47 @@ function summarizeToolCall(name: string, rawArgs: string | undefined, rawResult:
     return zh ? `已列出 ${count} 个文件${truncated}` : `Listed ${count} files${truncated}`;
   }
 
+  if (name === "workspace_map") {
+    const packageInfo = result?.package && typeof result.package === "object" ? result.package as Record<string, unknown> : null;
+    const scripts = packageInfo?.scripts && typeof packageInfo.scripts === "object" ? packageInfo.scripts as Record<string, unknown> : null;
+    const scriptCount = scripts
+      ? Object.keys(scripts).length
+      : 0;
+    const frameworkCount = Array.isArray(result?.frameworks) ? result.frameworks.length : 0;
+    return zh ? `已生成项目地图：${frameworkCount} 个框架，${scriptCount} 个脚本` : `Mapped workspace: ${frameworkCount} frameworks, ${scriptCount} scripts`;
+  }
+
   if (name === "read_file") {
     const path = stringValue(args?.path);
     const chars = stringValue(result?.result).length;
     return zh
       ? `已读取${path ? ` ${path}` : ""}${chars ? `，${chars.toLocaleString("zh-CN")} 字符` : ""}`
       : `Read${path ? ` ${path}` : ""}${chars ? `, ${chars.toLocaleString("en-US")} chars` : ""}`;
+  }
+
+  if (name === "read_files") {
+    const count = Array.isArray(result?.files) ? result.files.length : 0;
+    const failed = Array.isArray(result?.files) ? result.files.filter((file) => file && typeof file === "object" && file.ok === false).length : 0;
+    return zh
+      ? `已读取 ${count} 个文件${failed ? `，${failed} 个失败` : ""}`
+      : `Read ${count} files${failed ? `, ${failed} failed` : ""}`;
+  }
+
+  if (name === "read_file_range") {
+    const path = stringValue(result?.path) || stringValue(args?.path);
+    const start = Number(result?.startLine) || Number(args?.start_line) || 1;
+    const end = Number(result?.endLine) || Number(args?.end_line) || start;
+    return zh
+      ? `已读取${path ? ` ${path}` : ""} 第 ${start}-${end} 行`
+      : `Read${path ? ` ${path}` : ""} lines ${start}-${end}`;
+  }
+
+  if (name === "read_result_chunk") {
+    const chars = Number(result?.returnedChars) || stringValue(result?.chunk).length;
+    const hasMore = result?.hasMore;
+    return zh
+      ? `已读取结果分页 ${chars.toLocaleString("zh-CN")} 字符${hasMore ? "，还有更多" : ""}`
+      : `Read ${chars.toLocaleString("en-US")} result chars${hasMore ? ", more available" : ""}`;
   }
 
   if (name === "search_files" || name === "web_search") {
@@ -783,7 +828,36 @@ function summarizeToolCall(name: string, rawArgs: string | undefined, rawResult:
     return stdout ? (zh ? `命令完成：${truncateInline(stdout, 70)}` : `Command completed: ${truncateInline(stdout, 70)}`) : (zh ? "命令已完成" : "Command completed");
   }
 
-  if (name === "apply_patch" || name === "write_file" || name === "delete_file") {
+  if (name === "start_command") {
+    if (result?.pending) return zh ? "命令等待确认" : "Command is waiting for approval";
+    const id = stringValue(result?.sessionId);
+    return id ? (zh ? `后台命令已启动：${truncateInline(id, 36)}` : `Background command started: ${truncateInline(id, 36)}`) : (zh ? "后台命令已启动" : "Background command started");
+  }
+
+  if (name === "read_command_output") {
+    const output = stringValue(result?.output);
+    const running = result?.running;
+    return zh
+      ? `读取输出 ${output.length.toLocaleString("zh-CN")} 字符${running ? "，仍在运行" : "，已结束"}`
+      : `Read ${output.length.toLocaleString("en-US")} output chars${running ? ", still running" : ", exited"}`;
+  }
+
+  if (name === "stop_command") return zh ? "后台命令已请求停止" : "Background command stop requested";
+
+  if (name === "browser_page") {
+    const action = stringValue(result?.action) || stringValue(args?.action) || (stringValue(args?.url) ? "open" : "");
+    const errors = Array.isArray(result?.pageErrors) ? result.pageErrors.length : 0;
+    const consoleErrors = Array.isArray(result?.consoleErrors) ? result.consoleErrors.length : 0;
+    const url = stringValue(result?.url) || stringValue(args?.url);
+    const suffix = errors || consoleErrors
+      ? (zh ? `，发现 ${errors + consoleErrors} 个错误/警告` : `, ${errors + consoleErrors} errors/warnings`)
+      : "";
+    return zh
+      ? `浏览器 ${action || "操作"} 完成${url ? `：${truncateInline(url, 52)}` : ""}${suffix}`
+      : `Browser ${action || "action"} completed${url ? `: ${truncateInline(url, 52)}` : ""}${suffix}`;
+  }
+
+  if (name === "apply_patch" || name === "write_file" || name === "delete_file" || name === "replace_text") {
     if (result?.pending) return zh ? "变更等待确认" : "Change is waiting for approval";
     if (result?.applied || result?.written || result?.deleted) return zh ? "文件变更已应用" : "File change applied";
     return stringValue(result?.summary) || (zh ? "文件变更已生成" : "File change prepared");
@@ -802,10 +876,16 @@ function summarizeToolCall(name: string, rawArgs: string | undefined, rawResult:
 function summarizeRunningTool(name: string, args: Record<string, unknown> | null, language: Language) {
   const zh = language === "zh";
   const normalized = String(name || "").toLowerCase();
-  if (normalized === "read_file") {
+  if (normalized === "read_file" || normalized === "read_file_range") {
     const path = stringValue(args?.path);
     return path ? (zh ? `正在读取 ${truncateInline(path, 62)}` : `Reading ${truncateInline(path, 62)}`) : (zh ? "正在读取文件" : "Reading file");
   }
+  if (normalized === "read_files") {
+    const paths = Array.isArray(args?.paths) ? args.paths.length : 0;
+    return zh ? `正在批量读取 ${paths || ""} 个文件`.trim() : `Reading ${paths || ""} files`.trim();
+  }
+  if (normalized === "read_result_chunk") return zh ? "正在读取结果分页" : "Reading result chunk";
+  if (normalized === "workspace_map") return zh ? "正在生成项目地图" : "Mapping workspace";
   if (normalized === "list_files") {
     const directory = stringValue(args?.directory);
     return directory ? (zh ? `正在列出 ${truncateInline(directory, 62)}` : `Listing ${truncateInline(directory, 62)}`) : (zh ? "正在列出工作区文件" : "Listing workspace files");
@@ -814,9 +894,18 @@ function summarizeRunningTool(name: string, args: Record<string, unknown> | null
     const query = stringValue(args?.query);
     return query ? (zh ? `正在搜索：${truncateInline(query, 62)}` : `Searching for ${truncateInline(query, 62)}`) : (zh ? "正在搜索" : "Searching");
   }
-  if (normalized === "run_command") {
+  if (normalized === "run_command" || normalized === "start_command") {
     const command = stringValue(args?.command);
     return command ? (zh ? `正在运行：${truncateInline(command, 62)}` : `Running ${truncateInline(command, 62)}`) : (zh ? "正在运行命令" : "Running command");
+  }
+  if (normalized === "read_command_output") return zh ? "正在读取命令输出" : "Reading command output";
+  if (normalized === "stop_command") return zh ? "正在停止命令" : "Stopping command";
+  if (normalized === "browser_page") {
+    const action = stringValue(args?.action) || (stringValue(args?.url) ? "open" : "");
+    const url = stringValue(args?.url);
+    return zh
+      ? `正在执行浏览器 ${action || "操作"}${url ? `：${truncateInline(url, 58)}` : ""}`
+      : `Running browser ${action || "action"}${url ? `: ${truncateInline(url, 58)}` : ""}`;
   }
   if (normalized === "apply_patch") {
     const summary = stringValue(args?.summary);

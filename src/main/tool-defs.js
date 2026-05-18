@@ -54,6 +54,58 @@ export const toolDefinitions = [
   {
     type: "function",
     function: {
+      name: "read_files",
+      description: "Read multiple UTF-8 text files or PDFs in one call. Use this when several known files are needed for the same task. Respects the same path permissions as read_file and returns per-file success or error details.",
+      parameters: {
+        type: "object",
+        properties: {
+          paths: {
+            type: "array",
+            items: { type: "string" },
+            description: "File paths to read. Default mode accepts workspace-relative paths and exact attached absolute paths; full access mode accepts any filesystem path."
+          },
+          max_chars: { type: "number", description: "Total content budget across all files. Default 60000, maximum 200000." },
+          per_file_max_chars: { type: "number", description: "Per-file content budget. Default 40000, maximum 120000." }
+        },
+        required: ["paths"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_file_range",
+      description: "Read a line range from a UTF-8 text file. Use this for large files or precise patch context. PDFs are not supported by this range reader.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "File path to read." },
+          start_line: { type: "number", description: "1-based start line. Default 1." },
+          end_line: { type: "number", description: "1-based end line, inclusive. Default start_line + 200. Maximum span 1000 lines." }
+        },
+        required: ["path"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_result_chunk",
+      description: "Read another chunk from a large paginated tool result. Use this when a previous tool result returned result_id/resultId, hasMore, or paginated=true.",
+      parameters: {
+        type: "object",
+        properties: {
+          result_id: { type: "string", description: "Result id returned by a previous paginated tool result." },
+          resultId: { type: "string", description: "Camel-case alias for result_id." },
+          offset: { type: "number", description: "Character offset to read from. Use nextOffset from the previous chunk. Default 0." },
+          max_chars: { type: "number", description: "Maximum characters to return. Default 40000, maximum 120000." }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "write_file",
       description: "Create or overwrite a UTF-8 text file. Default mode is limited to the workspace and produces a reviewable patch. Full access mode accepts absolute paths, ~ paths, and parent-traversal paths outside the workspace, and writes immediately.",
       parameters: {
@@ -64,6 +116,25 @@ export const toolDefinitions = [
           summary: { type: "string", description: "Short summary shown to the user if approval is needed." }
         },
         required: ["path", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "replace_text",
+      description: "Replace exact text in a UTF-8 file. By default old_text must match exactly once, making small edits safer than whole-file rewrites. Default permission mode produces a reviewable patch; full access mode writes immediately.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "File path to edit." },
+          old_text: { type: "string", description: "Exact text to replace. Must match once unless replace_all or expected_replacements is supplied." },
+          new_text: { type: "string", description: "Replacement text." },
+          replace_all: { type: "boolean", description: "Replace all occurrences of old_text. Default false." },
+          expected_replacements: { type: "number", description: "Expected number of replacements. Default 1, or all matches when replace_all is true." },
+          summary: { type: "string", description: "Short summary shown to the user if approval is needed." }
+        },
+        required: ["path", "old_text", "new_text"]
       }
     }
   },
@@ -155,6 +226,47 @@ export const toolDefinitions = [
   {
     type: "function",
     function: {
+      name: "browser_page",
+      description: "Use a local Playwright browser page to validate web UI. Open localhost/file/http pages, click selectors, type into fields, take screenshots, evaluate JavaScript, and report console/page errors. Prefer this after frontend changes instead of relying only on build output.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", enum: ["open", "click", "type", "screenshot", "evaluate", "close"], description: "Browser action. Default open when url is supplied, otherwise screenshot." },
+          session_id: { type: "string", description: "Browser session id returned by open." },
+          url: { type: "string", description: "URL to open. localhost without a scheme is treated as http://. Existing file paths are opened as file:// URLs." },
+          selector: { type: "string", description: "CSS/text selector for click or type." },
+          text: { type: "string", description: "Text to type/fill when action is type." },
+          clear: { type: "boolean", description: "For type action, fill the field after clearing it. Default true." },
+          script: { type: "string", description: "JavaScript expression/function body for evaluate action." },
+          wait_ms: { type: "number", description: "Optional wait after the action. Default 250ms, maximum 10000ms." },
+          wait_until: { type: "string", enum: ["load", "domcontentloaded", "networkidle", "commit"], description: "Navigation wait mode for open. Default networkidle." },
+          screenshot: { type: "boolean", description: "Take a screenshot after open/click/type/evaluate. Default false." },
+          screenshot_path: { type: "string", description: "Optional path for screenshot PNG. Default .agentdesk/browser-screenshots/<timestamp>.png." },
+          full_page: { type: "boolean", description: "Capture full page screenshot. Default true." },
+          headless: { type: "boolean", description: "Run browser headless. Default true." },
+          viewport_width: { type: "number", description: "Viewport width. Default 1280." },
+          viewport_height: { type: "number", description: "Viewport height. Default 800." }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "workspace_map",
+      description: "Return a compact project map for the current workspace: detected frameworks, package scripts, likely entry files, important directories, git branch/status, and suggested validation commands. Use this early for project orientation.",
+      parameters: {
+        type: "object",
+        properties: {
+          include_files: { type: "boolean", description: "Include a compact top-level file/directory sample. Default true." },
+          max_files: { type: "number", description: "Maximum file/directory sample count. Default 80, maximum 200." }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "system_clipboard",
       description: "Read, write, or clear the operating system clipboard text. Use only when the user asks for clipboard-level desktop behavior.",
       parameters: {
@@ -225,6 +337,51 @@ export const toolDefinitions = [
           timeout_ms: { type: "number", description: "Default 30000, maximum 120000." }
         },
         required: ["command"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "start_command",
+      description: "Start a long-running shell command in the workspace and return a command session id. Use this for dev servers, watch tests, or commands whose output should be read incrementally. High-risk or side-effecting commands require approval unless full access or future command approval is enabled.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string" },
+          cwd: { type: "string", description: "Optional working directory. Default workspace. Full access mode may use paths outside the workspace." }
+        },
+        required: ["command"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_command_output",
+      description: "Read buffered output from a background command session started by start_command. Pass output_offset from the previous read to get only new output.",
+      parameters: {
+        type: "object",
+        properties: {
+          session_id: { type: "string", description: "Command session id returned by start_command." },
+          output_offset: { type: "number", description: "Character offset returned by a previous read. Default 0." },
+          max_chars: { type: "number", description: "Maximum output chars to return. Default 20000, maximum 100000." }
+        },
+        required: ["session_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "stop_command",
+      description: "Stop a background command session started by start_command.",
+      parameters: {
+        type: "object",
+        properties: {
+          session_id: { type: "string", description: "Command session id returned by start_command." }
+        },
+        required: ["session_id"]
       }
     }
   }

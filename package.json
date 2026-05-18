@@ -40,6 +40,7 @@
     "electron": "^41.5.0",
     "electron-builder": "^26.8.1",
     "highlight.js": "^11.11.1",
+    "playwright": "^1.60.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "typescript": "^5.9.0",

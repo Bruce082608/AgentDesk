@@ -64,6 +64,38 @@ describe("tools patch path validation", () => {
     ].join("\n");
     expect(() => __test__.validatePatchPaths(workspace, patch)).toThrow(/路径不安全/);
   });
+
+  it("falls back to context matching when git apply cannot use stale hunk line numbers", async () => {
+    const testWorkspace = path.join(os.tmpdir(), `agent-window-manual-patch-${Date.now()}`);
+    await fs.mkdir(testWorkspace, { recursive: true });
+    await fs.writeFile(path.join(testWorkspace, "target.txt"), "prefix\nold\nsuffix\n", "utf8");
+    const patch = [
+      "diff --git a/target.txt b/target.txt",
+      "--- a/target.txt",
+      "+++ b/target.txt",
+      "@@ -1,1 +1,1 @@",
+      "-old",
+      "+new",
+      ""
+    ].join("\n");
+
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "apply_patch",
+        arguments: JSON.stringify({ patch, summary: "Patch with stale line number" })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    expect(result.applied).toBe(true);
+    expect(result.strategy).toBe("manual unified diff fallback");
+    await expect(fs.readFile(path.join(testWorkspace, "target.txt"), "utf8")).resolves.toBe("prefix\nnew\nsuffix\n");
+
+    await fs.rm(testWorkspace, { recursive: true, force: true });
+  });
 });
 
 describe("tools scoped auto approval", () => {
@@ -107,6 +139,180 @@ describe("tools scoped auto approval", () => {
 });
 
 describe("tool execution permissions", () => {
+  it("returns a compact workspace map", async () => {
+    const testWorkspace = path.join(os.tmpdir(), `agent-window-map-${Date.now()}`);
+    await fs.mkdir(path.join(testWorkspace, "src"), { recursive: true });
+    await fs.writeFile(path.join(testWorkspace, "package.json"), JSON.stringify({
+      name: "map-test",
+      scripts: {
+        dev: "vite",
+        test: "vitest run",
+        build: "vite build"
+      },
+      dependencies: { react: "latest" },
+      devDependencies: { vite: "latest", vitest: "latest", typescript: "latest" }
+    }), "utf8");
+    await fs.writeFile(path.join(testWorkspace, "src", "main.tsx"), "console.log('entry');\n", "utf8");
+
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "workspace_map",
+        arguments: JSON.stringify({ include_files: true })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh"
+    }));
+
+    expect(result.package.name).toBe("map-test");
+    expect(result.frameworks).toEqual(expect.arrayContaining(["React", "Vite", "TypeScript", "Vitest"]));
+    expect(result.entryFiles).toContain("src/main.tsx");
+    expect(result.suggestedCommands).toEqual(expect.arrayContaining(["npm test", "npm run build", "npm run dev"]));
+
+    await fs.rm(testWorkspace, { recursive: true, force: true });
+  });
+
+  it("reads multiple files and line ranges efficiently", async () => {
+    const testWorkspace = path.join(os.tmpdir(), `agent-window-read-tools-${Date.now()}`);
+    await fs.mkdir(testWorkspace, { recursive: true });
+    await fs.writeFile(path.join(testWorkspace, "a.txt"), "alpha\nbeta\ngamma\n", "utf8");
+    await fs.writeFile(path.join(testWorkspace, "b.txt"), "one\ntwo\nthree\nfour\n", "utf8");
+
+    const batch = JSON.parse(await executeToolCall({
+      function: {
+        name: "read_files",
+        arguments: JSON.stringify({ paths: ["a.txt", "b.txt"], max_chars: 1000 })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh"
+    }));
+
+    const range = JSON.parse(await executeToolCall({
+      function: {
+        name: "read_file_range",
+        arguments: JSON.stringify({ path: "b.txt", start_line: 2, end_line: 3 })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh"
+    }));
+
+    expect(batch.files).toHaveLength(2);
+    expect(batch.files[0].content).toContain("alpha");
+    expect(range.content).toBe("two\nthree");
+    expect(range.startLine).toBe(2);
+    expect(range.endLine).toBe(3);
+
+    await fs.rm(testWorkspace, { recursive: true, force: true });
+  });
+
+  it("paginates large tool results and reads follow-up chunks", async () => {
+    const testWorkspace = path.join(os.tmpdir(), `agent-window-result-pages-${Date.now()}`);
+    await fs.mkdir(testWorkspace, { recursive: true });
+    await fs.writeFile(path.join(testWorkspace, "large.txt"), `${"x".repeat(80_000)}\n`, "utf8");
+
+    const first = JSON.parse(await executeToolCall({
+      function: {
+        name: "read_file",
+        arguments: JSON.stringify({ path: "large.txt" })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh"
+    }));
+
+    expect(first.paginated).toBe(true);
+    expect(first.result_id).toBeTruthy();
+    expect(first.hasMore).toBe(true);
+
+    const second = JSON.parse(await executeToolCall({
+      function: {
+        name: "read_result_chunk",
+        arguments: JSON.stringify({ result_id: first.result_id, offset: first.nextOffset, max_chars: 5000 })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh"
+    }));
+
+    expect(second.sourceTool).toBe("read_file");
+    expect(second.offset).toBe(first.nextOffset);
+    expect(second.chunk.length).toBeGreaterThan(0);
+
+    await fs.rm(testWorkspace, { recursive: true, force: true });
+  });
+
+  it("replaces exact text immediately in full access mode", async () => {
+    const testWorkspace = path.join(os.tmpdir(), `agent-window-replace-text-${Date.now()}`);
+    await fs.mkdir(testWorkspace, { recursive: true });
+    const target = path.join(testWorkspace, "replace.txt");
+    await fs.writeFile(target, "hello old world\n", "utf8");
+
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "replace_text",
+        arguments: JSON.stringify({ path: "replace.txt", old_text: "old", new_text: "new" })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    expect(result.written).toBe(true);
+    expect(result.replacements).toBe(1);
+    await expect(fs.readFile(target, "utf8")).resolves.toBe("hello new world\n");
+
+    await fs.rm(testWorkspace, { recursive: true, force: true });
+  });
+
+  it("queues exact text replacement as a patch in default mode", async () => {
+    const testWorkspace = path.join(os.tmpdir(), `agent-window-replace-patch-${Date.now()}`);
+    await fs.mkdir(testWorkspace, { recursive: true });
+    await fs.writeFile(path.join(testWorkspace, "replace.txt"), "before\n", "utf8");
+
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "replace_text",
+        arguments: JSON.stringify({ path: "replace.txt", old_text: "before", new_text: "after" })
+      }
+    }, {
+      workspace: testWorkspace,
+      sessionId: `replace-patch-${Date.now()}`,
+      language: "zh"
+    }));
+
+    expect(result.pending).toBe(true);
+    expect(result.patch).toContain("-before");
+    expect(result.patch).toContain("+after");
+
+    await fs.rm(testWorkspace, { recursive: true, force: true });
+  });
+
+  it("rejects ambiguous exact text replacements", async () => {
+    const testWorkspace = path.join(os.tmpdir(), `agent-window-replace-ambiguous-${Date.now()}`);
+    await fs.mkdir(testWorkspace, { recursive: true });
+    await fs.writeFile(path.join(testWorkspace, "replace.txt"), "same same\n", "utf8");
+
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "replace_text",
+        arguments: JSON.stringify({ path: "replace.txt", old_text: "same", new_text: "other" })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.detail).toContain("匹配了 2 次");
+    await expect(fs.readFile(path.join(testWorkspace, "replace.txt"), "utf8")).resolves.toBe("same same\n");
+
+    await fs.rm(testWorkspace, { recursive: true, force: true });
+  });
+
   it("persists normalized pending patches for approval resume", async () => {
     const patch = [
       "```diff",
@@ -151,6 +357,151 @@ describe("tool execution permissions", () => {
 
     expect(result.pending).toBeUndefined();
     expect(result.stdout).toContain("full-access-ok");
+  });
+
+  it("adds specific recovery guidance for missing commands", async () => {
+    await fs.mkdir(workspace, { recursive: true });
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "run_command",
+        arguments: JSON.stringify({ command: "definitely-not-a-real-agentdesk-command" })
+      }
+    }, {
+      workspace,
+      sessionId: "missing-command",
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnosis).toContain("命令");
+    expect(result.suggestedNextSteps.join("\n")).toContain("package.json");
+  });
+
+  it("opens a local Playwright browser page and reports diagnostics when available", async () => {
+    const html = encodeURIComponent("<!doctype html><title>Browser Tool</title><button id='go' onclick=\"document.body.dataset.clicked='yes'\">Go</button>");
+    const opened = JSON.parse(await executeToolCall({
+      function: {
+        name: "browser_page",
+        arguments: JSON.stringify({ action: "open", url: `data:text/html,${html}` })
+      }
+    }, {
+      workspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    if (opened.ok === false) {
+      expect(opened.suggestedNextSteps.join("\n")).toMatch(/playwright|浏览器|dev server/i);
+      return;
+    }
+
+    expect(opened.title).toBe("Browser Tool");
+    const clicked = JSON.parse(await executeToolCall({
+      function: {
+        name: "browser_page",
+        arguments: JSON.stringify({
+          action: "click",
+          session_id: opened.sessionId,
+          selector: "#go",
+          script: "document.body.dataset.clicked"
+        })
+      }
+    }, {
+      workspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+    expect(clicked.consoleErrors).toEqual([]);
+
+    const evaluated = JSON.parse(await executeToolCall({
+      function: {
+        name: "browser_page",
+        arguments: JSON.stringify({
+          action: "evaluate",
+          session_id: opened.sessionId,
+          script: "document.body.dataset.clicked"
+        })
+      }
+    }, {
+      workspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+    expect(evaluated.evaluation).toBe("yes");
+
+    await executeToolCall({
+      function: {
+        name: "browser_page",
+        arguments: JSON.stringify({ action: "close", session_id: opened.sessionId })
+      }
+    }, {
+      workspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    });
+  });
+
+  it("starts and reads background command sessions", async () => {
+    await fs.mkdir(workspace, { recursive: true });
+    const started = JSON.parse(await executeToolCall({
+      function: {
+        name: "start_command",
+        arguments: JSON.stringify({ command: "node -e \"setTimeout(() => console.log('session-ready'), 50)\"" })
+      }
+    }, {
+      workspace,
+      sessionId: "background-command",
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    let output = null;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      output = JSON.parse(await executeToolCall({
+        function: {
+          name: "read_command_output",
+          arguments: JSON.stringify({ session_id: started.sessionId })
+        }
+      }, {
+        workspace,
+        language: "zh"
+      }));
+      if (String(output.output || "").includes("session-ready")) break;
+    }
+
+    expect(started.sessionId).toBeTruthy();
+    expect(output.output).toContain("session-ready");
+    expect(output.running).toBe(false);
+  });
+
+  it("stops background command sessions", async () => {
+    await fs.mkdir(workspace, { recursive: true });
+    const started = JSON.parse(await executeToolCall({
+      function: {
+        name: "start_command",
+        arguments: JSON.stringify({ command: "node -e \"setInterval(() => console.log('tick'), 50)\"" })
+      }
+    }, {
+      workspace,
+      sessionId: "background-command-stop",
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    const stopped = JSON.parse(await executeToolCall({
+      function: {
+        name: "stop_command",
+        arguments: JSON.stringify({ session_id: started.sessionId })
+      }
+    }, {
+      workspace,
+      language: "zh"
+    }));
+
+    expect(stopped.stopped).toBe(true);
+    expect(stopped.sessionId).toBe(started.sessionId);
   });
 
   it("allows read-only access to exact files attached from outside the workspace", async () => {

@@ -13,6 +13,18 @@ const RECENT_HISTORY_RATIO_AFTER_SUMMARY = 0.45;
 const MAX_STREAM_RECOVERY_ATTEMPTS = 2;
 const SUMMARY_TOKEN_RATIO = 0.08;
 const SUMMARY_TRANSCRIPT_RATIO = 0.8;
+const PARALLEL_SAFE_TOOL_NAMES = new Set([
+  "list_files",
+  "read_file",
+  "read_files",
+  "read_file_range",
+  "search_files",
+  "web_search",
+  "workspace_map",
+  "read_command_output",
+  "read_result_chunk",
+  "system_window_info"
+]);
 const compressionCache = new Map();
 
 export async function runAgentTurn(payload, emit) {
@@ -57,10 +69,13 @@ export async function runAgentTurn(payload, emit) {
       "• Generate the patch using diff --git format with proper a/ and b/ path prefixes.",
       "Keep changes small and explain what you changed.",
       "Before doing substantive work, call update_plan with 2-5 concrete steps. Keep it updated as work progresses.",
+      "Editing preference: for small edits to existing code, strongly prefer replace_text with a precise old_text that matches exactly once. Use apply_patch only for multi-location, larger structural edits, or when replace_text is not expressive enough.",
       fullAccess
-        ? "When editing files, call apply_patch with a unified diff or use write_file/delete_file when clearer. In full access mode these changes are applied automatically."
-        : "When editing files, call apply_patch with a unified diff. The user must approve the patch before it is applied.",
-      "When you need project context, list files before reading.",
+        ? "When editing files, use replace_text for precise small edits, apply_patch for larger diffs, or write_file/delete_file when clearer. In full access mode these changes are applied automatically."
+        : "When editing files, use replace_text for precise small edits or apply_patch for larger diffs. The user must approve the change before it is applied.",
+      "Use workspace_map early when you need project orientation. Use read_files when you need several known files, read_file_range when you need only specific lines from a large file, and replace_text for precise small edits where old_text can be matched exactly.",
+      "If a tool result is paginated and returns result_id/resultId, use read_result_chunk with nextOffset to inspect the remaining output instead of rerunning the expensive tool.",
+      "For frontend or Electron/React changes, prefer start_command for the dev server and browser_page for real browser validation: open the page, interact with key controls, inspect console/page errors, and capture screenshots when useful.",
       fullAccess
         ? "read_file/write_file/delete_file/list_files can use absolute paths and paths outside the workspace. In default mode, read_file only accepts workspace-relative paths plus exact attached absolute paths."
         : "read_file accepts workspace-relative paths. It may also read exact absolute paths that the user attached or dragged into the conversation, including PDFs outside the workspace.",
@@ -291,93 +306,58 @@ async function processToolCalls({
   const recoveryMessages = [];
   const language = runtime.language;
 
-  for (let index = 0; index < toolCalls.length; index += 1) {
+  for (let index = 0; index < toolCalls.length;) {
     throwIfAborted(runtime.signal, language);
-    const toolCall = toolCalls[index];
-    const name = toolCall.function?.name ?? "unknown";
-    const rawArgs = toolCall.function?.arguments ?? "{}";
-    emit({ type: "tool_start", name, args: rawArgs, toolCallId: toolCall.id });
 
-    let result = "";
-    let parsed = null;
-    try {
-      result = await executeToolCall(toolCall, {
-        workspace: runtime.workspace,
-        requestId: runtime.requestId || "",
-        sessionId: runtime.sessionId || "",
-        language,
-        fullAccessAutoApproval: isRuntimeFullAccess(runtime),
-        attachments: runtime.attachments
-      });
-      parsed = parseToolResult(result);
-    } catch (error) {
-      const messageText = error instanceof Error ? error.message : String(error);
-      parsed = {
-        ok: false,
-        tool: name,
-        error: messageText,
-        errorType: "unexpected_tool_runner_error",
-        detail: "",
-        recoverable: true
-      };
-      result = JSON.stringify(parsed, null, 2);
-    }
-
-    if (isPendingApprovalTool(name, parsed)) {
-      await pauseForApproval({
-        runtime,
-        emit,
-        toolCall,
-        rawArgs,
-        parsed,
-        toolCalls,
-        nextToolIndex: index + 1,
-        step
-      });
-      emit({ type: "status", message: t(language, "agent.waitingUser") });
-      return { paused: true };
-    }
-
-    if (parsed?.ok === false) {
-      const failureKey = `${name}:${rawArgs}`;
-      const failureCount = (toolFailures.get(failureKey) || 0) + 1;
-      toolFailures.set(failureKey, failureCount);
-      if (counters.lastFailedToolName === name) {
-        counters.consecutiveFailedToolCount += 1;
-      } else {
-        counters.lastFailedToolName = name;
-        counters.consecutiveFailedToolCount = 1;
+    if (isParallelSafeToolCall(toolCalls[index])) {
+      const batch = [];
+      while (index < toolCalls.length && isParallelSafeToolCall(toolCalls[index])) {
+        const toolCall = toolCalls[index];
+        const name = toolCall.function?.name ?? "unknown";
+        const rawArgs = toolCall.function?.arguments ?? "{}";
+        emit({ type: "tool_start", name, args: rawArgs, toolCallId: toolCall.id });
+        batch.push({ toolCall, index });
+        index += 1;
       }
 
-      emit({ type: "tool_error", name, message: parsed.error || "Tool failed.", toolCallId: toolCall.id, result });
-      runtime.messages.push({
-        role: "tool",
-        tool_call_id: toolCall.id,
-        name,
-        content: result
-      });
-      recoveryMessages.push(buildToolRecoveryMessage(name, rawArgs, parsed, failureCount, counters.consecutiveFailedToolCount));
-
-      if (counters.consecutiveFailedToolCount >= 3) {
-        emit({
-          type: "status",
-          message: t(language, "agent.repeatedToolFailure", { name, count: counters.consecutiveFailedToolCount })
+      const executions = await Promise.all(batch.map(({ toolCall }) => executeRuntimeToolCall(toolCall, runtime, language)));
+      for (let batchIndex = 0; batchIndex < executions.length; batchIndex += 1) {
+        const execution = executions[batchIndex];
+        const nextToolIndex = batch[batchIndex].index + 1;
+        const handled = await handleToolExecution({
+          runtime,
+          emit,
+          toolCalls,
+          step,
+          toolFailures,
+          counters,
+          recoveryMessages,
+          execution,
+          nextToolIndex
         });
+        if (handled.paused) return { paused: true };
       }
       continue;
     }
 
-    counters.lastFailedToolName = "";
-    counters.consecutiveFailedToolCount = 0;
-    emit({ type: "tool_result", name, result, toolCallId: toolCall.id });
-    runtime.messages.push({
-      role: "tool",
-      tool_call_id: toolCall.id,
-      name,
-      content: result
+    const toolCall = toolCalls[index];
+    const name = toolCall.function?.name ?? "unknown";
+    const rawArgs = toolCall.function?.arguments ?? "{}";
+    emit({ type: "tool_start", name, args: rawArgs, toolCallId: toolCall.id });
+    const execution = await executeRuntimeToolCall(toolCall, runtime, language);
+    const handled = await handleToolExecution({
+      runtime,
+      emit,
+      toolCalls,
+      step,
+      toolFailures,
+      counters,
+      recoveryMessages,
+      execution,
+      nextToolIndex: index + 1
     });
-
-    emitToolDomainEvents({ emit, name, parsed, rawArgs, language });
+    if (handled.paused) return { paused: true };
+    index += 1;
   }
 
   if (recoveryMessages.length > 0) {
@@ -389,6 +369,114 @@ async function processToolCalls({
   }
 
   return { paused: false };
+}
+
+async function executeRuntimeToolCall(toolCall, runtime, language) {
+  const name = toolCall.function?.name ?? "unknown";
+  const rawArgs = toolCall.function?.arguments ?? "{}";
+  let result = "";
+  let parsed = null;
+  try {
+    result = await executeToolCall(toolCall, {
+      workspace: runtime.workspace,
+      requestId: runtime.requestId || "",
+      sessionId: runtime.sessionId || "",
+      language,
+      fullAccessAutoApproval: isRuntimeFullAccess(runtime),
+      attachments: runtime.attachments
+    });
+    parsed = parseToolResult(result);
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : String(error);
+    parsed = {
+      ok: false,
+      tool: name,
+      error: messageText,
+      errorType: "unexpected_tool_runner_error",
+      detail: "",
+      recoverable: true
+    };
+    result = JSON.stringify(parsed, null, 2);
+  }
+
+  return { toolCall, name, rawArgs, result, parsed };
+}
+
+async function handleToolExecution({
+  runtime,
+  emit,
+  toolCalls,
+  step,
+  toolFailures,
+  counters,
+  recoveryMessages,
+  execution,
+  nextToolIndex
+}) {
+  const language = runtime.language;
+  const { toolCall, name, rawArgs, result, parsed } = execution;
+
+  if (isPendingApprovalTool(name, parsed)) {
+    await pauseForApproval({
+      runtime,
+      emit,
+      toolCall,
+      rawArgs,
+      parsed,
+      toolCalls,
+      nextToolIndex,
+      step
+    });
+    emit({ type: "status", message: t(language, "agent.waitingUser") });
+    return { paused: true };
+  }
+
+  if (parsed?.ok === false) {
+    const failureKey = `${name}:${rawArgs}`;
+    const failureCount = (toolFailures.get(failureKey) || 0) + 1;
+    toolFailures.set(failureKey, failureCount);
+    if (counters.lastFailedToolName === name) {
+      counters.consecutiveFailedToolCount += 1;
+    } else {
+      counters.lastFailedToolName = name;
+      counters.consecutiveFailedToolCount = 1;
+    }
+
+    emit({ type: "tool_error", name, message: parsed.error || "Tool failed.", toolCallId: toolCall.id, result });
+    runtime.messages.push({
+      role: "tool",
+      tool_call_id: toolCall.id,
+      name,
+      content: result
+    });
+    recoveryMessages.push(buildToolRecoveryMessage(name, rawArgs, parsed, failureCount, counters.consecutiveFailedToolCount));
+
+    if (counters.consecutiveFailedToolCount >= 3) {
+      emit({
+        type: "status",
+        message: t(language, "agent.repeatedToolFailure", { name, count: counters.consecutiveFailedToolCount })
+      });
+    }
+    return { paused: false };
+  }
+
+  counters.lastFailedToolName = "";
+  counters.consecutiveFailedToolCount = 0;
+  emit({ type: "tool_result", name, result, toolCallId: toolCall.id });
+  runtime.messages.push({
+    role: "tool",
+    tool_call_id: toolCall.id,
+    name,
+    content: result
+  });
+
+  emitToolDomainEvents({ emit, name, parsed, rawArgs, language });
+  return { paused: false };
+}
+
+function isParallelSafeToolCall(toolCall) {
+  const name = toolCall?.function?.name ?? "";
+  return PARALLEL_SAFE_TOOL_NAMES.has(name);
 }
 
 async function pauseForApproval({
@@ -425,10 +513,12 @@ async function pauseForApproval({
 }
 
 function buildPendingApproval(name, rawArgs, parsed, language) {
-  if (name === "run_command") {
+  if (name === "run_command" || name === "start_command") {
     return {
       kind: "command",
       id: parsed.commandId,
+      toolName: name,
+      mode: parsed.mode || (name === "start_command" ? "start" : "run"),
       command: parsed.command,
       reason: parsed.riskReason || commandApprovalReason(parsed.highRisk, language),
       cwd: parsed.cwd || "",
@@ -507,12 +597,12 @@ function emitToolDomainEvents({ emit, name, parsed, rawArgs, language }) {
         strategy: parsed.strategy
       });
     }
-    if (name === "write_file" || name === "delete_file") {
+    if (name === "write_file" || name === "delete_file" || name === "replace_text") {
       if (parsed.written || parsed.deleted) {
         emit({
           type: "patch_applied",
           patchId: parsed.path,
-          summary: parsed.written ? `Wrote ${parsed.path}` : `Deleted ${parsed.path}`,
+          summary: name === "replace_text" ? `Updated ${parsed.path}` : parsed.written ? `Wrote ${parsed.path}` : `Deleted ${parsed.path}`,
           strategy: name
         });
       }
@@ -529,7 +619,7 @@ function emitToolDomainEvents({ emit, name, parsed, rawArgs, language }) {
 function isPendingApprovalTool(name, parsed) {
   return Boolean(
     parsed?.pending &&
-    ["run_command", "apply_patch", "write_file", "delete_file", "ask_user"].includes(name)
+    ["run_command", "start_command", "apply_patch", "write_file", "delete_file", "replace_text", "ask_user"].includes(name)
   );
 }
 
@@ -604,7 +694,7 @@ async function resolveContinuationDecision(continuation, payload, language) {
       const commandResult = await executeCommandRecord(commandRecord, { allowFuture: Boolean(payload.allowFuture), language });
       const output = parseToolResult(commandResult.result);
       return {
-        result: JSON.stringify({ ok: true, tool: "run_command", ...output }, null, 2),
+        result: JSON.stringify({ ok: true, tool: commandRecord.toolName || "run_command", ...output }, null, 2),
         state: commandResult
       };
     } catch (error) {
@@ -1178,5 +1268,6 @@ function selectRecentMessages(messages, contextTokens) {
 
 export const __test__ = {
   buildCompressionCacheKey,
-  getSummaryCompressionBudgets
+  getSummaryCompressionBudgets,
+  isParallelSafeToolCall
 };

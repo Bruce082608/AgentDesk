@@ -106,7 +106,8 @@ async function applyPatchText(pending) {
     await fs.writeFile(tempPath, pending.patch, "utf8");
     const strategy = await applyPatchWithStrategies(pending.workspace, tempPath, pending.language, {
       allowUnsafePaths: Boolean(pending.allowUnsafePaths),
-      patchPaths
+      patchPaths,
+      patchText: pending.patch
     });
     return {
       ok: true,
@@ -230,7 +231,17 @@ async function applyPatchWithStrategies(workspace, tempPath, language, options =
       lastError = error;
     }
   }
-  throw lastError;
+
+  try {
+    await applyUnifiedDiffManually(workspace, options.patchText || await fs.readFile(tempPath, "utf8"), language, options);
+    return "manual unified diff fallback";
+  } catch (manualError) {
+    if (lastError) {
+      lastError.stderr = [lastError.stderr, `Manual fallback failed: ${manualError.message}`].filter(Boolean).join("\n").trim();
+      throw lastError;
+    }
+    throw manualError;
+  }
 }
 
 function buildGitApplyStrategies(options = {}) {
@@ -275,6 +286,164 @@ async function runGitApply(workspace, args, language) {
     wrapped.stderr = error?.stderr;
     throw wrapped;
   }
+}
+
+async function applyUnifiedDiffManually(workspace, patchText, language, options = {}) {
+  const files = parseUnifiedDiffFiles(patchText, language);
+  if (files.length === 0) throw localizedError(language, "tools.invalidPatch");
+
+  const plannedChanges = [];
+  for (const filePatch of files) {
+    const targetPath = filePatch.newPath || filePatch.oldPath;
+    if (!targetPath) throw localizedError(language, "tools.invalidPatch");
+    const absolute = resolvePatchTargetPath(workspace, targetPath, language, options);
+    const previousContent = await fs.readFile(absolute, "utf8").catch((error) => {
+      if (error?.code === "ENOENT" && filePatch.oldPath === "") return "";
+      throw error;
+    });
+    const nextContent = applyHunksToContent(previousContent, filePatch.hunks, language, targetPath);
+    plannedChanges.push({
+      absolute,
+      nextContent,
+      deleteFile: filePatch.newPath === ""
+    });
+  }
+
+  for (const change of plannedChanges) {
+    if (change.deleteFile) {
+      await fs.rm(change.absolute, { force: true });
+    } else {
+      await fs.mkdir(path.dirname(change.absolute), { recursive: true });
+      await fs.writeFile(change.absolute, change.nextContent, "utf8");
+    }
+  }
+}
+
+function parseUnifiedDiffFiles(patchText, language) {
+  const lines = String(patchText || "").split(/\r?\n/);
+  const files = [];
+  let current = null;
+  let currentHunk = null;
+
+  function finishHunk() {
+    if (currentHunk && current) current.hunks.push(currentHunk);
+    currentHunk = null;
+  }
+
+  function finishFile() {
+    finishHunk();
+    if (current) files.push(current);
+    current = null;
+  }
+
+  for (const line of lines) {
+    const diffMatch = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+    if (diffMatch) {
+      finishFile();
+      current = {
+        oldPath: normalizeDiffPath(diffMatch[1]),
+        newPath: normalizeDiffPath(diffMatch[2]),
+        hunks: []
+      };
+      continue;
+    }
+
+    const oldMatch = line.match(/^--- (.+)$/);
+    if (oldMatch) {
+      if (!current) current = { oldPath: "", newPath: "", hunks: [] };
+      current.oldPath = normalizeDiffPath(oldMatch[1]);
+      continue;
+    }
+
+    const newMatch = line.match(/^\+\+\+ (.+)$/);
+    if (newMatch) {
+      if (!current) current = { oldPath: "", newPath: "", hunks: [] };
+      current.newPath = normalizeDiffPath(newMatch[1]);
+      continue;
+    }
+
+    const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    if (hunkMatch) {
+      if (!current) throw localizedError(language, "tools.invalidPatch");
+      finishHunk();
+      currentHunk = {
+        oldStart: Number(hunkMatch[1]),
+        oldCount: hunkMatch[2] === undefined ? 1 : Number(hunkMatch[2]),
+        newStart: Number(hunkMatch[3]),
+        newCount: hunkMatch[4] === undefined ? 1 : Number(hunkMatch[4]),
+        lines: []
+      };
+      continue;
+    }
+
+    if (currentHunk) {
+      if (line.startsWith("\\ No newline at end of file")) continue;
+      if (/^[ +\-]/.test(line)) currentHunk.lines.push(line);
+    }
+  }
+
+  finishFile();
+  return files.filter((file) => (file.oldPath || file.newPath) && file.hunks.length > 0);
+}
+
+function applyHunksToContent(content, hunks, language, filePath) {
+  let lines = splitDiffLines(content);
+  let offset = 0;
+
+  for (const hunk of hunks) {
+    const oldLines = hunk.lines
+      .filter((line) => line.startsWith(" ") || line.startsWith("-"))
+      .map((line) => line.slice(1));
+    const newLines = hunk.lines
+      .filter((line) => line.startsWith(" ") || line.startsWith("+"))
+      .map((line) => line.slice(1));
+    const expectedIndex = Math.max(0, hunk.oldStart - 1 + offset);
+    const index = findBestHunkIndex(lines, oldLines, expectedIndex);
+    if (index < 0) {
+      throw localizedError(language, "tools.manualPatchHunkFailed", { path: filePath, line: hunk.oldStart });
+    }
+    lines = [
+      ...lines.slice(0, index),
+      ...newLines,
+      ...lines.slice(index + oldLines.length)
+    ];
+    offset += newLines.length - oldLines.length;
+  }
+
+  return lines.length > 0 ? `${lines.join("\n")}\n` : "";
+}
+
+function findBestHunkIndex(lines, oldLines, expectedIndex) {
+  if (oldLines.length === 0) return Math.min(Math.max(expectedIndex, 0), lines.length);
+  if (sequenceMatchesAt(lines, oldLines, expectedIndex)) return expectedIndex;
+
+  const searchRadius = Math.max(200, oldLines.length * 4);
+  for (let distance = 1; distance <= searchRadius; distance += 1) {
+    const before = expectedIndex - distance;
+    if (before >= 0 && sequenceMatchesAt(lines, oldLines, before)) return before;
+    const after = expectedIndex + distance;
+    if (after <= lines.length && sequenceMatchesAt(lines, oldLines, after)) return after;
+  }
+
+  for (let index = 0; index <= lines.length - oldLines.length; index += 1) {
+    if (sequenceMatchesAt(lines, oldLines, index)) return index;
+  }
+  return -1;
+}
+
+function sequenceMatchesAt(lines, expectedLines, index) {
+  if (index < 0 || index + expectedLines.length > lines.length) return false;
+  for (let offset = 0; offset < expectedLines.length; offset += 1) {
+    if (lines[index + offset] !== expectedLines[offset]) return false;
+  }
+  return true;
+}
+
+function resolvePatchTargetPath(workspace, filePath, language, options = {}) {
+  if (options.allowUnsafePaths) {
+    return path.resolve(workspace || process.cwd(), filePath);
+  }
+  return resolveInsideWorkspace(workspace, filePath, language);
 }
 
 export function normalizeApprovalPayload(payload, kind) {

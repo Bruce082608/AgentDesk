@@ -797,9 +797,9 @@ export function useAgentEvents({
 function classifyToolPhase(name: string): TaskStatus["phase"] {
   const normalized = String(name || "").toLowerCase();
   if (!normalized) return "understanding";
-  if (["list_files", "read_file", "search_files", "web_search", "workspace_tree"].includes(normalized)) return "searching";
-  if (["write_file", "delete_file", "apply_patch"].includes(normalized)) return "editing";
-  if (["run_command", "system_clipboard", "system_window_info", "system_notify", "background_task"].includes(normalized)) return "running";
+  if (["list_files", "read_file", "read_files", "read_file_range", "read_result_chunk", "search_files", "web_search", "workspace_map", "workspace_tree", "read_command_output"].includes(normalized)) return "searching";
+  if (["write_file", "delete_file", "replace_text", "apply_patch"].includes(normalized)) return "editing";
+  if (["run_command", "start_command", "stop_command", "browser_page", "system_clipboard", "system_window_info", "system_notify", "background_task"].includes(normalized)) return "running";
   if (["ask_user", "update_plan"].includes(normalized)) return "waiting";
   return "understanding";
 }
