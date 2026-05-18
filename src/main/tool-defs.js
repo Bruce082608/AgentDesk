@@ -27,11 +27,11 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "list_files",
-      description: "List files in the current workspace. Use this before reading files when the target path is unknown.",
+      description: "List files in the current workspace. In full access mode, directory may also be an absolute path, ~ path, or parent-traversal path outside the workspace. Use this before reading files when the target path is unknown.",
       parameters: {
         type: "object",
         properties: {
-          directory: { type: "string", description: "Workspace-relative directory. Empty means workspace root." },
+          directory: { type: "string", description: "Workspace-relative directory. Empty means workspace root. Full access mode also accepts absolute paths, ~ paths, and paths outside the workspace." },
           max_files: { type: "number", description: "Maximum number of files to return, default 120." }
         }
       }
@@ -41,11 +41,11 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "read_file",
-      description: "Read a UTF-8 text file or a PDF from the workspace. Exact absolute paths attached by the user are also readable, including PDFs outside the workspace. PDF files are detected by the .pdf extension and text is extracted. Binary files other than PDF cannot be read.",
+      description: "Read a UTF-8 text file or a PDF. Default mode is limited to the workspace plus exact absolute paths attached by the user. Full access mode accepts absolute paths, ~ paths, and parent-traversal paths outside the workspace. PDF files are detected by the .pdf extension and text is extracted. Binary files other than PDF cannot be read.",
       parameters: {
         type: "object",
         properties: {
-          path: { type: "string", description: "Workspace-relative file path, or an exact absolute path from the attached files list." }
+          path: { type: "string", description: "Workspace-relative file path, exact attached absolute path, or any filesystem path in full access mode." }
         },
         required: ["path"]
       }
@@ -55,11 +55,11 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "write_file",
-      description: "Create or overwrite a UTF-8 text file in the workspace. In default permission mode this produces a reviewable patch; in full access mode it writes immediately.",
+      description: "Create or overwrite a UTF-8 text file. Default mode is limited to the workspace and produces a reviewable patch. Full access mode accepts absolute paths, ~ paths, and parent-traversal paths outside the workspace, and writes immediately.",
       parameters: {
         type: "object",
         properties: {
-          path: { type: "string", description: "Workspace-relative file path to create or overwrite." },
+          path: { type: "string", description: "Workspace-relative file path, or any filesystem path in full access mode." },
           content: { type: "string", description: "Complete file content." },
           summary: { type: "string", description: "Short summary shown to the user if approval is needed." }
         },
@@ -71,11 +71,11 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "delete_file",
-      description: "Delete a file from the workspace. In default permission mode this produces a reviewable deletion patch; in full access mode it deletes immediately.",
+      description: "Delete a file. Default mode is limited to the workspace and produces a reviewable deletion patch. Full access mode accepts absolute paths, ~ paths, and parent-traversal paths outside the workspace, and deletes immediately.",
       parameters: {
         type: "object",
         properties: {
-          path: { type: "string", description: "Workspace-relative file path to delete." },
+          path: { type: "string", description: "Workspace-relative file path, or any filesystem path in full access mode." },
           summary: { type: "string", description: "Short summary shown to the user if approval is needed." }
         },
         required: ["path"]
@@ -106,14 +106,14 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "apply_patch",
-      description: "Propose a unified diff patch. In default permission mode the user reviews it in the UI; in full access mode it is applied automatically.",
+      description: "Propose a unified diff patch. In default permission mode the user reviews it in the UI and paths must stay inside the workspace. In full access mode it is applied automatically and may target paths outside the workspace.",
       parameters: {
         type: "object",
         properties: {
           summary: { type: "string", description: "Short human-readable summary of the intended change." },
           patch: {
             type: "string",
-            description: "A complete unified diff, suitable for git apply, with paths relative to the workspace."
+            description: "A complete unified diff, suitable for git apply. Use workspace-relative paths by default; full access mode also permits unsafe paths outside the workspace."
           }
         },
         required: ["patch"]
@@ -139,12 +139,14 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "web_search",
-      description: "Search the web for current or external information. Use this when the user asks for latest/current facts, online information, documentation, news, prices, or anything not available in the workspace. Returns titles, URLs, and snippets.",
+      description: "Search the web for current or external information. Use this when the user asks for latest/current facts, online information, documentation, news, prices, or anything not available in the workspace. Returns deduplicated results with titles, URLs, snippets, and best-effort page excerpts for the top results.",
       parameters: {
         type: "object",
         properties: {
           query: { type: "string", description: "Search query." },
-          max_results: { type: "number", description: "Default 5, maximum 10." }
+          max_results: { type: "number", description: "Default 5, maximum 10." },
+          fetch_pages: { type: "boolean", description: "Whether to fetch page excerpts for top results. Default true." },
+          max_fetch_pages: { type: "number", description: "How many top result pages to fetch for excerpts. Default 3, maximum 5." }
         },
         required: ["query"]
       }

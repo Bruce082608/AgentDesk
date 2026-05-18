@@ -186,6 +186,97 @@ describe("tool execution permissions", () => {
     await fs.rm(externalFile, { force: true });
   });
 
+  it("allows full access file tools to operate outside the workspace", async () => {
+    await fs.mkdir(workspace, { recursive: true });
+    const externalDir = await fs.mkdtemp(path.join(os.tmpdir(), "agent-window-full-access-"));
+    const externalFile = path.join(externalDir, "outside.txt");
+
+    const writeResult = JSON.parse(await executeToolCall({
+      function: {
+        name: "write_file",
+        arguments: JSON.stringify({ path: externalFile, content: "outside workspace" })
+      }
+    }, {
+      workspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    const readResult = JSON.parse(await executeToolCall({
+      function: {
+        name: "read_file",
+        arguments: JSON.stringify({ path: externalFile })
+      }
+    }, {
+      workspace,
+      language: "zh",
+      fullAccessAutoApproval: true,
+      attachments: []
+    }));
+
+    const listResult = JSON.parse(await executeToolCall({
+      function: {
+        name: "list_files",
+        arguments: JSON.stringify({ directory: externalDir })
+      }
+    }, {
+      workspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    const deleteResult = JSON.parse(await executeToolCall({
+      function: {
+        name: "delete_file",
+        arguments: JSON.stringify({ path: externalFile })
+      }
+    }, {
+      workspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    expect(writeResult.written).toBe(true);
+    expect(readResult.result).toBe("outside workspace");
+    expect(listResult.files).toContain(externalFile);
+    expect(deleteResult.deleted).toBe(true);
+    await expect(fs.stat(externalFile)).rejects.toMatchObject({ code: "ENOENT" });
+
+    await fs.rm(externalDir, { recursive: true, force: true });
+  });
+
+  it("applies full access patches outside the workspace", async () => {
+    await fs.mkdir(workspace, { recursive: true });
+    const externalFile = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "agent-window-patch-access-")));
+    const targetFile = path.join(externalFile, "target.txt");
+    await fs.writeFile(targetFile, "old\n", "utf8");
+    const patch = [
+      `--- ${targetFile}`,
+      `+++ ${targetFile}`,
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      ""
+    ].join("\n");
+
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "apply_patch",
+        arguments: JSON.stringify({ patch, summary: "Patch outside workspace" })
+      }
+    }, {
+      workspace,
+      sessionId: "full-access-patch-outside",
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    expect(result.applied).toBe(true);
+    await expect(fs.readFile(targetFile, "utf8")).resolves.toBe("new\n");
+
+    await fs.rm(externalFile, { recursive: true, force: true });
+  });
+
   it("allows attached PDFs from outside the workspace through read_file", async () => {
     const externalPdf = path.join(os.tmpdir(), `agent-window-external-${Date.now()}.pdf`);
     await fs.writeFile(externalPdf, createTinyPdf("External PDF content"), "ascii");

@@ -47,7 +47,7 @@ export async function runAgentTurn(payload, emit) {
       "You may create, overwrite, or delete files with write_file/delete_file when that is clearer than a patch.",
       "If you need a missing decision or clarification from the user, call ask_user with one concise question and 2-6 clear options, then stop and wait for the user's selected option.",
       fullAccess
-        ? "Permission mode: FULL ACCESS. Shell commands, file writes/deletes, and patches are approved automatically for this chat and workspace. Do not ask the user for approval before using those tools. Use ask_user only for missing product decisions or clarifications."
+        ? "Permission mode: FULL ACCESS. Shell commands, file writes/deletes, and patches are approved automatically for this chat. File tools may use workspace-relative paths, parent-directory traversal, home paths such as ~, and absolute paths outside the workspace. Do not ask the user for approval before using those tools. Use ask_user only for missing product decisions or clarifications."
         : "Permission mode: DEFAULT. Side-effecting commands, file writes/deletes, and patches may require user approval before they take effect.",
       "CRITICAL - Patch Accuracy Rules:",
       "• Before generating a patch, always use read_file to get the LATEST content of the target file.",
@@ -61,7 +61,9 @@ export async function runAgentTurn(payload, emit) {
         ? "When editing files, call apply_patch with a unified diff or use write_file/delete_file when clearer. In full access mode these changes are applied automatically."
         : "When editing files, call apply_patch with a unified diff. The user must approve the patch before it is applied.",
       "When you need project context, list files before reading.",
-      "read_file accepts workspace-relative paths. It may also read exact absolute paths that the user attached or dragged into the conversation, including PDFs outside the workspace.",
+      fullAccess
+        ? "read_file/write_file/delete_file/list_files can use absolute paths and paths outside the workspace. In default mode, read_file only accepts workspace-relative paths plus exact attached absolute paths."
+        : "read_file accepts workspace-relative paths. It may also read exact absolute paths that the user attached or dragged into the conversation, including PDFs outside the workspace.",
       "When the user needs current or online information, use web_search and cite the returned URLs in your answer.",
       "Use PowerShell commands on Windows, and POSIX shell commands on macOS/Linux.",
       fullAccess
@@ -1138,7 +1140,7 @@ function recoveryGuidanceForError(errorType) {
     case "invalid_arguments":
       return "Recovery: fix the JSON/tool arguments schema before retrying. Do not repeat malformed arguments.";
     case "path_security":
-      return "Recovery: keep paths relative to the workspace and remove absolute paths or parent-directory traversal.";
+      return "Recovery: in default permission mode, keep paths relative to the workspace and remove absolute paths or parent-directory traversal. In full access mode, retry with a concrete absolute path.";
     case "timeout":
       return "Recovery: retry with a smaller scope, a narrower command, or a shorter output.";
     case "network":

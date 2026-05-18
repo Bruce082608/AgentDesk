@@ -158,7 +158,7 @@ export function Conversation({
   const hasAutoPermissions = commandAutoApproval || patchAutoApproval;
   const fullAccessEnabled = commandAutoApproval && patchAutoApproval;
   const autoPermissionTitle = [
-    language === "zh" ? "完全访问权限仅限当前会话和 workspace，直到你切回默认权限。" : "Full access is scoped to this chat and workspace until you switch back to default permissions.",
+    language === "zh" ? "完全访问权限仅限当前会话；文件工具可访问 workspace 外路径，直到你切回默认权限。" : "Full access is scoped to this chat; file tools can access paths outside the workspace until you switch back to default permissions.",
     commandAutoApproval ? (language === "zh" ? "命令无需审批。" : "Commands do not require approval.") : "",
     patchAutoApproval ? (language === "zh" ? "文件变更无需审批。" : "File changes do not require approval.") : ""
   ].filter(Boolean).join(" ");

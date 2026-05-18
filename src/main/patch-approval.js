@@ -20,7 +20,8 @@ export async function proposePatch(context, patch, summary = "") {
   const workspace = context.workspace;
   const patchText = ensureTrailingNewline(stripMarkdownFence(String(patch ?? "")));
   if (!patchText.trim()) throw localizedError(context.language, "tools.emptyPatch");
-  validatePatchPaths(workspace, patchText, context.language);
+  const allowUnsafePaths = Boolean(context.fullAccessAutoApproval);
+  validatePatchPaths(workspace, patchText, context.language, { allowUnsafePaths });
   const resolvedWorkspace = path.resolve(workspace);
 
   if (isAutoApprovalEnabled("patch", context)) {
@@ -29,7 +30,8 @@ export async function proposePatch(context, patch, summary = "") {
       workspace: resolvedWorkspace,
       patch: patchText,
       summary: String(summary || "Proposed patch"),
-      language: context.language
+      language: context.language,
+      allowUnsafePaths
     });
     return JSON.stringify({
       ok: true,
@@ -51,6 +53,7 @@ export async function proposePatch(context, patch, summary = "") {
     patch: patchText,
     summary: String(summary || "Proposed patch"),
     language: context.language,
+    allowUnsafePaths,
     createdAt: Date.now()
   });
 
@@ -94,18 +97,22 @@ export function discardPendingPatch(patchId) {
 }
 
 async function applyPatchText(pending) {
-  validatePatchPaths(pending.workspace, pending.patch, pending.language);
+  const patchPaths = validatePatchPaths(pending.workspace, pending.patch, pending.language, {
+    allowUnsafePaths: Boolean(pending.allowUnsafePaths)
+  });
   const tempPath = path.join(os.tmpdir(), `agent-window-${pending.id}.diff`);
 
   try {
     await fs.writeFile(tempPath, pending.patch, "utf8");
-    await runGitApply(pending.workspace, ["apply", "--check", "--recount", "--whitespace=nowarn", tempPath], pending.language);
-    await runGitApply(pending.workspace, ["apply", "--recount", "--whitespace=nowarn", tempPath], pending.language);
+    const strategy = await applyPatchWithStrategies(pending.workspace, tempPath, pending.language, {
+      allowUnsafePaths: Boolean(pending.allowUnsafePaths),
+      patchPaths
+    });
     return {
       ok: true,
       patchId: pending.id,
       summary: pending.summary,
-      strategy: "git apply --recount"
+      strategy
     };
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {});
@@ -118,7 +125,8 @@ export async function applyPatchRecord(pending) {
     workspace: pending.workspace,
     patch: pending.patch,
     summary: pending.summary || "Proposed patch",
-    language: normalizeLanguage(pending.language)
+    language: normalizeLanguage(pending.language),
+    allowUnsafePaths: Boolean(pending.allowUnsafePaths)
   });
 }
 
@@ -161,30 +169,34 @@ function formatDiffRange(count) {
   return count > 0 ? `1,${count}` : "0,0";
 }
 
-export function validatePatchPaths(workspace, patchText, language) {
-  const paths = extractPatchPaths(patchText, language);
+export function validatePatchPaths(workspace, patchText, language, options = {}) {
+  const paths = extractPatchPaths(patchText, language, options);
   if (paths.length === 0) {
     throw localizedError(language, "tools.invalidPatch");
   }
 
+  if (options.allowUnsafePaths) return paths;
+
   for (const filePath of paths) {
     resolveInsideWorkspace(workspace, filePath, language);
   }
+
+  return paths;
 }
 
-export function extractPatchPaths(patchText, language = "zh") {
+export function extractPatchPaths(patchText, language = "zh", options = {}) {
   const paths = new Set();
   for (const line of patchText.split(/\r?\n/)) {
     const gitMatch = line.match(/^diff --git a\/(.+) b\/(.+)$/);
     if (gitMatch) {
-      addPatchPath(paths, gitMatch[1], language);
-      addPatchPath(paths, gitMatch[2], language);
+      addPatchPath(paths, gitMatch[1], language, options);
+      addPatchPath(paths, gitMatch[2], language, options);
       continue;
     }
 
     const fileMatch = line.match(/^(---|\+\+\+) (.+)$/);
     if (fileMatch) {
-      addPatchPath(paths, normalizeDiffPath(fileMatch[2]), language);
+      addPatchPath(paths, normalizeDiffPath(fileMatch[2]), language, options);
     }
   }
   return [...paths];
@@ -197,13 +209,72 @@ function normalizeDiffPath(rawPath) {
   return clean;
 }
 
-function addPatchPath(paths, filePath, language) {
+function addPatchPath(paths, filePath, language, options = {}) {
   const normalized = normalizeDiffPath(filePath).replaceAll("\\", "/");
   if (!normalized) return;
-  if (normalized.startsWith("/") || normalized.includes("../") || normalized === ".." || normalized.startsWith("../")) {
+  if (!options.allowUnsafePaths && (normalized.startsWith("/") || normalized.includes("../") || normalized === ".." || normalized.startsWith("../"))) {
     throw localizedError(language, "tools.unsafePatchPath", { path: filePath });
   }
   paths.add(normalized);
+}
+
+async function applyPatchWithStrategies(workspace, tempPath, language, options = {}) {
+  const strategies = buildGitApplyStrategies(options);
+  let lastError = null;
+  for (const strategy of strategies) {
+    try {
+      await runGitApply(workspace, [...strategy.checkArgs, tempPath], language);
+      await runGitApply(workspace, [...strategy.applyArgs, tempPath], language);
+      return strategy.label;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+function buildGitApplyStrategies(options = {}) {
+  const base = ["apply", "--recount", "--whitespace=nowarn"];
+  if (!options.allowUnsafePaths) {
+    return [{
+      label: "git apply --recount",
+      checkArgs: ["apply", "--check", "--recount", "--whitespace=nowarn"],
+      applyArgs: base
+    }];
+  }
+
+  const unsafeBase = ["apply", "--unsafe-paths", "--recount", "--whitespace=nowarn"];
+  const strategies = [{
+    label: "git apply --unsafe-paths --recount",
+    checkArgs: ["apply", "--check", "--unsafe-paths", "--recount", "--whitespace=nowarn"],
+    applyArgs: unsafeBase
+  }];
+
+  if ((options.patchPaths || []).some((filePath) => path.isAbsolute(filePath))) {
+    strategies.push({
+      label: "git apply --unsafe-paths -p0 --recount",
+      checkArgs: ["apply", "--check", "--unsafe-paths", "-p0", "--recount", "--whitespace=nowarn"],
+      applyArgs: ["apply", "--unsafe-paths", "-p0", "--recount", "--whitespace=nowarn"]
+    });
+  }
+
+  return strategies;
+}
+
+async function runGitApply(workspace, args, language) {
+  try {
+    await execFileAsync("git", args, {
+      cwd: path.resolve(workspace || process.cwd()),
+      windowsHide: true,
+      maxBuffer: 2_000_000
+    });
+  } catch (error) {
+    const wrapped = localizedError(language, "tools.gitApplyFailed");
+    wrapped.code = error?.code;
+    wrapped.stdout = error?.stdout;
+    wrapped.stderr = error?.stderr;
+    throw wrapped;
+  }
 }
 
 export function normalizeApprovalPayload(payload, kind) {

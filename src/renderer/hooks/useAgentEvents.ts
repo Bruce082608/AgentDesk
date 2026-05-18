@@ -860,7 +860,7 @@ function getAgentEventLabels(language: Language) {
       patchAutoApplyDisabledBody: "Future file changes will ask for confirmation again.",
       commandAutoRunEnabled: "Command auto-run enabled",
       commandAutoRunDisabled: "Command auto-run disabled",
-      autoPermissionScoped: "Only applies to this chat and workspace until you switch back.",
+      autoPermissionScoped: "Only applies to this chat until you switch back. File tools can access paths outside the workspace.",
       commandNeedsConfirm: "High-risk or side-effect commands will ask for confirmation.",
       patchAutoApplyEnabled: "Patch auto-apply enabled",
       patchNeedsConfirm: "File writes, deletes, and patches will ask for confirmation."
@@ -896,7 +896,7 @@ function getAgentEventLabels(language: Language) {
     patchAutoApplyDisabledBody: "agent 后续文件变更会再次请求确认。",
     commandAutoRunEnabled: "已启用命令自动执行",
     commandAutoRunDisabled: "已关闭命令自动执行",
-    autoPermissionScoped: "仅当前会话和 workspace 生效，直到你切回默认权限。",
+    autoPermissionScoped: "仅当前会话生效，文件工具可访问 workspace 外路径，直到你切回默认权限。",
     commandNeedsConfirm: "高危或副作用命令会请求确认。",
     patchAutoApplyEnabled: "已启用 Patch 自动应用",
     patchNeedsConfirm: "文件写入、删除和 patch 会请求确认。"

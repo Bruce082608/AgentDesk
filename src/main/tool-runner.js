@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -44,7 +45,7 @@ async function executeToolImplementation(name, args, context) {
   if (isSystemTool(name)) return executeSystemTool(name, args, context);
   switch (name) {
     case "list_files":
-      return listFiles(workspace, args.directory || "", args.max_files || 120, context.language);
+      return listFiles(context, args.directory || "", args.max_files || 120);
     case "read_file":
       return readFile(context, args.path);
     case "write_file":
@@ -58,7 +59,10 @@ async function executeToolImplementation(name, args, context) {
     case "search_files":
       return searchFiles(workspace, args.query, args.max_results || 50, context.language);
     case "web_search":
-      return webSearch(args.query, args.max_results || 5, context.language);
+      return webSearch(args.query, args.max_results || 5, context.language, {
+        fetchPages: args.fetch_pages !== false,
+        maxFetchPages: args.max_fetch_pages
+      });
     case "run_command":
       return runCommand(context, args.command, args.timeout_ms || 30_000);
     case "update_plan":
@@ -156,8 +160,12 @@ function parseToolArgs(raw, language) {
   }
 }
 
-async function listFiles(workspace, directory, maxFiles, language) {
-  const root = resolveInsideWorkspace(workspace, directory || ".", language);
+async function listFiles(context, directory, maxFiles) {
+  const workspace = context.workspace;
+  const root = resolveDirectoryPath(context, directory || ".");
+  const workspaceRoot = path.resolve(workspace);
+  const requestedDirectory = String(directory ?? "").trim();
+  const useAbsoluteOutput = isFullAccess(context) && (path.isAbsolute(expandHomePath(requestedDirectory)) || isOutsideWorkspace(workspaceRoot, root));
   const limit = Math.min(Number(maxFiles) || 120, 500);
   const files = [];
 
@@ -168,11 +176,12 @@ async function listFiles(workspace, directory, maxFiles, language) {
       if (files.length >= limit) break;
       if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
       const absolute = path.join(current, entry.name);
-      const relative = path.relative(workspace, absolute).replaceAll("\\", "/");
+      const relative = path.relative(workspaceRoot, absolute).replaceAll("\\", "/");
+      const displayPath = useAbsoluteOutput ? absolute : relative;
       if (entry.isDirectory()) {
         await walk(absolute);
       } else if (entry.isFile()) {
-        files.push(relative);
+        files.push(displayPath);
       }
     }
   }
@@ -234,44 +243,40 @@ function formatToolBytes(bytes) {
 }
 
 async function writeFile(context, filePath, content, summary = "") {
-  const workspace = context.workspace;
-  const normalizedPath = normalizeWorkspacePath(filePath, context.language);
-  const absolute = resolveInsideWorkspace(workspace, normalizedPath, context.language);
+  const { absolute, displayPath } = resolveMutableFilePath(context, filePath);
   const nextContent = String(content ?? "");
   if (Buffer.byteLength(nextContent, "utf8") > MAX_FILE_BYTES * 2) {
-    throw localizedError(context.language, "tools.contentTooLarge", { path: normalizedPath, limit: MAX_FILE_BYTES * 2 });
+    throw localizedError(context.language, "tools.contentTooLarge", { path: displayPath, limit: MAX_FILE_BYTES * 2 });
   }
 
   if (isAutoApprovalEnabled("patch", context)) {
     await fs.mkdir(path.dirname(absolute), { recursive: true });
     await fs.writeFile(absolute, nextContent, "utf8");
-    return JSON.stringify({ ok: true, written: true, path: normalizedPath, bytes: Buffer.byteLength(nextContent, "utf8") }, null, 2);
+    return JSON.stringify({ ok: true, written: true, path: displayPath, absolutePath: absolute, bytes: Buffer.byteLength(nextContent, "utf8") }, null, 2);
   }
 
   const previousContent = await fs.readFile(absolute, "utf8").catch((error) => {
     if (error?.code === "ENOENT") return null;
     throw error;
   });
-  const patch = buildWholeFilePatch(normalizedPath, previousContent, nextContent);
-  const result = JSON.parse(await proposePatch(context, patch, summary || `${previousContent === null ? "Create" : "Update"} ${normalizedPath}`));
+  const patch = buildWholeFilePatch(displayPath, previousContent, nextContent);
+  const result = JSON.parse(await proposePatch(context, patch, summary || `${previousContent === null ? "Create" : "Update"} ${displayPath}`));
   return JSON.stringify({ ...result, patch }, null, 2);
 }
 
 async function deleteFile(context, filePath, summary = "") {
-  const workspace = context.workspace;
-  const normalizedPath = normalizeWorkspacePath(filePath, context.language);
-  const absolute = resolveInsideWorkspace(workspace, normalizedPath, context.language);
+  const { absolute, displayPath } = resolveMutableFilePath(context, filePath);
   const stat = await fs.stat(absolute);
-  if (!stat.isFile()) throw localizedError(context.language, "tools.notFile", { path: normalizedPath });
+  if (!stat.isFile()) throw localizedError(context.language, "tools.notFile", { path: displayPath });
 
   if (isAutoApprovalEnabled("patch", context)) {
     await fs.rm(absolute, { force: true });
-    return JSON.stringify({ ok: true, deleted: true, path: normalizedPath }, null, 2);
+    return JSON.stringify({ ok: true, deleted: true, path: displayPath, absolutePath: absolute }, null, 2);
   }
 
   const previousContent = await fs.readFile(absolute, "utf8");
-  const patch = buildWholeFilePatch(normalizedPath, previousContent, null);
-  const result = JSON.parse(await proposePatch(context, patch, summary || `Delete ${normalizedPath}`));
+  const patch = buildWholeFilePatch(displayPath, previousContent, null);
+  const result = JSON.parse(await proposePatch(context, patch, summary || `Delete ${displayPath}`));
   return JSON.stringify({ ...result, patch }, null, 2);
 }
 
@@ -313,7 +318,7 @@ async function searchFiles(workspace, query, maxResults, language) {
   }).catch(() => null);
   if (rgResults) return JSON.stringify(rgResults, null, 2);
 
-  const filesJson = await listFiles(workspace, ".", 400);
+  const filesJson = await listFiles({ workspace, language, fullAccessAutoApproval: false, attachments: [] }, ".", 400);
   const files = JSON.parse(filesJson).files;
   const results = [];
   const limit = Math.min(Number(maxResults) || 50, 100);
@@ -520,11 +525,67 @@ function normalizeToolContext(context) {
 
 function resolveReadableFilePath(context, filePath) {
   const requestedPath = String(filePath ?? "");
+  if (isFullAccess(context)) return resolveAnyPath(context, requestedPath);
   if (path.isAbsolute(requestedPath)) {
     const absolute = path.resolve(requestedPath);
     if (isAttachedPathAllowed(absolute, context.attachments)) return absolute;
   }
   return resolveInsideWorkspace(context.workspace, requestedPath, context.language);
+}
+
+function resolveDirectoryPath(context, directory) {
+  const requestedPath = String(directory ?? "").trim();
+  if (isFullAccess(context)) return resolveAnyPath(context, requestedPath || ".");
+  return resolveInsideWorkspace(context.workspace, requestedPath || ".", context.language);
+}
+
+function resolveMutableFilePath(context, filePath) {
+  const requestedPath = requireToolPath(filePath, context.language);
+  if (!isFullAccess(context)) {
+    const displayPath = normalizeWorkspacePath(requestedPath, context.language);
+    return {
+      absolute: resolveInsideWorkspace(context.workspace, displayPath, context.language),
+      displayPath
+    };
+  }
+
+  const absolute = resolveAnyPath(context, requestedPath);
+  return {
+    absolute,
+    displayPath: formatFullAccessDisplayPath(requestedPath, absolute)
+  };
+}
+
+function resolveAnyPath(context, filePath) {
+  const requestedPath = requireToolPath(filePath, context.language);
+  return path.resolve(context.workspace || process.cwd(), expandHomePath(requestedPath));
+}
+
+function requireToolPath(filePath, language) {
+  const requestedPath = String(filePath ?? "").trim();
+  if (!requestedPath) throw localizedError(language, "tools.emptyPath");
+  return requestedPath;
+}
+
+function expandHomePath(filePath) {
+  const value = String(filePath ?? "");
+  if (value === "~") return os.homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) return path.join(os.homedir(), value.slice(2));
+  return value;
+}
+
+function formatFullAccessDisplayPath(requestedPath, absolute) {
+  if (path.isAbsolute(expandHomePath(requestedPath))) return absolute;
+  return requestedPath.replaceAll("\\", "/");
+}
+
+function isOutsideWorkspace(workspaceRoot, targetPath) {
+  const relative = path.relative(workspaceRoot, targetPath);
+  return relative.startsWith("..") || path.isAbsolute(relative);
+}
+
+function isFullAccess(context) {
+  return Boolean(context?.fullAccessAutoApproval);
 }
 
 function normalizeAttachmentPaths(attachments) {
