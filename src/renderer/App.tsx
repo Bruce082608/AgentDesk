@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { ActivityPanel } from "./components/ActivityPanel";
 import { Conversation } from "./components/Conversation";
 import { Sidebar } from "./components/Sidebar";
+import { SettingsModal } from "./components/SettingsModal";
 import type { AttachedFile, OpenPathsPayload } from "./global";
 import type { Language } from "./i18n";
 import { translations } from "./i18n";
@@ -52,6 +53,7 @@ function App() {
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all");
   const [activitySearch, setActivitySearch] = useState("");
   const [sidebarSection, setSidebarSection] = useState<SidebarSection>("chats");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageStats>(() => emptyTokenUsage());
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [retryRequest, setRetryRequest] = useState<null | {
@@ -571,23 +573,17 @@ function App() {
     >
       <Sidebar
         activeSessionId={sessionState.activeSessionId}
-        balanceResult={providerState.balanceResult}
         busy={agentState.busy}
         cancelRenameSession={sessionState.cancelRenameSession}
         cancelSearchWorkspace={workspaceState.cancelSearchWorkspace}
-        checkingBalance={providerState.checkingBalance}
         chooseWorkspace={chooseWorkspace}
         commitRenameSession={sessionState.commitRenameSession}
-        config={providerState.config}
-        configPath={providerState.configPath}
         deleteSession={sessionState.deleteSession}
         expandedDirs={workspaceState.expandedDirs}
         fileSearch={workspaceState.fileSearch}
         language={language}
         loadingDirs={workspaceState.loadingDirs}
         openFile={workspaceState.openFile}
-        providerHint={providerState.providerHint}
-        queryBalance={providerState.queryBalance}
         renamingSessionId={sessionState.renamingSessionId}
         renamingTitle={sessionState.renamingTitle}
         searchResults={workspaceState.searchResults}
@@ -595,7 +591,6 @@ function App() {
         searchWorkspace={workspaceState.searchWorkspace}
         selectSession={sessionState.selectSession}
         sessions={sessionState.sessions}
-        setConfig={providerState.setConfig}
         setFileSearch={workspaceState.setFileSearch}
         setRenamingTitle={sessionState.setRenamingTitle}
         setSidebarSection={setSidebarSection}
@@ -603,14 +598,11 @@ function App() {
         startNewSession={sessionState.startNewSession}
         startRenameSession={sessionState.startRenameSession}
         t={t}
-        testingApi={providerState.testingApi}
-        testApi={providerState.testApi}
-        tokenUsage={tokenUsage}
         toggleDirectory={workspaceState.toggleDirectory}
         tree={workspaceState.tree}
-        updateProvider={providerState.updateProvider}
         visibleTree={workspaceState.visibleTree}
         workspace={workspaceState.workspace}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       <div
@@ -667,12 +659,9 @@ function App() {
         taskStatus={agentState.taskStatus}
         sessionContextTokenCount={contextTokenCount}
         setInput={setInput}
-        setLanguage={setLanguage}
-        setTheme={setTheme}
         startComposerResize={startComposerResize}
         streamingResponse={agentState.streamingResponse}
         t={t}
-        theme={theme}
         toolDraft={agentState.toolDraft}
         showScrollToBottom={showScrollToBottom}
         scrollToBottom={scrollToBottom}
@@ -706,6 +695,28 @@ function App() {
         scrollActivityToBottom={scrollActivityToBottom}
         t={t}
         activeToolRuns={agentState.activeToolRuns}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        language={language}
+        setLanguage={setLanguage}
+        theme={theme}
+        setTheme={setTheme}
+        config={providerState.config}
+        setConfig={providerState.setConfig}
+        configPath={providerState.configPath}
+        providerHint={providerState.providerHint}
+        testingApi={providerState.testingApi}
+        testApi={providerState.testApi}
+        checkingBalance={providerState.checkingBalance}
+        queryBalance={providerState.queryBalance}
+        balanceResult={providerState.balanceResult}
+        tokenUsage={tokenUsage}
+        updateProvider={providerState.updateProvider}
+        busy={agentState.busy}
+        t={t}
       />
     </div>
   );

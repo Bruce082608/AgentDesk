@@ -25,6 +25,7 @@ import {
   TriangleAlert,
   UploadCloud,
   Workflow,
+  FolderOpen,
   X
 } from "lucide-react";
 import type { Language, translations } from "../i18n";
@@ -78,13 +79,10 @@ type ConversationProps = {
   send: () => void;
   sessionContextTokenCount: number;
   setInput: (value: string) => void;
-  setLanguage: (language: Language) => void;
-  setTheme: (theme: "light" | "dark" | "system") => void;
   startComposerResize: (event: React.PointerEvent<HTMLDivElement>) => void;
   streamRecoveryStatus: StreamRecoveryStatus | null;
   streamingResponse: boolean;
   t: Translation;
-  theme: "light" | "dark" | "system";
   toolDraft: ToolDraft | null;
   showScrollToBottom: boolean;
   scrollToBottom: () => void;
@@ -140,13 +138,10 @@ export function Conversation({
   send,
   sessionContextTokenCount,
   setInput,
-  setLanguage,
-  setTheme,
   startComposerResize,
   streamRecoveryStatus,
   streamingResponse,
   t,
-  theme,
   toolDraft,
   showScrollToBottom,
   scrollToBottom,
@@ -535,59 +530,18 @@ export function Conversation({
       )}
 
       <header className="topbar">
-        <div>
+        <div className="topbar-left">
+          <FolderOpen size={14} strokeWidth={2.2} className="topbar-icon" />
+          <span className="topbar-workspace" title={workspace || t.notSelected}>
+            {workspace || t.notSelected}
+          </span>
+          <span className="topbar-divider">/</span>
           <strong>{t.agentSession}</strong>
-          <span>{busy ? t.running : t.ready}</span>
+          <span className={`status-badge ${busy ? "running" : "ready"}`}>
+            {busy ? t.running : t.ready}
+          </span>
         </div>
         <div className="topbar-actions">
-          <button
-            type="button"
-            className="secondary tiny icon-text-button"
-            onClick={() => {
-              setToolDetailsMode((current) => {
-                if (current === "expanded") return "collapsed";
-                if (current === "collapsed") return "default";
-                return "expanded";
-              });
-            }}
-            title={
-              toolDetailsMode === "expanded"
-                ? (language === "zh" ? "折叠所有工具细节" : "Collapse all tool details")
-                : toolDetailsMode === "collapsed"
-                  ? (language === "zh" ? "恢复默认工具细节" : "Restore default tool details")
-                  : (language === "zh" ? "展开所有工具细节" : "Expand all tool details")
-            }
-          >
-            {toolDetailsMode === "expanded" ? (
-              <ChevronUp size={13} strokeWidth={2.4} />
-            ) : toolDetailsMode === "collapsed" ? (
-              <ChevronDown size={13} strokeWidth={2.4} />
-            ) : (
-              <ListTodo size={13} strokeWidth={2.4} />
-            )}
-            <span>
-              {toolDetailsMode === "expanded"
-                ? (language === "zh" ? "折叠工具" : "Collapse tools")
-                : toolDetailsMode === "collapsed"
-                  ? (language === "zh" ? "默认细节" : "Default details")
-                  : (language === "zh" ? "展开工具" : "Expand tools")}
-            </span>
-          </button>
-          <label className="topbar-control">
-            <span>{t.theme}</span>
-            <select value={theme} onChange={(event) => setTheme(event.target.value as "light" | "dark" | "system")}>
-              <option value="light">{t.light}</option>
-              <option value="dark">{t.dark}</option>
-              <option value="system">{t.system}</option>
-            </select>
-          </label>
-          <label className="topbar-control">
-            <span>{t.language}</span>
-            <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
-              <option value="zh">中文</option>
-              <option value="en">English</option>
-            </select>
-          </label>
           {busy && (
             <button className="secondary danger icon-text-button" onClick={cancelActiveRequest}>
               <Square size={13} strokeWidth={2.5} aria-hidden="true" />
