@@ -1,4 +1,4 @@
-﻿import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
 import {
   ArrowDown,
   Bell,
@@ -23,6 +23,7 @@ import {
   Square,
   Terminal,
   TriangleAlert,
+  UploadCloud,
   Workflow,
   X
 } from "lucide-react";
@@ -166,12 +167,84 @@ export function Conversation({
   const dragDepthRef = useRef(0);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [toolDetailsMode, setToolDetailsMode] = useState<"default" | "expanded" | "collapsed">("default");
+  const [textareaHeight, setTextareaHeight] = useState<number>(110);
+
+  useEffect(() => {
+    const textarea = composerInputRef.current;
+    if (!textarea) return;
+
+    if (!input) {
+      setTextareaHeight(110);
+      textarea.style.height = "";
+      return;
+    }
+
+    const originalHeight = textarea.style.height;
+    textarea.style.height = "auto";
+    const sh = textarea.scrollHeight;
+    textarea.style.height = originalHeight;
+
+    const targetHeight = Math.min(Math.max(sh, 110), 240);
+    setTextareaHeight(targetHeight);
+  }, [input]);
 
   useEffect(() => {
     if (activeToolRuns.length === 0) return;
     const timer = window.setInterval(() => setNow(Date.now()), 500);
     return () => window.clearInterval(timer);
   }, [activeToolRuns.length]);
+
+  type RenderItem = 
+    | { type: "message"; message: ChatMessage; index: number }
+    | { type: "tool_group"; name: string; tools: { message: ChatMessage; index: number }[] };
+
+  const renderItems = useMemo(() => {
+    const items: RenderItem[] = [];
+    let currentGroup: { name: string; tools: { message: ChatMessage; index: number }[] } | null = null;
+
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i];
+      if (message.role === "system") continue;
+      if (message.role === "assistant" && !message.content && !message.reasoning && message.tool_calls?.length) continue;
+
+      if (message.role === "tool") {
+        const toolName = message.name || "";
+        if (currentGroup && currentGroup.name === toolName) {
+          currentGroup.tools.push({ message, index: i });
+        } else {
+          if (currentGroup) {
+            if (currentGroup.tools.length === 1) {
+              items.push({ type: "message", message: currentGroup.tools[0].message, index: currentGroup.tools[0].index });
+            } else {
+              items.push({ type: "tool_group", name: currentGroup.name, tools: currentGroup.tools });
+            }
+          }
+          currentGroup = { name: toolName, tools: [{ message, index: i }] };
+        }
+      } else {
+        if (currentGroup) {
+          if (currentGroup.tools.length === 1) {
+            items.push({ type: "message", message: currentGroup.tools[0].message, index: currentGroup.tools[0].index });
+          } else {
+            items.push({ type: "tool_group", name: currentGroup.name, tools: currentGroup.tools });
+          }
+          currentGroup = null;
+        }
+        items.push({ type: "message", message, index: i });
+      }
+    }
+
+    if (currentGroup) {
+      if (currentGroup.tools.length === 1) {
+        items.push({ type: "message", message: currentGroup.tools[0].message, index: currentGroup.tools[0].index });
+      } else {
+        items.push({ type: "tool_group", name: currentGroup.name, tools: currentGroup.tools });
+      }
+    }
+
+    return items;
+  }, [messages]);
 
   const messageListContent = useMemo(() => (
     <>
@@ -186,8 +259,24 @@ export function Conversation({
           </div>
         </div>
       )}
-      {messages.map((message, index) => {
-        if (message.role === "system") return null;
+      {renderItems.map((item) => {
+        if (item.type === "tool_group") {
+          return (
+            <ToolCallGroupCard
+              key={`tool-group-${item.name}-${item.tools[0].index}`}
+              name={item.name}
+              tools={item.tools}
+              language={language}
+              t={t}
+              toolDetailsMode={toolDetailsMode}
+              copyMessage={copyMessage}
+              busy={busy}
+              regenerateMessage={regenerateMessage}
+            />
+          );
+        }
+
+        const { message, index } = item;
         if (message.role === "tool") {
           return (
             <ToolCallCard
@@ -203,6 +292,7 @@ export function Conversation({
               startedAt={message.startedAt}
               status={message.toolStatus === "error" || isToolResultError(message.content) ? "error" : "completed"}
               title={formatMessageTimestamp(message.createdAt, language)}
+              toolDetailsMode={toolDetailsMode}
             />
           );
         }
@@ -215,38 +305,23 @@ export function Conversation({
               <div className="role">{message.role === "user" ? t.you : t.agent}</div>
               <div className="message-actions">
                 <button type="button" onClick={() => copyMessage(message)} title={t.copy} aria-label={t.copy}>
-                  <Copy size={14} strokeWidth={2.4} aria-hidden="true" />
+                  <Copy size={13} strokeWidth={2.4} aria-hidden="true" />
                 </button>
-                {message.role === "assistant" && (
-                  <button type="button" onClick={() => regenerateMessage(index)} disabled={busy} title={t.regenerate} aria-label={t.regenerate}>
-                    <RefreshCcw size={14} strokeWidth={2.4} aria-hidden="true" />
+                {message.role === "assistant" && !busy && index === messages.length - 1 && (
+                  <button type="button" onClick={() => regenerateMessage(index)} title={t.regenerate} aria-label={t.regenerate}>
+                    <RefreshCcw size={13} strokeWidth={2.4} aria-hidden="true" />
                   </button>
                 )}
               </div>
             </div>
             <div className="message-body">
               {message.reasoning && (
-                <section className={`reasoning-block ${reasoningView}`}>
+                <section className="reasoning-block">
                   <div className="reasoning-header">
-                    <button
-                      type="button"
-                      className="reasoning-title"
-                      onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "preview" : "collapsed")}
-                      title={t.reasoning}
-                      aria-label={t.reasoning}
-                    >
-                      <Workflow size={15} strokeWidth={2.3} aria-hidden="true" />
-                      <span>{t.reasoning}</span>
-                    </button>
+                    <span className="reasoning-title">{t.reasoning}</span>
                     <div className="reasoning-actions">
-                      {reasoningView === "full" ? (
-                        <button type="button" onClick={() => updateReasoningView(reasoningKey, "preview")} title={t.previewReasoning} aria-label={t.previewReasoning}>
-                          <ChevronUp size={14} strokeWidth={2.4} aria-hidden="true" />
-                        </button>
-                      ) : (
-                        <button type="button" onClick={() => updateReasoningView(reasoningKey, "full")} title={t.expandReasoning} aria-label={t.expandReasoning}>
-                          <ChevronDown size={14} strokeWidth={2.4} aria-hidden="true" />
-                        </button>
+                      {reasoningView === "collapsed" && (
+                        <span className="reasoning-preview-text">{truncateInline(message.reasoning, 50)}</span>
                       )}
                       <button
                         type="button"
@@ -254,7 +329,7 @@ export function Conversation({
                         title={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
                         aria-label={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
                       >
-                        {reasoningView === "collapsed" ? <ChevronDown size={14} strokeWidth={2.4} aria-hidden="true" /> : <X size={14} strokeWidth={2.4} aria-hidden="true" />}
+                        {reasoningView === "collapsed" ? <ChevronDown size={13} strokeWidth={2.4} aria-hidden="true" /> : <X size={13} strokeWidth={2.4} aria-hidden="true" />}
                       </button>
                     </div>
                   </div>
@@ -278,6 +353,7 @@ export function Conversation({
           startedAt={tool.startedAt}
           status="running"
           title={formatMessageTimestamp(tool.startedAt, language)}
+          toolDetailsMode={toolDetailsMode}
         />
       ))}
       {toolDraft && busy && (
@@ -370,7 +446,8 @@ export function Conversation({
     discardPatch,
     dismissQuestion,
     language,
-    messages,
+    renderItems,
+    toolDetailsMode,
     now,
     reasoningViews,
     regenerateMessage,
@@ -447,12 +524,55 @@ export function Conversation({
       onDragLeave={handleConversationDragLeave}
       onDrop={handleConversationDrop}
     >
+      {draggingFiles && (
+        <div className="message-drop-overlay" aria-hidden="true">
+          <div className="message-drop-container">
+            <UploadCloud size={48} className="message-drop-icon" strokeWidth={2} />
+            <strong>{language === "zh" ? "松开以加入上下文" : "Drop to attach context"}</strong>
+            <span>{language === "zh" ? "支持文本文件；过大或二进制文件会以说明占位。" : "Text files are read; large or binary files get a note."}</span>
+          </div>
+        </div>
+      )}
+
       <header className="topbar">
         <div>
           <strong>{t.agentSession}</strong>
           <span>{busy ? t.running : t.ready}</span>
         </div>
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="secondary tiny icon-text-button"
+            onClick={() => {
+              setToolDetailsMode((current) => {
+                if (current === "expanded") return "collapsed";
+                if (current === "collapsed") return "default";
+                return "expanded";
+              });
+            }}
+            title={
+              toolDetailsMode === "expanded"
+                ? (language === "zh" ? "折叠所有工具细节" : "Collapse all tool details")
+                : toolDetailsMode === "collapsed"
+                  ? (language === "zh" ? "恢复默认工具细节" : "Restore default tool details")
+                  : (language === "zh" ? "展开所有工具细节" : "Expand all tool details")
+            }
+          >
+            {toolDetailsMode === "expanded" ? (
+              <ChevronUp size={13} strokeWidth={2.4} />
+            ) : toolDetailsMode === "collapsed" ? (
+              <ChevronDown size={13} strokeWidth={2.4} />
+            ) : (
+              <ListTodo size={13} strokeWidth={2.4} />
+            )}
+            <span>
+              {toolDetailsMode === "expanded"
+                ? (language === "zh" ? "折叠工具" : "Collapse tools")
+                : toolDetailsMode === "collapsed"
+                  ? (language === "zh" ? "默认细节" : "Default details")
+                  : (language === "zh" ? "展开工具" : "Expand tools")}
+            </span>
+          </button>
           <label className="topbar-control">
             <span>{t.theme}</span>
             <select value={theme} onChange={(event) => setTheme(event.target.value as "light" | "dark" | "system")}>
@@ -496,16 +616,11 @@ export function Conversation({
         className={`message-list${draggingFiles ? " dragging-files" : ""}${messages.length === 0 ? " is-empty" : ""}`}
         ref={messageListRef}
       >
-        {draggingFiles && (
-          <div className="message-drop-zone" aria-hidden="true">
-            <strong>{language === "zh" ? "松开以加入上下文" : "Drop to attach context"}</strong>
-            <span>{language === "zh" ? "支持文本文件；过大或二进制文件会以说明占位。" : "Text files are read; large or binary files get a note."}</span>
-          </div>
-        )}
+        {/* Drag overlay is rendered at the top level of conversation */}
         {messageListContent}
       </div>
 
-      <footer className="composer" style={{ height: `${composerHeight + 30}px` }}>
+      <footer className="composer" style={input.length > 0 ? { height: "auto" } : { height: `${composerHeight + 30}px` }}>
         <div
           className="composer-resize-handle"
           role="separator"
@@ -544,6 +659,7 @@ export function Conversation({
             value={input}
             placeholder={t.composerPlaceholder}
             onChange={(event) => setInput(event.target.value)}
+            style={input.length > 0 ? { height: `${textareaHeight}px` } : undefined}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
               if (event.key === "Enter" && !event.shiftKey) {
@@ -615,9 +731,24 @@ type ToolCallCardProps = {
   startedAt?: number;
   status: ToolCardStatus;
   title?: string;
+  toolDetailsMode?: "default" | "expanded" | "collapsed";
 };
 
-const ToolCallCard = memo(function ToolCallCard({ args, copiedLabel, copyLabel, durationMs, endedAt, language, name, result, startedAt, status, title }: ToolCallCardProps) {
+const ToolCallCard = memo(function ToolCallCard({
+  args,
+  copiedLabel,
+  copyLabel,
+  durationMs,
+  endedAt,
+  language,
+  name,
+  result,
+  startedAt,
+  status,
+  title,
+  toolDetailsMode = "default"
+}: ToolCallCardProps) {
+  const [localOpen, setLocalOpen] = useState(false);
   const parsedResult = parseToolPayload(result);
   const displayName = name || stringValue(parsedResult?.tool) || "tool";
   const effectiveStatus = status === "completed" && parsedResult?.ok === false ? "error" : status;
@@ -629,8 +760,18 @@ const ToolCallCard = memo(function ToolCallCard({ args, copiedLabel, copyLabel, 
   const measuredDuration = durationMs ?? (startedAt && endedAt ? Math.max(0, endedAt - startedAt) : undefined);
   const durationLabel = formatDuration(measuredDuration, language);
 
+  const isOpen = toolDetailsMode === "expanded"
+    ? true
+    : toolDetailsMode === "collapsed"
+      ? false
+      : (localOpen || effectiveStatus === "running" || effectiveStatus === "error");
+
+  const handleToggle = (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+    setLocalOpen(e.currentTarget.open);
+  };
+
   return (
-    <details className={`tool-call-card ${effectiveStatus}`} open={effectiveStatus === "running" || effectiveStatus === "error"} title={title}>
+    <details className={`tool-call-card ${effectiveStatus}`} open={isOpen} onToggle={handleToggle} title={title}>
       <summary>
         <span className={`tool-call-icon ${effectiveStatus}`} aria-hidden="true">
           <ToolIcon name={displayName} />
@@ -662,6 +803,101 @@ const ToolCallCard = memo(function ToolCallCard({ args, copiedLabel, copyLabel, 
             <CodeBlock code={resultCode} language="json" copyLabel={copyLabel} copiedLabel={copiedLabel} />
           </div>
         )}
+      </div>
+    </details>
+  );
+});
+
+type ToolCallGroupCardProps = {
+  name: string;
+  tools: { message: ChatMessage; index: number }[];
+  language: Language;
+  t: Translation;
+  toolDetailsMode: "default" | "expanded" | "collapsed";
+  copyMessage: (message: ChatMessage) => void;
+  busy: boolean;
+  regenerateMessage: (index: number) => void;
+};
+
+const ToolCallGroupCard = memo(function ToolCallGroupCard({
+  name,
+  tools,
+  language,
+  t,
+  toolDetailsMode,
+  copyMessage,
+  busy,
+  regenerateMessage
+}: ToolCallGroupCardProps) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const hasError = tools.some(t => t.message.toolStatus === "error" || isToolResultError(t.message.content));
+  const effectiveStatus = hasError ? "error" : "completed";
+  const actionLabel = toolActionLabel(name, language);
+  const count = tools.length;
+  
+  const totalDuration = tools.reduce((sum, item) => sum + (item.message.durationMs || 0), 0);
+  const durationLabel = formatDuration(totalDuration, language);
+
+  const isOpen = toolDetailsMode === "expanded"
+    ? true
+    : toolDetailsMode === "collapsed"
+      ? false
+      : localOpen;
+
+  const handleToggle = (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+    setLocalOpen(e.currentTarget.open);
+  };
+
+  const titleText = language === "zh"
+    ? `批量执行 ${actionLabel} (${count}次)`
+    : `Batch ${actionLabel} (${count} times)`;
+
+  return (
+    <details 
+      className={`tool-call-card group ${effectiveStatus}`} 
+      open={isOpen} 
+      onToggle={handleToggle}
+    >
+      <summary>
+        <span className={`tool-call-icon ${effectiveStatus}`} aria-hidden="true">
+          <Workflow size={15} strokeWidth={2.35} />
+        </span>
+        <span className="tool-call-copy">
+          <span className="tool-call-name">{titleText}</span>
+          <span className="tool-call-summary">
+            {language === "zh" ? `连续执行了 ${count} 次` : `Executed consecutively ${count} times`}
+          </span>
+        </span>
+        <span className="tool-call-meta">
+          {durationLabel && (
+            <span className="tool-call-duration">
+              <Clock3 size={12} strokeWidth={2.4} aria-hidden="true" />
+              {durationLabel}
+            </span>
+          )}
+          <span className={`tool-call-status ${effectiveStatus}`}>
+            {toolStatusLabel(effectiveStatus, language)}
+          </span>
+        </span>
+      </summary>
+      <div className="tool-call-details group-items" style={{ paddingLeft: "10px", borderLeft: "2px solid var(--border-light)", marginLeft: "10px", marginTop: "10px" }}>
+        {tools.map(({ message, index }) => (
+          <ToolCallCard
+            key={`${message.tool_call_id || message.name || "tool"}-${index}`}
+            args={message.toolArgs || ""}
+            copyLabel={t.copy}
+            copiedLabel={t.copied}
+            durationMs={message.durationMs}
+            endedAt={message.endedAt}
+            language={language}
+            name={message.name || ""}
+            result={message.content}
+            startedAt={message.startedAt}
+            status={message.toolStatus === "error" || isToolResultError(message.content) ? "error" : "completed"}
+            title={formatMessageTimestamp(message.createdAt, language)}
+            toolDetailsMode={toolDetailsMode === "expanded" ? "expanded" : "default"}
+          />
+        ))}
       </div>
     </details>
   );

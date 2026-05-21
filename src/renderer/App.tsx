@@ -705,6 +705,7 @@ function App() {
         showActivityScrollToBottom={showActivityScrollToBottom}
         scrollActivityToBottom={scrollActivityToBottom}
         t={t}
+        activeToolRuns={agentState.activeToolRuns}
       />
     </div>
   );

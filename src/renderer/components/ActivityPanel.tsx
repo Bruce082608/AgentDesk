@@ -2,7 +2,7 @@ import { memo } from "react";
 import type { RefObject } from "react";
 import { Activity, ArrowDown, CheckCircle2, Clock3, ListTodo, LoaderCircle, MessageSquareMore, ShieldCheck, TriangleAlert, Workflow } from "lucide-react";
 import type { Language, translations } from "../i18n";
-import type { ActivityFilter, EventLogItem, PlanItem, RightSidebarSection } from "../types";
+import type { ActivityFilter, EventLogItem, PlanItem, RightSidebarSection, ToolRun } from "../types";
 
 type Translation = typeof translations[keyof typeof translations];
 
@@ -21,6 +21,7 @@ type ActivityPanelProps = {
   showActivityScrollToBottom: boolean;
   scrollActivityToBottom: () => void;
   t: Translation;
+  activeToolRuns: ToolRun[];
 };
 
 export const ActivityPanel = memo(function ActivityPanel({
@@ -37,7 +38,8 @@ export const ActivityPanel = memo(function ActivityPanel({
   setRightSidebarSection,
   showActivityScrollToBottom,
   scrollActivityToBottom,
-  t
+  t,
+  activeToolRuns
 }: ActivityPanelProps) {
   return (
     <aside className="activity">
@@ -60,7 +62,18 @@ export const ActivityPanel = memo(function ActivityPanel({
               {planItems.map((item, index) => (
                 <li className={`plan-row ${item.status}`} key={`${item.step}-${index}`}>
                   <span className="plan-check"><PlanStatusIcon status={item.status} /></span>
-                  <span>{item.step}</span>
+                  <div className="plan-content">
+                    <span className="plan-step-text">{item.step}</span>
+                    {item.status === "in_progress" && activeToolRuns.length > 0 && (
+                      <div className="plan-active-tool">
+                        <span className="pulse-dot" />
+                        <span className="tool-name">
+                          {language === "zh" ? "正在执行: " : "Executing: "}
+                          <code>{activeToolRuns[0].name}</code>
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </li>
               ))}
             </ol>
