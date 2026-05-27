@@ -80,6 +80,29 @@ function App() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() =>
     readStoredNumber(RIGHT_SIDEBAR_WIDTH_KEY, 340, MIN_RIGHT_SIDEBAR_WIDTH, MAX_RIGHT_SIDEBAR_WIDTH)
   );
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() =>
+    localStorage.getItem("agent-left-sidebar-collapsed") === "true"
+  );
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(() =>
+    localStorage.getItem("agent-right-sidebar-collapsed") === "true"
+  );
+
+  const toggleLeftSidebar = useCallback(() => {
+    setLeftSidebarCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem("agent-left-sidebar-collapsed", String(next));
+      return next;
+    });
+  }, []);
+
+  const toggleRightSidebar = useCallback(() => {
+    setRightSidebarCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem("agent-right-sidebar-collapsed", String(next));
+      return next;
+    });
+  }, []);
+
   const [composerHeight, setComposerHeight] = useState(() =>
     readStoredNumber(COMPOSER_HEIGHT_KEY, 78, MIN_COMPOSER_HEIGHT, MAX_COMPOSER_HEIGHT)
   );
@@ -245,6 +268,21 @@ function App() {
   useEffect(() => {
     localStorage.setItem(COMPOSER_HEIGHT_KEY, String(composerHeight));
   }, [composerHeight]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleLeftSidebar();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        toggleRightSidebar();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [toggleLeftSidebar, toggleRightSidebar]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -569,49 +607,55 @@ function App() {
   return (
     <div
       className="app-shell"
-      style={{ gridTemplateColumns: `${leftSidebarWidth}px ${RESIZE_HANDLE_WIDTH}px minmax(${MIN_CONVERSATION_WIDTH}px, 1fr) ${RESIZE_HANDLE_WIDTH}px ${rightSidebarWidth}px` }}
+      style={{
+        gridTemplateColumns: `${leftSidebarCollapsed ? 0 : leftSidebarWidth}px ${leftSidebarCollapsed ? 0 : RESIZE_HANDLE_WIDTH}px minmax(${MIN_CONVERSATION_WIDTH}px, 1fr) ${rightSidebarCollapsed ? 0 : RESIZE_HANDLE_WIDTH}px ${rightSidebarCollapsed ? 0 : rightSidebarWidth}px`
+      }}
     >
-      <Sidebar
-        activeSessionId={sessionState.activeSessionId}
-        busy={agentState.busy}
-        cancelRenameSession={sessionState.cancelRenameSession}
-        cancelSearchWorkspace={workspaceState.cancelSearchWorkspace}
-        chooseWorkspace={chooseWorkspace}
-        commitRenameSession={sessionState.commitRenameSession}
-        deleteSession={sessionState.deleteSession}
-        expandedDirs={workspaceState.expandedDirs}
-        fileSearch={workspaceState.fileSearch}
-        language={language}
-        loadingDirs={workspaceState.loadingDirs}
-        openFile={workspaceState.openFile}
-        renamingSessionId={sessionState.renamingSessionId}
-        renamingTitle={sessionState.renamingTitle}
-        searchResults={workspaceState.searchResults}
-        searchingFiles={workspaceState.searchingFiles}
-        searchWorkspace={workspaceState.searchWorkspace}
-        selectSession={sessionState.selectSession}
-        sessions={sessionState.sessions}
-        setFileSearch={workspaceState.setFileSearch}
-        setRenamingTitle={sessionState.setRenamingTitle}
-        setSidebarSection={setSidebarSection}
-        sidebarSection={sidebarSection}
-        startNewSession={sessionState.startNewSession}
-        startRenameSession={sessionState.startRenameSession}
-        t={t}
-        toggleDirectory={workspaceState.toggleDirectory}
-        tree={workspaceState.tree}
-        visibleTree={workspaceState.visibleTree}
-        workspace={workspaceState.workspace}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-      />
+      {!leftSidebarCollapsed && (
+        <Sidebar
+          activeSessionId={sessionState.activeSessionId}
+          busy={agentState.busy}
+          cancelRenameSession={sessionState.cancelRenameSession}
+          cancelSearchWorkspace={workspaceState.cancelSearchWorkspace}
+          chooseWorkspace={chooseWorkspace}
+          commitRenameSession={sessionState.commitRenameSession}
+          deleteSession={sessionState.deleteSession}
+          expandedDirs={workspaceState.expandedDirs}
+          fileSearch={workspaceState.fileSearch}
+          language={language}
+          loadingDirs={workspaceState.loadingDirs}
+          openFile={workspaceState.openFile}
+          renamingSessionId={sessionState.renamingSessionId}
+          renamingTitle={sessionState.renamingTitle}
+          searchResults={workspaceState.searchResults}
+          searchingFiles={workspaceState.searchingFiles}
+          searchWorkspace={workspaceState.searchWorkspace}
+          selectSession={sessionState.selectSession}
+          sessions={sessionState.sessions}
+          setFileSearch={workspaceState.setFileSearch}
+          setRenamingTitle={sessionState.setRenamingTitle}
+          setSidebarSection={setSidebarSection}
+          sidebarSection={sidebarSection}
+          startNewSession={sessionState.startNewSession}
+          startRenameSession={sessionState.startRenameSession}
+          t={t}
+          toggleDirectory={workspaceState.toggleDirectory}
+          tree={workspaceState.tree}
+          visibleTree={workspaceState.visibleTree}
+          workspace={workspaceState.workspace}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+        />
+      )}
 
-      <div
-        className="column-resize-handle left"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={language === "zh" ? "调整左侧边栏宽度" : "Resize left sidebar"}
-        onPointerDown={(event) => startColumnResize("left", event)}
-      />
+      {!leftSidebarCollapsed && (
+        <div
+          className="column-resize-handle left"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={language === "zh" ? "调整左侧边栏宽度" : "Resize left sidebar"}
+          onPointerDown={(event) => startColumnResize("left", event)}
+        />
+      )}
 
       <Conversation
         activeCommands={activeCommands}
@@ -669,33 +713,41 @@ function App() {
         updateReasoningView={updateReasoningView}
         uploadAttachmentFiles={workspaceState.uploadAttachmentFiles}
         workspace={workspaceState.workspace}
+        leftSidebarCollapsed={leftSidebarCollapsed}
+        toggleLeftSidebar={toggleLeftSidebar}
+        rightSidebarCollapsed={rightSidebarCollapsed}
+        toggleRightSidebar={toggleRightSidebar}
       />
 
-      <div
-        className="column-resize-handle right"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={language === "zh" ? "调整右侧边栏宽度" : "Resize right sidebar"}
-        onPointerDown={(event) => startColumnResize("right", event)}
-      />
+      {!rightSidebarCollapsed && (
+        <div
+          className="column-resize-handle right"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={language === "zh" ? "调整右侧边栏宽度" : "Resize right sidebar"}
+          onPointerDown={(event) => startColumnResize("right", event)}
+        />
+      )}
 
-      <ActivityPanel
-        activityFilter={activityFilter}
-        activityListRef={activityListRef}
-        activitySearch={activitySearch}
-        events={events}
-        filteredEvents={filteredEvents}
-        language={language}
-        planItems={agentState.planItems}
-        rightSidebarSection={rightSidebarSection}
-        setActivityFilter={setActivityFilter}
-        setActivitySearch={setActivitySearch}
-        setRightSidebarSection={setRightSidebarSection}
-        showActivityScrollToBottom={showActivityScrollToBottom}
-        scrollActivityToBottom={scrollActivityToBottom}
-        t={t}
-        activeToolRuns={agentState.activeToolRuns}
-      />
+      {!rightSidebarCollapsed && (
+        <ActivityPanel
+          activityFilter={activityFilter}
+          activityListRef={activityListRef}
+          activitySearch={activitySearch}
+          events={events}
+          filteredEvents={filteredEvents}
+          language={language}
+          planItems={agentState.planItems}
+          rightSidebarSection={rightSidebarSection}
+          setActivityFilter={setActivityFilter}
+          setActivitySearch={setActivitySearch}
+          setRightSidebarSection={setRightSidebarSection}
+          showActivityScrollToBottom={showActivityScrollToBottom}
+          scrollActivityToBottom={scrollActivityToBottom}
+          t={t}
+          activeToolRuns={agentState.activeToolRuns}
+        />
+      )}
 
       <SettingsModal
         isOpen={isSettingsOpen}

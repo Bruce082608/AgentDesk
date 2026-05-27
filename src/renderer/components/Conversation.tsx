@@ -26,6 +26,10 @@ import {
   UploadCloud,
   Workflow,
   FolderOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   X
 } from "lucide-react";
 import type { Language, translations } from "../i18n";
@@ -92,6 +96,10 @@ type ConversationProps = {
   uploadAttachmentFiles: () => void;
   workspace: string;
   copyMessage: (message: ChatMessage) => void;
+  leftSidebarCollapsed: boolean;
+  toggleLeftSidebar: () => void;
+  rightSidebarCollapsed: boolean;
+  toggleRightSidebar: () => void;
 };
 
 export function Conversation({
@@ -149,7 +157,11 @@ export function Conversation({
   updatePermissionMode,
   updateReasoningView,
   uploadAttachmentFiles,
-  workspace
+  workspace,
+  leftSidebarCollapsed,
+  toggleLeftSidebar,
+  rightSidebarCollapsed,
+  toggleRightSidebar
 }: ConversationProps) {
   const hasAutoPermissions = commandAutoApproval || patchAutoApproval;
   const fullAccessEnabled = commandAutoApproval && patchAutoApproval;
@@ -531,6 +543,16 @@ export function Conversation({
 
       <header className="topbar">
         <div className="topbar-left">
+          <button
+            type="button"
+            className="topbar-toggle-btn"
+            onClick={toggleLeftSidebar}
+            title={leftSidebarCollapsed ? t.expandLeftSidebar : t.collapseLeftSidebar}
+            aria-label="Toggle left sidebar"
+          >
+            {leftSidebarCollapsed ? <PanelLeftOpen size={16} strokeWidth={2.2} /> : <PanelLeftClose size={16} strokeWidth={2.2} />}
+          </button>
+          <span className="topbar-divider">|</span>
           <FolderOpen size={14} strokeWidth={2.2} className="topbar-icon" />
           <span className="topbar-workspace" title={workspace || t.notSelected}>
             {workspace || t.notSelected}
@@ -548,6 +570,15 @@ export function Conversation({
               <span>{t.stop}</span>
             </button>
           )}
+          <button
+            type="button"
+            className="topbar-toggle-btn"
+            onClick={toggleRightSidebar}
+            title={rightSidebarCollapsed ? t.expandRightSidebar : t.collapseRightSidebar}
+            aria-label="Toggle right sidebar"
+          >
+            {rightSidebarCollapsed ? <PanelRightOpen size={16} strokeWidth={2.2} /> : <PanelRightClose size={16} strokeWidth={2.2} />}
+          </button>
         </div>
       </header>
 
