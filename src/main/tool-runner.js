@@ -157,7 +157,7 @@ function buildFailureDiagnostics(name, classified, args, language) {
       ? "用 search_files 查找 old_text 的实际位置，或用 read_file_range 读取目标片段后扩大 old_text 上下文。"
       : "Use search_files to locate old_text, or read the target range and widen old_text context.");
   } else if (name === "run_command" || name === "start_command") {
-    if (/command not found|not recognized|enoent|找不到命令|不是内部或外部命令/.test(lower)) {
+    if (/command not found|not recognized|enoent|找不到命令|不是内部或外部命令|无法将.*识别为|cmdlet/i.test(lower)) {
       steps.push(zh
         ? "命令不存在时先调用 workspace_map 或读取 package.json scripts，优先使用项目已有 npm scripts。"
         : "When a command is missing, call workspace_map or read package.json scripts, then prefer existing npm scripts.");

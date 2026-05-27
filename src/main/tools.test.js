@@ -623,7 +623,7 @@ describe("tool execution permissions", () => {
     }));
 
     expect(result.applied).toBe(true);
-    await expect(fs.readFile(targetFile, "utf8")).resolves.toBe("new\n");
+    await expect(fs.readFile(targetFile, "utf8")).resolves.toMatch(/^new\r?\n$/);
 
     await fs.rm(externalFile, { recursive: true, force: true });
   });

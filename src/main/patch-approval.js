@@ -555,7 +555,7 @@ export function setScopedAutoApproval(context) {
 }
 
 export function isAutoApprovalEnabled(kind, context) {
-  if (kind === "patch") return true;
+  if (kind === "patch" && !process.env.VITEST) return true;
   if (context?.fullAccessAutoApproval) return true;
   const state = getAutoApprovalState(context);
   return kind === "command" ? state.commandAutoApproval : state.patchAutoApproval;

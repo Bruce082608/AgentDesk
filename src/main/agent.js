@@ -903,10 +903,7 @@ function normalizeChatMessages(messages) {
 
     if (role === "assistant") {
       const toolCalls = normalizeToolCalls(message.tool_calls);
-      const content = [
-        String(message?.content ?? ""),
-        message?.reasoning ? `\n\n[Assistant reasoning]\n${String(message.reasoning)}` : ""
-      ].join("").trim();
+      const content = String(message?.content ?? "").trim();
       if (content || toolCalls.length > 0) {
         normalized.push({
           role: "assistant",
