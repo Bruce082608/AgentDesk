@@ -76,21 +76,21 @@ describe("web-server", () => {
   });
 
   it("should restrict access without token", async () => {
-    const resUnauthorized = await fetch("http://localhost:5175/api/sessions");
+    const resUnauthorized = await fetch("http://localhost:5179/api/sessions");
     expect(resUnauthorized.status).toBe(401);
     const jsonUnauthorized = await resUnauthorized.json();
     expect(jsonUnauthorized.error).toBe("Unauthorized");
   });
 
   it("should allow access with token query parameter", async () => {
-    const resAuthorizedQuery = await fetch(`http://localhost:5175/api/sessions?token=${authToken}`);
+    const resAuthorizedQuery = await fetch(`http://localhost:5179/api/sessions?token=${authToken}`);
     expect(resAuthorizedQuery.status).toBe(200);
     const jsonSessionsQuery = await resAuthorizedQuery.json();
     expect(jsonSessionsQuery).toEqual([{ id: "1" }]);
   });
 
   it("should allow access with token header", async () => {
-    const resAuthorizedHeader = await fetch("http://localhost:5175/api/sessions", {
+    const resAuthorizedHeader = await fetch("http://localhost:5179/api/sessions", {
       headers: { "X-API-Token": authToken }
     });
     expect(resAuthorizedHeader.status).toBe(200);
@@ -100,7 +100,7 @@ describe("web-server", () => {
 
   it("should handle config GET and POST routes", async () => {
     // GET
-    const resGet = await fetch("http://localhost:5175/api/config", {
+    const resGet = await fetch("http://localhost:5179/api/config", {
       headers: { "X-API-Token": authToken }
     });
     expect(resGet.status).toBe(200);
@@ -108,7 +108,7 @@ describe("web-server", () => {
     expect(jsonGet.config.model).toBe("deepseek");
 
     // POST
-    const resPost = await fetch("http://localhost:5175/api/config", {
+    const resPost = await fetch("http://localhost:5179/api/config", {
       method: "POST",
       headers: {
         "X-API-Token": authToken,
@@ -123,7 +123,7 @@ describe("web-server", () => {
 
   it("should handle git summary and diff routes", async () => {
     // Git Summary
-    const resSummary = await fetch("http://localhost:5175/api/git/summary", {
+    const resSummary = await fetch("http://localhost:5179/api/git/summary", {
       method: "POST",
       headers: {
         "X-API-Token": authToken,
@@ -136,7 +136,7 @@ describe("web-server", () => {
     expect(jsonSummary.branch).toBe("main");
 
     // Git Diff
-    const resDiff = await fetch("http://localhost:5175/api/git/diff", {
+    const resDiff = await fetch("http://localhost:5179/api/git/diff", {
       method: "POST",
       headers: {
         "X-API-Token": authToken,

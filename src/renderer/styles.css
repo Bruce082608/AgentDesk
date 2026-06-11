@@ -4616,5 +4616,102 @@ body[data-theme="dark"] .settings-modal-overlay {
   animation: tool-spin 820ms linear infinite;
 }
 
+/* ===== Mobile Adaptations ===== */
+@media (max-width: 767px) {
+  .app-shell {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr 56px !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    overflow: hidden !important;
+  }
+
+  /* Hide resize handles on mobile */
+  .column-resize-handle,
+  .composer-resize-handle {
+    display: none !important;
+  }
+
+  /* Make panels fill the first row */
+  .sidebar,
+  .conversation,
+  .activity {
+    grid-row: 1 !important;
+    grid-column: 1 !important;
+    height: calc(100vh - 56px) !important;
+    max-height: calc(100vh - 56px) !important;
+    border: none !important;
+  }
+
+  /* Bottom tab bar styling */
+  .mobile-tab-bar {
+    grid-row: 2 !important;
+    grid-column: 1 !important;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    height: 56px;
+    z-index: 100;
+  }
+
+  .mobile-tab-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--fg-muted);
+    font-size: 11px;
+    font-weight: 500;
+    gap: 4px;
+    cursor: pointer;
+    height: 100%;
+    transition: color 0.2s, background-color 0.2s;
+  }
+
+  .mobile-tab-btn.active {
+    color: var(--primary);
+    font-weight: 600;
+    background-color: var(--hover);
+  }
+  
+  .mobile-tab-btn-icon {
+    font-size: 16px;
+  }
+
+  /* Adjust composer height on mobile to prevent overflow */
+  .conversation > .composer {
+    padding: 8px 12px !important;
+  }
+
+  /* Adjust message paddings for narrower screen */
+  .message-item {
+    padding: 12px 14px !important;
+    margin: 8px 12px !important;
+  }
+
+  /* Topbars adjustment for mobile */
+  .topbar {
+    padding: 0 12px !important;
+    height: 50px !important;
+  }
+
+  .topbar-actions {
+    gap: 8px !important;
+  }
+
+  /* Dialogs / Modals size adaptation */
+  .modal-container {
+    width: 92% !important;
+    max-width: 420px !important;
+    max-height: 85vh !important;
+  }
+}
+
 
 

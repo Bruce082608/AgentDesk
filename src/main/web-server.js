@@ -18,7 +18,7 @@ import { setCommandAutoApproval, setPatchAutoApproval, setFullAccessAutoApproval
 import { getAutoApprovalState } from "./patch-approval.js";
 import { checkGitUpdate, applyGitUpdate } from "./git-updates.js";
 
-const PORT = 5175;
+const PORT = process.env.NODE_ENV === "test" ? 5179 : 5175;
 let server = null;
 let authToken = randomUUID(); // Secure token generated on startup
 const sseConnections = new Set();

@@ -47,6 +47,17 @@ import { getInputBudgetTokens } from "../shared/contextBudget";
 import "./styles.css";
 
 function App() {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [activeMobileTab, setActiveMobileTab] = useState<"chats" | "chat" | "activity">("chat");
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [reasoningViews, setReasoningViews] = useState<Record<string, ReasoningView>>({});
@@ -609,10 +620,12 @@ function App() {
     <div
       className="app-shell"
       style={{
-        gridTemplateColumns: `${leftSidebarCollapsed ? 0 : leftSidebarWidth}px ${leftSidebarCollapsed ? 0 : RESIZE_HANDLE_WIDTH}px minmax(${MIN_CONVERSATION_WIDTH}px, 1fr) ${rightSidebarCollapsed ? 0 : RESIZE_HANDLE_WIDTH}px ${rightSidebarCollapsed ? 0 : rightSidebarWidth}px`
+        gridTemplateColumns: isMobile
+          ? "1fr"
+          : `${leftSidebarCollapsed ? 0 : leftSidebarWidth}px ${leftSidebarCollapsed ? 0 : RESIZE_HANDLE_WIDTH}px minmax(${MIN_CONVERSATION_WIDTH}px, 1fr) ${rightSidebarCollapsed ? 0 : RESIZE_HANDLE_WIDTH}px ${rightSidebarCollapsed ? 0 : rightSidebarWidth}px`
       }}
     >
-      {!leftSidebarCollapsed && (
+      {(!isMobile ? !leftSidebarCollapsed : activeMobileTab === "chats") && (
         <Sidebar
           activeSessionId={sessionState.activeSessionId}
           busy={agentState.busy}
@@ -648,7 +661,7 @@ function App() {
         />
       )}
 
-      {!leftSidebarCollapsed && (
+      {!isMobile && !leftSidebarCollapsed && (
         <div
           className="column-resize-handle left"
           role="separator"
@@ -658,69 +671,71 @@ function App() {
         />
       )}
 
-      <Conversation
-        activeCommands={activeCommands}
-        activePatches={activePatches}
-        activeQuestions={activeQuestions}
-        activeToolRuns={agentState.activeToolRuns}
-        answerQuestion={answerQuestion}
-        approveCommand={agentState.approveCommand}
-        applyPatch={agentState.applyPatch}
-        attachFile={workspaceState.attachFile}
-        attachDroppedFiles={workspaceState.attachDroppedFiles}
-        attachedFiles={workspaceState.attachedFiles}
-        busy={agentState.busy}
-        cancelActiveRequest={agentState.cancelActiveRequest}
-        chooseWorkspace={chooseWorkspace}
-        commandAutoApproval={agentState.commandAutoApproval}
-        commandAutoApprovalExpiresAt={agentState.commandAutoApprovalExpiresAt}
-        composerHeight={composerHeight}
-        composerInputRef={composerInputRef}
-        configContextTokens={inputBudgetTokens}
-        contextCompression={agentState.contextCompression}
-        contextCompressionStatus={agentState.contextCompressionStatus}
-        contextPercent={contextPercent}
-        contextUsageLabel={contextUsageLabel}
-        copyMessage={copyMessage}
-        detachFile={workspaceState.detachFile}
-        discardCommand={agentState.discardCommand}
-        discardPatch={agentState.discardPatch}
-        dismissQuestion={dismissQuestion}
-        input={input}
-        isOnline={isOnline}
-        language={language}
-        messageListRef={messageListRef}
-        messages={messages}
-        patchAutoApproval={agentState.patchAutoApproval}
-        patchAutoApprovalExpiresAt={agentState.patchAutoApprovalExpiresAt}
-        previewFile={workspaceState.previewFile}
-        reasoningViews={reasoningViews}
-        regenerateMessage={regenerateMessage}
-        resetCommandAutoApproval={resetCommandAutoApproval}
-        retryLastRequest={retryLastRequest}
-        retryRequestPending={Boolean(retryRequest) && isOnline}
-        send={send}
-        streamRecoveryStatus={agentState.streamRecoveryStatus}
-        taskStatus={agentState.taskStatus}
-        sessionContextTokenCount={contextTokenCount}
-        setInput={setInput}
-        startComposerResize={startComposerResize}
-        streamingResponse={agentState.streamingResponse}
-        t={t}
-        toolDraft={agentState.toolDraft}
-        showScrollToBottom={showScrollToBottom}
-        scrollToBottom={scrollToBottom}
-        updatePermissionMode={updatePermissionMode}
-        updateReasoningView={updateReasoningView}
-        uploadAttachmentFiles={workspaceState.uploadAttachmentFiles}
-        workspace={workspaceState.workspace}
-        leftSidebarCollapsed={leftSidebarCollapsed}
-        toggleLeftSidebar={toggleLeftSidebar}
-        rightSidebarCollapsed={rightSidebarCollapsed}
-        toggleRightSidebar={toggleRightSidebar}
-      />
+      {(!isMobile || activeMobileTab === "chat") && (
+        <Conversation
+          activeCommands={activeCommands}
+          activePatches={activePatches}
+          activeQuestions={activeQuestions}
+          activeToolRuns={agentState.activeToolRuns}
+          answerQuestion={answerQuestion}
+          approveCommand={agentState.approveCommand}
+          applyPatch={agentState.applyPatch}
+          attachFile={workspaceState.attachFile}
+          attachDroppedFiles={workspaceState.attachDroppedFiles}
+          attachedFiles={workspaceState.attachedFiles}
+          busy={agentState.busy}
+          cancelActiveRequest={agentState.cancelActiveRequest}
+          chooseWorkspace={chooseWorkspace}
+          commandAutoApproval={agentState.commandAutoApproval}
+          commandAutoApprovalExpiresAt={agentState.commandAutoApprovalExpiresAt}
+          composerHeight={composerHeight}
+          composerInputRef={composerInputRef}
+          configContextTokens={inputBudgetTokens}
+          contextCompression={agentState.contextCompression}
+          contextCompressionStatus={agentState.contextCompressionStatus}
+          contextPercent={contextPercent}
+          contextUsageLabel={contextUsageLabel}
+          copyMessage={copyMessage}
+          detachFile={workspaceState.detachFile}
+          discardCommand={agentState.discardCommand}
+          discardPatch={agentState.discardPatch}
+          dismissQuestion={dismissQuestion}
+          input={input}
+          isOnline={isOnline}
+          language={language}
+          messageListRef={messageListRef}
+          messages={messages}
+          patchAutoApproval={agentState.patchAutoApproval}
+          patchAutoApprovalExpiresAt={agentState.patchAutoApprovalExpiresAt}
+          previewFile={workspaceState.previewFile}
+          reasoningViews={reasoningViews}
+          regenerateMessage={regenerateMessage}
+          resetCommandAutoApproval={resetCommandAutoApproval}
+          retryLastRequest={retryLastRequest}
+          retryRequestPending={Boolean(retryRequest) && isOnline}
+          send={send}
+          streamRecoveryStatus={agentState.streamRecoveryStatus}
+          taskStatus={agentState.taskStatus}
+          sessionContextTokenCount={contextTokenCount}
+          setInput={setInput}
+          startComposerResize={startComposerResize}
+          streamingResponse={agentState.streamingResponse}
+          t={t}
+          toolDraft={agentState.toolDraft}
+          showScrollToBottom={showScrollToBottom}
+          scrollToBottom={scrollToBottom}
+          updatePermissionMode={updatePermissionMode}
+          updateReasoningView={updateReasoningView}
+          uploadAttachmentFiles={workspaceState.uploadAttachmentFiles}
+          workspace={workspaceState.workspace}
+          leftSidebarCollapsed={leftSidebarCollapsed}
+          toggleLeftSidebar={toggleLeftSidebar}
+          rightSidebarCollapsed={rightSidebarCollapsed}
+          toggleRightSidebar={toggleRightSidebar}
+        />
+      )}
 
-      {!rightSidebarCollapsed && (
+      {!isMobile && !rightSidebarCollapsed && (
         <div
           className="column-resize-handle right"
           role="separator"
@@ -730,7 +745,7 @@ function App() {
         />
       )}
 
-      {!rightSidebarCollapsed && (
+      {(!isMobile ? !rightSidebarCollapsed : activeMobileTab === "activity") && (
         <ActivityPanel
           activityFilter={activityFilter}
           activityListRef={activityListRef}
@@ -748,6 +763,32 @@ function App() {
           t={t}
           activeToolRuns={agentState.activeToolRuns}
         />
+      )}
+
+      {isMobile && (
+        <div className="mobile-tab-bar">
+          <button
+            className={`mobile-tab-btn ${activeMobileTab === "chats" ? "active" : ""}`}
+            onClick={() => setActiveMobileTab("chats")}
+          >
+            <span className="mobile-tab-btn-icon">💬</span>
+            <span>会话</span>
+          </button>
+          <button
+            className={`mobile-tab-btn ${activeMobileTab === "chat" ? "active" : ""}`}
+            onClick={() => setActiveMobileTab("chat")}
+          >
+            <span className="mobile-tab-btn-icon">🤖</span>
+            <span>对话</span>
+          </button>
+          <button
+            className={`mobile-tab-btn ${activeMobileTab === "activity" ? "active" : ""}`}
+            onClick={() => setActiveMobileTab("activity")}
+          >
+            <span className="mobile-tab-btn-icon">📋</span>
+            <span>运行状态</span>
+          </button>
+        </div>
       )}
 
       <SettingsModal
