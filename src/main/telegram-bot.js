@@ -313,6 +313,32 @@ async function handleMessage(message) {
     if (cmd === "/webapp_url") {
       if (parts.length > 1) {
         const inputUrl = parts[1].trim();
+        if (inputUrl.toLowerCase() === "clear" || inputUrl.toLowerCase() === "reset") {
+          try {
+            const setBtnUrl = `https://api.telegram.org/bot${activeBotToken}/setChatMenuButton`;
+            const body = {
+              chat_id: chatId,
+              menu_button: {
+                type: "default"
+              }
+            };
+            const response = await fetch(setBtnUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body)
+            });
+            const resData = await response.json();
+            if (resData.ok) {
+              await sendTelegramMessage(chatId, "✅ 已成功清除 Web App 菜单按钮并恢复为默认菜单！");
+            } else {
+              await sendTelegramMessage(chatId, `❌ 清除失败：${resData.description}`);
+            }
+          } catch (error) {
+            await sendTelegramMessage(chatId, `❌ 请求失败：${error.message}`);
+          }
+          return;
+        }
+
         try {
           const testUrl = new URL(inputUrl);
           if (testUrl.protocol !== "https:") {
