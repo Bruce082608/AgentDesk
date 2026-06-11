@@ -18,12 +18,15 @@ const DEFAULT_CONFIG = {
   maxAgentSteps: 64,
   thinkingMode: "enabled",
   reasoningEffort: "max",
-  temperature: 0.2
+  temperature: 0.2,
+  telegramEnabled: false,
+  telegramAllowedUserId: ""
 };
 
 export async function loadAppConfig() {
-  const apiKeyState = await loadApiKey();
-  const apiKey = apiKeyState.apiKey;
+  const secretsState = await loadSecrets();
+  const apiKey = secretsState.apiKey;
+  const telegramBotToken = secretsState.telegramBotToken;
   const configPath = getConfigPath();
 
   try {
@@ -31,25 +34,26 @@ export async function loadAppConfig() {
     const trimmed = raw.trim();
     if (!trimmed) {
       await saveAppConfig(DEFAULT_CONFIG);
-      return { ...DEFAULT_CONFIG, apiKey, ...getSafeStorageStatus(), apiKeyStorage: apiKeyState.storage };
+      return { ...DEFAULT_CONFIG, apiKey, telegramBotToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
     }
     const parsed = normalizeConfig(JSON.parse(trimmed));
     if (configPath !== LEGACY_CONFIG_PATH) {
       await writeConfigFile(toPersistedConfig(parsed));
     }
-    return { ...DEFAULT_CONFIG, ...parsed, apiKey, ...getSafeStorageStatus(), apiKeyStorage: apiKeyState.storage };
+    return { ...DEFAULT_CONFIG, ...parsed, apiKey, telegramBotToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
   } catch (error) {
     if (error?.code === "ENOENT") {
       await saveAppConfig(DEFAULT_CONFIG);
-      return { ...DEFAULT_CONFIG, apiKey, ...getSafeStorageStatus(), apiKeyStorage: apiKeyState.storage };
+      return { ...DEFAULT_CONFIG, apiKey, telegramBotToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
     }
 
     await saveAppConfig(DEFAULT_CONFIG);
     return {
       ...DEFAULT_CONFIG,
       apiKey,
+      telegramBotToken,
       ...getSafeStorageStatus(),
-      apiKeyStorage: apiKeyState.storage,
+      apiKeyStorage: secretsState.storage,
       recoveredFromError: error instanceof Error ? error.message : String(error)
     };
   }
@@ -57,8 +61,19 @@ export async function loadAppConfig() {
 
 export async function saveAppConfig(config) {
   let apiKeyStorage = "unchanged";
+  const secretsToSave = {};
+  let saveNeeded = false;
   if (Object.prototype.hasOwnProperty.call(config, "apiKey")) {
-    apiKeyStorage = await saveApiKey(config.apiKey);
+    secretsToSave.apiKey = config.apiKey;
+    saveNeeded = true;
+  }
+  if (Object.prototype.hasOwnProperty.call(config, "telegramBotToken")) {
+    secretsToSave.telegramBotToken = config.telegramBotToken;
+    saveNeeded = true;
+  }
+
+  if (saveNeeded) {
+    apiKeyStorage = await saveSecrets(secretsToSave);
   }
 
   const normalized = normalizeConfig(config);
@@ -82,7 +97,9 @@ function toPersistedConfig(config) {
     maxAgentSteps: config.maxAgentSteps,
     thinkingMode: config.thinkingMode,
     reasoningEffort: config.reasoningEffort,
-    temperature: config.temperature
+    temperature: config.temperature,
+    telegramEnabled: Boolean(config.telegramEnabled),
+    telegramAllowedUserId: String(config.telegramAllowedUserId ?? "")
   };
 }
 
@@ -107,45 +124,76 @@ export function getConfigPath() {
   return path.join(app.getPath("userData"), CONFIG_FILE_NAME);
 }
 
-async function loadApiKey() {
+async function loadSecrets() {
   try {
     const raw = await fs.readFile(getSecretsPath(), "utf8");
     const data = JSON.parse(raw);
-    if (!data.apiKey) return { apiKey: "", storage: "empty" };
+    const result = { apiKey: "", telegramBotToken: "", storage: "empty" };
+    if (!data.apiKey && !data.telegramBotToken) return result;
     if (data.storage === "safeStorage") {
       if (!safeStorage.isEncryptionAvailable()) {
-        return { apiKey: "", storage: "safeStorage-unavailable" };
+        return { apiKey: "", telegramBotToken: "", storage: "safeStorage-unavailable" };
       }
-      return {
-        apiKey: safeStorage.decryptString(Buffer.from(data.apiKey, "base64")),
-        storage: "safeStorage"
-      };
+      result.storage = "safeStorage";
+      if (data.apiKey) {
+        result.apiKey = safeStorage.decryptString(Buffer.from(data.apiKey, "base64"));
+      }
+      if (data.telegramBotToken) {
+        result.telegramBotToken = safeStorage.decryptString(Buffer.from(data.telegramBotToken, "base64"));
+      }
+      return result;
     }
-    return { apiKey: "", storage: "unknown" };
+    return { apiKey: "", telegramBotToken: "", storage: "unknown" };
   } catch (error) {
-    if (error?.code === "ENOENT") return { apiKey: "", storage: "empty" };
-    return { apiKey: "", storage: "unreadable" };
+    if (error?.code === "ENOENT") return { apiKey: "", telegramBotToken: "", storage: "empty" };
+    return { apiKey: "", telegramBotToken: "", storage: "unreadable" };
   }
 }
 
-async function saveApiKey(apiKey) {
-  const value = String(apiKey ?? "");
+async function saveSecrets(secrets) {
   const secretsPath = getSecretsPath();
   await fs.mkdir(path.dirname(secretsPath), { recursive: true });
 
-  if (!value) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    return "safeStorage-unavailable";
+  }
+
+  let currentSecrets = {};
+  try {
+    const raw = await fs.readFile(secretsPath, "utf8");
+    const data = JSON.parse(raw);
+    if (data.storage === "safeStorage") {
+      currentSecrets = data;
+    }
+  } catch {}
+
+  const nextSecrets = {
+    storage: "safeStorage",
+    apiKey: currentSecrets.apiKey || "",
+    telegramBotToken: currentSecrets.telegramBotToken || ""
+  };
+
+  let hasChanges = false;
+  if (Object.prototype.hasOwnProperty.call(secrets, "apiKey")) {
+    const value = String(secrets.apiKey ?? "");
+    nextSecrets.apiKey = value ? safeStorage.encryptString(value).toString("base64") : "";
+    hasChanges = true;
+  }
+  if (Object.prototype.hasOwnProperty.call(secrets, "telegramBotToken")) {
+    const value = String(secrets.telegramBotToken ?? "");
+    nextSecrets.telegramBotToken = value ? safeStorage.encryptString(value).toString("base64") : "";
+    hasChanges = true;
+  }
+
+  if (!hasChanges) return "unchanged";
+
+  if (!nextSecrets.apiKey && !nextSecrets.telegramBotToken) {
     await fs.rm(secretsPath, { force: true }).catch(() => {});
     return "empty";
   }
 
-  if (!safeStorage.isEncryptionAvailable()) {
-    await fs.rm(secretsPath, { force: true }).catch(() => {});
-    return "safeStorage-unavailable";
-  }
-
-  const encrypted = safeStorage.encryptString(value).toString("base64");
   const tempPath = `${secretsPath}.${randomUUID()}.tmp`;
-  await fs.writeFile(tempPath, `${JSON.stringify({ storage: "safeStorage", apiKey: encrypted }, null, 2)}\n`, "utf8");
+  await fs.writeFile(tempPath, `${JSON.stringify(nextSecrets, null, 2)}\n`, "utf8");
   await fs.rename(tempPath, secretsPath);
   return "safeStorage";
 }

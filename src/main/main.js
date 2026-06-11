@@ -23,6 +23,7 @@ import { listPendingApprovals, loadPersistedActivityEvents, loadPersistedSession
 import { classifyLaunchPaths, extractLaunchPaths } from "./launch-paths.js";
 import { normalizeLanguage, t } from "./i18n.js";
 import { configureSystemToolRuntime } from "./system-tools.js";
+import { startTelegramBot, stopTelegramBot } from "./telegram-bot.js";
 import {
   validateAgentSendPayload,
   validateAttachmentPathsPayload,
@@ -117,10 +118,18 @@ app.whenReady().then(() => {
   void setupAutoUpdates({ notify: showDesktopNotification });
   void queueOpenPaths(extractLaunchPaths(process.argv, { isPackaged: app.isPackaged }));
 
+  loadAppConfig().then((config) => {
+    startTelegramBot(config);
+  }).catch(() => {});
+
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
     showMainWindow();
   });
+});
+
+app.on("will-quit", () => {
+  stopTelegramBot();
 });
 
 app.on("window-all-closed", () => {
@@ -162,7 +171,11 @@ ipcMain.handle("config:load", async () => {
 });
 
 ipcMain.handle("config:save", async (_event, config) => {
-  return await saveAppConfig(validateConfigPayload(config));
+  const result = await saveAppConfig(validateConfigPayload(config));
+  loadAppConfig().then((updatedConfig) => {
+    startTelegramBot(updatedConfig);
+  }).catch(() => {});
+  return result;
 });
 
 ipcMain.handle("system:state", async () => {

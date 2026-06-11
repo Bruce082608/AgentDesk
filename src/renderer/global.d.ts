@@ -94,6 +94,9 @@ export type ProviderConfig = {
   thinkingMode: "enabled" | "disabled";
   reasoningEffort: "low" | "medium" | "high" | "max";
   capability?: ProviderModelCapability;
+  telegramEnabled?: boolean;
+  telegramAllowedUserId?: string;
+  telegramBotToken?: string;
 };
 
 export type ProviderModelCapability = {

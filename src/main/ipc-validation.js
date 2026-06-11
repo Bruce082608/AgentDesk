@@ -175,7 +175,10 @@ function validateProviderConfig(value, options = {}) {
     contextTokens: optionalInteger(config.contextTokens, "contextTokens", 1024, 4_000_000),
     maxAgentSteps: optionalInteger(config.maxAgentSteps, "maxAgentSteps", 1, 512),
     thinkingMode,
-    reasoningEffort
+    reasoningEffort,
+    telegramEnabled: Boolean(config.telegramEnabled),
+    telegramAllowedUserId: optionalString(config.telegramAllowedUserId, "telegramAllowedUserId", { max: 128 }) || "",
+    telegramBotToken: optionalString(config.telegramBotToken, "telegramBotToken", { max: 20_000 }) || ""
   };
 }
 
