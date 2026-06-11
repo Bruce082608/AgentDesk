@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld("agentWindow", {
   openSystemPaths: (payload) => ipcRenderer.invoke("system:open-paths", payload),
   setOpenPathsReady: () => ipcRenderer.invoke("system:open-paths-ready"),
   checkForUpdates: () => ipcRenderer.invoke("updates:check"),
+  checkGitUpdate: () => ipcRenderer.invoke("git:check-update"),
+  applyGitUpdate: () => ipcRenderer.invoke("git:apply-update"),
+  onGitUpdateProgress: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on("git:update-progress", listener);
+    return () => ipcRenderer.removeListener("git:update-progress", listener);
+  },
   listBackgroundTasks: (payload) => ipcRenderer.invoke("background:list", payload || {}),
   scheduleBackgroundTask: (payload) => ipcRenderer.invoke("background:schedule", payload),
   cancelBackgroundTask: (id) => ipcRenderer.invoke("background:cancel", id),

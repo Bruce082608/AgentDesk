@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type RefObject } from "react";
 import {
   ArrowDown,
+  ArrowUpCircle,
   Bell,
   CheckCircle2,
   ChevronDown,
@@ -176,6 +177,89 @@ export function Conversation({
   const [now, setNow] = useState(() => Date.now());
   const [toolDetailsMode, setToolDetailsMode] = useState<"default" | "expanded" | "collapsed">("default");
   const [textareaHeight, setTextareaHeight] = useState<number>(110);
+
+  const [gitUpdateState, setGitUpdateState] = useState<{
+    available: boolean;
+    status: "idle" | "checking" | "updating" | "completed" | "error";
+    detail: string;
+  }>({
+    available: false,
+    status: "idle",
+    detail: ""
+  });
+
+  useEffect(() => {
+    let timer: any;
+    const check = async () => {
+      if (!isOnline) return;
+      try {
+        const result = await window.agentWindow.checkGitUpdate();
+        if (result.updateAvailable) {
+          setGitUpdateState(prev => ({
+            ...prev,
+            available: true
+          }));
+        } else {
+          setGitUpdateState(prev => {
+            if (prev.status === "idle" || prev.status === "checking") {
+              return { available: false, status: "idle", detail: "" };
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        console.error("Git update check failed:", err);
+      }
+    };
+
+    void check();
+    timer = setInterval(check, 15 * 60 * 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [isOnline]);
+
+  const handleApplyUpdate = async () => {
+    if (gitUpdateState.status === "updating") return;
+    setGitUpdateState(prev => ({
+      ...prev,
+      status: "updating",
+      detail: language === "zh" ? "正在检查并更新代码..." : "Checking and updating code..."
+    }));
+
+    const unsubscribe = window.agentWindow.onGitUpdateProgress((data) => {
+      setGitUpdateState(prev => ({
+        ...prev,
+        detail: data.detail
+      }));
+    });
+
+    try {
+      const result = await window.agentWindow.applyGitUpdate();
+      if (result.success) {
+        setGitUpdateState(prev => ({
+          ...prev,
+          status: "completed",
+          detail: language === "zh" ? "更新成功！请重新启动本软件。" : "Update completed! Please restart the app."
+        }));
+      } else {
+        setGitUpdateState(prev => ({
+          ...prev,
+          status: "error",
+          detail: (language === "zh" ? "更新失败: " : "Update failed: ") + (result.error || "")
+        }));
+      }
+    } catch (err: any) {
+      setGitUpdateState(prev => ({
+        ...prev,
+        status: "error",
+        detail: (language === "zh" ? "更新出错: " : "Update error: ") + (err.message || String(err))
+      }));
+    } finally {
+      unsubscribe();
+    }
+  };
 
   useEffect(() => {
     const textarea = composerInputRef.current;
@@ -557,13 +641,39 @@ export function Conversation({
           <span className="topbar-workspace" title={workspace || t.notSelected}>
             {workspace || t.notSelected}
           </span>
-          <span className="topbar-divider">/</span>
-          <strong>{t.agentSession}</strong>
           <span className={`status-badge ${busy ? "running" : "ready"}`}>
             {busy ? t.running : t.ready}
           </span>
         </div>
         <div className="topbar-actions">
+          {gitUpdateState.available && (
+            <button
+              type="button"
+              className={`update-badge-btn ${gitUpdateState.status}`}
+              onClick={handleApplyUpdate}
+              disabled={gitUpdateState.status === "updating" || gitUpdateState.status === "completed"}
+              title={gitUpdateState.detail || (language === "zh" ? "检测到新版本，点击自动更新" : "New version detected, click to auto update")}
+            >
+              {gitUpdateState.status === "updating" && (
+                <LoaderCircle className="spin" size={13} strokeWidth={2.5} />
+              )}
+              {gitUpdateState.status === "completed" && (
+                <CheckCircle2 size={13} strokeWidth={2.5} />
+              )}
+              {gitUpdateState.status === "error" && (
+                <TriangleAlert size={13} strokeWidth={2.5} />
+              )}
+              {gitUpdateState.status === "idle" && (
+                <ArrowUpCircle size={13} strokeWidth={2.5} />
+              )}
+              <span>
+                {gitUpdateState.status === "idle" && (language === "zh" ? "新版本" : "New Version")}
+                {gitUpdateState.status === "updating" && (language === "zh" ? "更新中..." : "Updating...")}
+                {gitUpdateState.status === "completed" && (language === "zh" ? "请重启" : "Restart App")}
+                {gitUpdateState.status === "error" && (language === "zh" ? "重试" : "Retry")}
+              </span>
+            </button>
+          )}
           {busy && (
             <button className="secondary danger icon-text-button" onClick={cancelActiveRequest}>
               <Square size={13} strokeWidth={2.5} aria-hidden="true" />

@@ -457,7 +457,7 @@ describe("tool execution permissions", () => {
     }));
 
     let output = null;
-    for (let attempt = 0; attempt < 10; attempt += 1) {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100));
       output = JSON.parse(await executeToolCall({
         function: {

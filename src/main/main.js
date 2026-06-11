@@ -5,6 +5,8 @@ import { resumeAgentContinuation, runAgentTurn } from "./agent.js";
 import { readAttachmentFiles, readUploadedFiles } from "./attachments.js";
 import { configureBackgroundTasks, listBackgroundTasks, scheduleBackgroundTask, cancelBackgroundTask } from "./background-tasks.js";
 import { checkForUpdates, getUpdateState, setupAutoUpdates } from "./desktop-updates.js";
+import { checkGitUpdate, applyGitUpdate } from "./git-updates.js";
+import { startWebServer, stopWebServer } from "./web-server.js";
 import {
   getDesktopIntegrationState,
   handleAgentDesktopEvent,
@@ -117,6 +119,7 @@ app.whenReady().then(() => {
   configureBackgroundTasks({ notify: showDesktopNotification });
   void setupAutoUpdates({ notify: showDesktopNotification });
   void queueOpenPaths(extractLaunchPaths(process.argv, { isPackaged: app.isPackaged }));
+  void startWebServer();
 
   loadAppConfig().then((config) => {
     startTelegramBot(config);
@@ -130,6 +133,7 @@ app.whenReady().then(() => {
 
 app.on("will-quit", () => {
   stopTelegramBot();
+  stopWebServer();
 });
 
 app.on("window-all-closed", () => {
@@ -202,6 +206,15 @@ ipcMain.handle("system:open-paths-ready", async () => {
 ipcMain.handle("updates:check", async () => {
   return await checkForUpdates();
 });
+
+ipcMain.handle("git:check-update", async () => {
+  return await checkGitUpdate();
+});
+
+ipcMain.handle("git:apply-update", async (event) => {
+  return await applyGitUpdate(event);
+});
+
 
 ipcMain.handle("background:list", async (_event, payload = {}) => {
   return await listBackgroundTasks({ includeCompleted: Boolean(payload.includeCompleted) });
@@ -294,6 +307,9 @@ ipcMain.handle("agent:send", async (event, payload) => {
   const emit = (message) => {
     event.sender.send("agent:event", { requestId, ...message });
     handleAgentDesktopEvent(message);
+    import("./web-server.js").then(({ broadcastSseEvent }) => {
+      broadcastSseEvent("agent:event", { requestId, ...message });
+    }).catch(() => {});
   };
 
   try {
@@ -341,6 +357,9 @@ ipcMain.handle("agent:resume", async (event, payload) => {
   const emit = (message) => {
     event.sender.send("agent:event", { requestId, ...message });
     handleAgentDesktopEvent(message);
+    import("./web-server.js").then(({ broadcastSseEvent }) => {
+      broadcastSseEvent("agent:event", { requestId, ...message });
+    }).catch(() => {});
   };
 
   try {

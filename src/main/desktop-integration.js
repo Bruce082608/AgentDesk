@@ -82,8 +82,14 @@ export function refreshDesktopIntegrationState() {
 export function showDesktopNotification({ title, body = "", silent = false } = {}) {
   const safeTitle = truncateText(title || "AgentDesk", 120);
   const safeBody = truncateText(body || "", 2000);
+
+  // Forward to Telegram asynchronously
+  import("./telegram-bot.js").then(({ sendTelegramPushNotification }) => {
+    sendTelegramPushNotification(`🔔 **${safeTitle}**\n${safeBody}`).catch(() => {});
+  }).catch(() => {});
+
   if (!Notification.isSupported()) {
-    return { ok: false, reason: "Notifications are not supported on this platform/runtime." };
+    return { ok: true, title: safeTitle, body: safeBody, skippedDesktop: true };
   }
   const notification = new Notification({
     title: safeTitle,

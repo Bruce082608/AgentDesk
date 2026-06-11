@@ -29,6 +29,8 @@ vi.mock("./attachments.js", () => ({
 
 vi.mock("node:fs", () => ({
   default: {
+    existsSync: vi.fn().mockReturnValue(true),
+    statSync: vi.fn().mockReturnValue({ isDirectory: () => true }),
     promises: {
       writeFile: vi.fn().mockResolvedValue()
     }
@@ -108,7 +110,8 @@ describe("Telegram Bot Remote Control", () => {
 
     await promise;
     expect(fetchMock).toHaveBeenCalled();
-    expect(fetchMock.mock.calls[0][0]).toContain("getUpdates");
+    const hasGetUpdatesCall = fetchMock.mock.calls.some(call => call[0].includes("getUpdates"));
+    expect(hasGetUpdatesCall).toBe(true);
   });
 
   it("processes message with document and caption immediately", async () => {
@@ -413,6 +416,96 @@ describe("Telegram Bot Remote Control", () => {
       expect(body.text).toContain("✅ Step 1");
       expect(body.text).toContain("✅ Step 2");
       expect(body.text).toContain("⏳ Step 3");
+    });
+  });
+
+  it("processes /clear command and clears attachments", async () => {
+    let hasReturnedUpdate = false;
+    const fetchMock = vi.fn().mockImplementation((url) => {
+      if (url.includes("getUpdates")) {
+        if (!hasReturnedUpdate) {
+          hasReturnedUpdate = true;
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              ok: true,
+              result: [
+                {
+                  update_id: 2000,
+                  message: {
+                    chat: { id: 11111 },
+                    from: { id: 98765432 },
+                    text: "/clear"
+                  }
+                }
+              ]
+            })
+          });
+        }
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    startTelegramBot({
+      telegramEnabled: true,
+      telegramBotToken: "123456:TESTTOKEN",
+      telegramAllowedUserId: "98765432"
+    });
+
+    await vi.waitFor(() => {
+      const sendMessageCall = fetchMock.mock.calls.find(call => {
+        if (!call[0].includes("sendMessage")) return false;
+        const body = JSON.parse(call[1].body);
+        return body.text.includes("已清空当前所有待处理的附件队列");
+      });
+      expect(sendMessageCall).toBeDefined();
+    });
+  });
+
+  it("processes /workspace with directory path to change workspace", async () => {
+    let hasReturnedUpdate = false;
+    const fetchMock = vi.fn().mockImplementation((url) => {
+      if (url.includes("getUpdates")) {
+        if (!hasReturnedUpdate) {
+          hasReturnedUpdate = true;
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              ok: true,
+              result: [
+                {
+                  update_id: 3000,
+                  message: {
+                    chat: { id: 11111 },
+                    from: { id: 98765432 },
+                    text: "/workspace /mock/path"
+                  }
+                }
+              ]
+            })
+          });
+        }
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    startTelegramBot({
+      telegramEnabled: true,
+      telegramBotToken: "123456:TESTTOKEN",
+      telegramAllowedUserId: "98765432"
+    });
+
+    await vi.waitFor(() => {
+      const sendMessageCall = fetchMock.mock.calls.find(call => {
+        if (!call[0].includes("sendMessage")) return false;
+        const body = JSON.parse(call[1].body);
+        return body.text.includes("已成功将控制工作区切换为");
+      });
+      expect(sendMessageCall).toBeDefined();
     });
   });
 });

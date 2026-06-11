@@ -1,3 +1,4 @@
+import "./fallback-bridge";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ActivityPanel } from "./components/ActivityPanel";

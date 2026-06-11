@@ -36,6 +36,7 @@ export function startTelegramBot(config) {
   abortController = new AbortController();
 
   console.log(`[Telegram Bot] Starting polling with token ${token.slice(0, 8)}... Allowed User: ${allowedUserId}`);
+  void registerBotCommands();
   void pollUpdates();
 }
 
@@ -182,17 +183,29 @@ async function handleMessage(message) {
   if (!text) return;
 
   if (text.startsWith("/")) {
-    const cmd = text.split(" ")[0].toLowerCase();
+    const parts = text.split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+    
     if (cmd === "/start" || cmd === "/help") {
+      let lanUrl = "http://localhost:5175";
+      try {
+        const { getWebServerState } = await import("./web-server.js");
+        lanUrl = getWebServerState().lanUrl;
+      } catch (e) {}
+
       await sendTelegramMessage(
         chatId,
         "🤖 **欢迎使用 AgentDesk 远程控制机器人！**\n\n" +
           "直接向我发送任何开发指令，我将启动本地 Agent 为你编写代码、运行测试或部署应用。\n\n" +
-          "**可用命令：**\n" +
-          "• `/status` - 查看当前项目工作区与 Git 状态\n" +
-          "• `/cancel` - 中断当前正在执行 of Agent 任务\n" +
-          "• `/workspace` - 查看当前使用的工作区路径\n" +
+          "**可用命令列表：**\n" +
+          "• `/status` - 查看当前项目工作区、Git 及宿主机状态\n" +
+          "• `/workspace [绝对路径]` - 查看当前工作区或远程切换工作区\n" +
+          "• `/sessions` - 列出本地会话，并支持通过按钮快速切换工作区\n" +
+          "• `/clear` - 清空当前积攒的待处理文件附件队列\n" +
+          "• `/webapp_url [HTTPS链接]` - 配置并挂载底部的 Telegram 网页面板按钮\n" +
+          "• `/cancel` - 中断当前正在执行的 Agent 任务\n" +
           "• `/help` - 显示此帮助信息\n\n" +
+          `🖥️ **局域网直接访问链接** (限同 Wi-Fi 访问):\n\`${lanUrl}\`\n\n` +
           "所有包含修改文件或运行敏感命令的操作都将在手机端弹出确认按钮，保障系统安全。"
       );
       return;
@@ -203,12 +216,32 @@ async function handleMessage(message) {
         const session = await getOrCreateRemoteSession();
         const config = await loadAppConfig();
         const modelLabel = config.capability?.label || config.model || "Unknown";
+        
+        let gitText = "未初始化或不是 Git 仓库";
+        try {
+          const { getGitSummary } = await import("./workspace.js");
+          const gitSummary = await getGitSummary(session.workspace);
+          gitText = `\`${gitSummary.branch}\` (改动文件数: ${gitSummary.changedFiles.length})`;
+        } catch (e) {}
+
+        const totalMemGb = (os.totalmem() / (1024 ** 3)).toFixed(1);
+        const freeMemGb = (os.freemem() / (1024 ** 3)).toFixed(1);
+        const platform = os.platform();
+        const arch = os.arch();
+        const activeCount = activeRequests.size;
+        const usage = session.tokenUsage || { totalTokens: 0, requests: 0 };
+
         await sendTelegramMessage(
           chatId,
-          `💻 **系统状态**:\n` +
+          `💻 **系统状态与统计**\n\n` +
             `• **当前工作区**: \`${session.workspace}\`\n` +
+            `• **Git 状态**: ${gitText}\n` +
             `• **AI 模型**: \`${modelLabel}\`\n` +
-            `• **网络状态**: ✅ Online`
+            `• **活动任务**: \`${activeCount}\` 个正在运行\n` +
+            `• **手机端用量**: \`${usage.totalTokens.toLocaleString()}\` tokens (\`${usage.requests}\` 次请求)\n\n` +
+            `🖥️ **宿主机状态 (${platform}-${arch})**:\n` +
+            `• **内存占用**: \`${(totalMemGb - freeMemGb).toFixed(1)} / ${totalMemGb} GB\`\n` +
+            `• **系统负载 (1m/5m/15m)**: \`${os.loadavg().map(v => v.toFixed(2)).join(" / ")}\``
         );
       } catch (error) {
         await sendTelegramMessage(chatId, `❌ 获取状态失败: ${error.message}`);
@@ -218,7 +251,120 @@ async function handleMessage(message) {
 
     if (cmd === "/workspace") {
       const session = await getOrCreateRemoteSession();
-      await sendTelegramMessage(chatId, `📁 当前控制工作区目录为：\n\`${session.workspace}\``);
+      if (parts.length > 1) {
+        const targetPath = parts.slice(1).join(" ");
+        try {
+          if (fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory()) {
+            session.workspace = targetPath;
+            await saveRemoteSession(session);
+            await sendTelegramMessage(chatId, `📁 已成功将控制工作区切换为：\n\`${targetPath}\``);
+          } else {
+            await sendTelegramMessage(chatId, `❌ 错误：路径 \`${targetPath}\` 不是一个有效的本地目录。`);
+          }
+        } catch (error) {
+          await sendTelegramMessage(chatId, `❌ 路径切换失败：${error.message}`);
+        }
+      } else {
+        await sendTelegramMessage(
+          chatId,
+          `📁 当前控制工作区目录为：\n\`${session.workspace}\`\n\n你可以使用 \`/workspace <目录绝对路径>\` 远程切换工作区。`
+        );
+      }
+      return;
+    }
+
+    if (cmd === "/sessions" || cmd === "/chats") {
+      try {
+        const sessions = await loadPersistedSessions().catch(() => []);
+        const filtered = sessions.filter(s => s.id !== "telegram-remote");
+        if (filtered.length === 0) {
+          await sendTelegramMessage(chatId, "💬 电脑端暂无其他本地会话记录。");
+          return;
+        }
+
+        const lines = filtered.slice(0, 8).map((s, idx) => {
+          return `${idx + 1}. **${s.title || "未命名会话"}**\n   📁 \`${s.workspace || ""}\``;
+        });
+
+        const buttons = filtered.slice(0, 8).map((s, idx) => {
+          return [{
+            text: `📁 切换: ${s.title || "未命名会话"}`,
+            callback_data: `tg:switch_session:${idx}`
+          }];
+        });
+
+        await sendTelegramMessage(
+          chatId,
+          `💬 **电脑端最近会话列表 (前8个)**:\n\n${lines.join("\n\n")}\n\n点击下方按钮可快速将手机端工作区切换至对应会话工作区：`,
+          { reply_markup: { inline_keyboard: buttons } }
+        );
+      } catch (error) {
+        await sendTelegramMessage(chatId, `❌ 获取会话列表失败: ${error.message}`);
+      }
+      return;
+    }
+
+    if (cmd === "/clear") {
+      pendingAttachmentsByChat.delete(chatId);
+      await sendTelegramMessage(chatId, "🧹 已清空当前所有待处理的附件队列。");
+      return;
+    }
+
+    if (cmd === "/webapp_url") {
+      if (parts.length > 1) {
+        const inputUrl = parts[1].trim();
+        try {
+          const testUrl = new URL(inputUrl);
+          if (testUrl.protocol !== "https:") {
+            await sendTelegramMessage(chatId, "❌ 错误：Telegram Web App 必须使用 `https://` 协议的安全网址。");
+            return;
+          }
+
+          const { getWebServerState } = await import("./web-server.js");
+          const serverState = getWebServerState();
+          testUrl.searchParams.set("token", serverState.token);
+          const finalUrl = testUrl.toString();
+
+          const setBtnUrl = `https://api.telegram.org/bot${activeBotToken}/setChatMenuButton`;
+          const body = {
+            chat_id: chatId,
+            menu_button: {
+              type: "web_app",
+              text: "🌐 网页面板",
+              web_app: {
+                url: finalUrl
+              }
+            }
+          };
+          const response = await fetch(setBtnUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+          const resData = await response.json();
+          if (resData.ok) {
+            await sendTelegramMessage(
+              chatId,
+              `✅ 成功配置 Web App 菜单按钮！\n\n你可以点击聊天视窗左下角的 **🌐 网页面板** 按钮直接开启手机微型面板。`
+            );
+          } else {
+            await sendTelegramMessage(chatId, `❌ 配置失败：${resData.description}`);
+          }
+        } catch (error) {
+          await sendTelegramMessage(chatId, `❌ URL 解析或请求失败：${error.message}`);
+        }
+      } else {
+        await sendTelegramMessage(
+          chatId,
+          `🌐 **配置 Web App 菜单按钮**\n\n` +
+            `由于 Telegram 规范，手机端打开 Web App 必须为 HTTPS 网址（且不能使用 localhost）。\n\n` +
+            `**使用指南**：\n` +
+            `1. 在宿主机上对 \`5175\` 端口进行内网穿透（例如使用 ngrok: \`ngrok http 5175\`）。\n` +
+            `2. 复制得到的 \`https://...\` 网址。\n` +
+            `3. 发送给机器人：\n\`/webapp_url <你的HTTPS穿透网址>\`\n\n` +
+            `机器人将自动为你生成并挂载底部“网页面板”按钮。`
+        );
+      }
       return;
     }
 
@@ -266,10 +412,32 @@ async function handleCallbackQuery(query) {
     return;
   }
 
-  await answerCallbackQuery(queryId, "正在处理审批...");
-
   // Parse: tg:approve:patch:<id> or tg:discard:patch:<id>
   const parts = data.split(":");
+
+  if (parts[1] === "switch_session") {
+    const idx = parseInt(parts[2], 10);
+    await answerCallbackQuery(queryId, "正在切换工作区...");
+    try {
+      const sessions = await loadPersistedSessions().catch(() => []);
+      const filtered = sessions.filter(s => s.id !== "telegram-remote");
+      const targetSession = filtered[idx];
+      if (targetSession) {
+        const session = await getOrCreateRemoteSession();
+        session.workspace = targetSession.workspace;
+        await saveRemoteSession(session);
+        await editTelegramMessage(chatId, messageId, `${query.message.text}\n\n**已成功将工作区切换至：**\n\`${targetSession.workspace}\``);
+      } else {
+        await sendTelegramMessage(chatId, "⚠️ 找不到指定的会话记录。");
+      }
+    } catch (error) {
+      await sendTelegramMessage(chatId, `❌ 切换工作区失败: ${error.message}`);
+    }
+    return;
+  }
+
+  await answerCallbackQuery(queryId, "正在处理审批...");
+
   const action = parts[1]; // "approve" or "discard"
   const type = parts[2]; // "patch" or "command" or "question"
   const id = parts[3];
@@ -749,6 +917,9 @@ function notifySessionsUpdated() {
         }
       }
     }
+    import("./web-server.js").then(({ broadcastSseEvent }) => {
+      broadcastSseEvent("sessions:updated", {});
+    }).catch(() => {});
   } catch (error) {
     console.error("[Telegram Bot] notifySessionsUpdated failed:", error);
   }
@@ -794,3 +965,42 @@ async function saveRemoteSession(updatedSession) {
   await savePersistedSessions(sessions);
   notifySessionsUpdated();
 }
+
+/**
+ * Registers commands in the Telegram bot menu.
+ */
+async function registerBotCommands() {
+  try {
+    const url = `https://api.telegram.org/bot${activeBotToken}/setMyCommands`;
+    const body = {
+      commands: [
+        { command: "status", description: "查看当前项目工作区、Git 及宿主机状态" },
+        { command: "workspace", description: "查看或切换工作区目录：/workspace <绝对路径>" },
+        { command: "sessions", description: "列出本地会话，并支持通过按钮快速切换工作区" },
+        { command: "clear", description: "清空当前积攒的待处理文件附件队列" },
+        { command: "webapp_url", description: "配置并挂载底部的 Telegram 网页面板按钮" },
+        { command: "cancel", description: "中止当前正在执行的 Agent 任务" },
+        { command: "help", description: "显示帮助与使用指南" }
+      ]
+    };
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    console.log("[Telegram Bot] Bot commands registered successfully.");
+  } catch (error) {
+    console.error("[Telegram Bot] Failed to register commands:", error.message);
+  }
+}
+
+/**
+ * Sends a proactive push notification to the authorized Telegram user.
+ */
+export async function sendTelegramPushNotification(text, extra = {}) {
+  if (!activeBotToken || !activeAllowedUserId) {
+    return { ok: false, error: "Telegram bot is not active or configured" };
+  }
+  return await sendTelegramMessage(activeAllowedUserId, text, extra);
+}
+
