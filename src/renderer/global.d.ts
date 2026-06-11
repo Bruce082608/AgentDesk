@@ -52,6 +52,7 @@ declare global {
       setFullAccessAutoApproval: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       onAgentEvent: (callback: (event: AgentEvent) => void) => () => void;
       onOpenPaths: (callback: (payload: OpenPathsPayload) => void) => () => void;
+      onSessionsUpdated: (callback: () => void) => () => void;
     };
   }
 }

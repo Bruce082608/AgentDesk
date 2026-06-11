@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { BrowserWindow } from "electron";
 import { runAgentTurn, resumeAgentContinuation } from "./agent.js";
 import { loadPersistedSessions, savePersistedSessions } from "./persistence.js";
 import { loadAppConfig } from "./config.js";
@@ -68,9 +69,22 @@ async function pollUpdates() {
       }
 
       const updates = data.result || [];
-      for (const update of updates) {
-        lastUpdateId = Math.max(lastUpdateId, update.update_id);
-        await handleUpdate(update);
+      if (updates.length > 0) {
+        // Mark all updates in this batch as read by updating lastUpdateId
+        lastUpdateId = Math.max(lastUpdateId, ...updates.map((u) => u.update_id));
+
+        // 1. Process all callback queries
+        const callbackUpdates = updates.filter((u) => u.callback_query);
+        for (const cb of callbackUpdates) {
+          await handleUpdate(cb);
+        }
+
+        // 2. Process only the latest message update (skip older ones)
+        const messageUpdates = updates.filter((u) => u.message);
+        if (messageUpdates.length > 0) {
+          const latestMessageUpdate = messageUpdates[messageUpdates.length - 1];
+          await handleUpdate(latestMessageUpdate);
+        }
       }
     } catch (error) {
       if (error.name === "AbortError" || !isPolling) {
@@ -176,7 +190,7 @@ async function handleMessage(message) {
           "直接向我发送任何开发指令，我将启动本地 Agent 为你编写代码、运行测试或部署应用。\n\n" +
           "**可用命令：**\n" +
           "• `/status` - 查看当前项目工作区与 Git 状态\n" +
-          "• `/cancel` - 中断当前正在执行的 Agent 任务\n" +
+          "• `/cancel` - 中断当前正在执行 of Agent 任务\n" +
           "• `/workspace` - 查看当前使用的工作区路径\n" +
           "• `/help` - 显示此帮助信息\n\n" +
           "所有包含修改文件或运行敏感命令的操作都将在手机端弹出确认按钮，保障系统安全。"
@@ -239,6 +253,19 @@ async function handleCallbackQuery(query) {
   const data = String(query.data || "");
 
   if (!data.startsWith("tg:")) return;
+
+  // Handle immediate task cancel button click
+  if (data === "tg:cancel" || data.startsWith("tg:cancel:")) {
+    await answerCallbackQuery(queryId, "正在中止任务...");
+    for (const [requestId, req] of activeRequests.entries()) {
+      if (req.chatId === chatId) {
+        req.controller.abort();
+        activeRequests.delete(requestId);
+      }
+    }
+    return;
+  }
+
   await answerCallbackQuery(queryId, "正在处理审批...");
 
   // Parse: tg:approve:patch:<id> or tg:discard:patch:<id>
@@ -258,7 +285,11 @@ async function handleCallbackQuery(query) {
   const controller = new AbortController();
   activeRequests.set(requestId, { chatId, controller });
 
-  const emit = createTelegramEmit(chatId, requestId);
+  const continuation = await getOrCreateRemoteSession().then(() =>
+    import("./persistence.js").then((p) => p.getAgentContinuation(id))
+  );
+  const workspace = continuation?.workspace || process.cwd();
+  const emit = createTelegramEmit(chatId, requestId, workspace);
 
   try {
     const response = await resumeAgentContinuation(
@@ -277,6 +308,8 @@ async function handleCallbackQuery(query) {
 
     if (!response.ok) {
       emit({ type: "error", message: response.error || "恢复会话失败" });
+    } else {
+      emit({ type: "done" });
     }
   } catch (error) {
     if (!controller.signal.aborted) {
@@ -311,7 +344,7 @@ async function runRemoteAgentTurn(chatId, userInput, attachments = []) {
   const controller = new AbortController();
   activeRequests.set(requestId, { chatId, controller });
 
-  const emit = createTelegramEmit(chatId, requestId);
+  const emit = createTelegramEmit(chatId, requestId, session.workspace);
 
   // Send initial acknowledge status
   emit({ type: "status", message: "正在初始化 Agent..." });
@@ -345,7 +378,7 @@ async function runRemoteAgentTurn(chatId, userInput, attachments = []) {
   }
 }
 
-function createTelegramEmit(chatId, requestId) {
+function createTelegramEmit(chatId, requestId, workspace) {
   let streamMessageId = null;
   let planMessageId = null;
   let textBuffer = "";
@@ -353,25 +386,30 @@ function createTelegramEmit(chatId, requestId) {
   let streamTimer = null;
   let lastStatusText = "";
 
-  const sendOrEditStreamMessage = async () => {
-    let output = "";
-    if (reasoningBuffer.trim()) {
-      output += `💭 **思考链:**\n> ${reasoningBuffer.replace(/\n/g, "\n> ")}\n\n`;
-    }
-    output += `🤖 **Agent:**\n${textBuffer}`;
+  const sendOrEditStreamMessage = async (isFinal = false) => {
+    let output = `📁 **工作区:** \`${workspace}\`\n\n`;
+    output += textBuffer;
 
-    if (lastStatusText) {
+    if (!isFinal && lastStatusText) {
       output += `\n\n⏳ _${lastStatusText}_`;
     }
 
     try {
+      const extra = isFinal
+        ? { reply_markup: { inline_keyboard: [] } }
+        : {
+            reply_markup: {
+              inline_keyboard: [[{ text: "⏹️ 终止 (Cancel)", callback_data: `tg:cancel:${requestId}` }]]
+            }
+          };
+
       if (streamMessageId === null) {
-        const res = await sendTelegramMessage(chatId, output || "思考中...");
+        const res = await sendTelegramMessage(chatId, output || "思考中...", extra);
         if (res && res.ok) {
           streamMessageId = res.result.message_id;
         }
       } else {
-        await editTelegramMessage(chatId, streamMessageId, output);
+        await editTelegramMessage(chatId, streamMessageId, output, extra);
       }
     } catch {
       // Ignore network glitches during streaming updates
@@ -388,6 +426,14 @@ function createTelegramEmit(chatId, requestId) {
 
   return (event) => {
     if (event.type === "status") {
+      // Filter out technical context/token sending status messages
+      if (
+        event.message.includes("发送给模型") ||
+        event.message.includes("上下文") ||
+        event.message.includes("context")
+      ) {
+        return;
+      }
       lastStatusText = event.message;
       scheduleStreamUpdate();
       return;
@@ -460,7 +506,7 @@ function createTelegramEmit(chatId, requestId) {
         streamTimer = null;
       }
       // Trigger one last sync update
-      await sendOrEditStreamMessage();
+      await sendOrEditStreamMessage(true);
       streamMessageId = null;
       planMessageId = null;
       textBuffer = "";
@@ -468,6 +514,8 @@ function createTelegramEmit(chatId, requestId) {
     };
 
     if (event.type === "done") {
+      const content = textBuffer;
+      const reasoning = reasoningBuffer || undefined;
       void cleanUpStreams().then(async () => {
         // Append message to persisted session and save
         const session = await getOrCreateRemoteSession();
@@ -476,8 +524,8 @@ function createTelegramEmit(chatId, requestId) {
 
         session.messages.push({
           role: "assistant",
-          content: event.message || "",
-          reasoning: event.reasoning || undefined,
+          content: content || "",
+          reasoning: reasoning || undefined,
           createdAt: Date.now()
         });
         await saveRemoteSession(session);
@@ -596,19 +644,19 @@ async function downloadTelegramFile(fileId, fileName) {
   if (!data.ok || !data.result?.file_path) {
     throw new Error(`Telegram getFile failed: ${data.description || "No file path"}`);
   }
-  
+
   const filePath = data.result.file_path;
   const downloadUrl = `https://api.telegram.org/file/bot${activeBotToken}/${filePath}`;
   const fileResponse = await fetch(downloadUrl, { signal: abortController?.signal });
   if (!fileResponse.ok) {
     throw new Error(`Telegram file download returned HTTP ${fileResponse.status}`);
   }
-  
+
   const buffer = await fileResponse.arrayBuffer();
   const tempDir = os.tmpdir();
   const safeName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
   const tempFilePath = path.join(tempDir, safeName);
-  
+
   await fs.promises.writeFile(tempFilePath, Buffer.from(buffer));
   return tempFilePath;
 }
@@ -619,7 +667,7 @@ function escapeMarkdown(text) {
 
 function formatPlanChecklist(items) {
   if (!items || items.length === 0) return "";
-  
+
   const lines = items.map((item) => {
     let icon = "⬜";
     if (item.status === "completed") {
@@ -629,7 +677,7 @@ function formatPlanChecklist(items) {
     }
     return `${icon} ${escapeMarkdown(item.step)}`;
   });
-  
+
   return `📋 **执行计划**:\n${lines.join("\n")}`;
 }
 
@@ -691,6 +739,21 @@ async function answerCallbackQuery(callbackQueryId, text = "") {
   }
 }
 
+function notifySessionsUpdated() {
+  try {
+    if (typeof BrowserWindow !== "undefined" && BrowserWindow && typeof BrowserWindow.getAllWindows === "function") {
+      const windows = BrowserWindow.getAllWindows();
+      for (const win of windows) {
+        if (!win.isDestroyed()) {
+          win.webContents.send("sessions:updated");
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[Telegram Bot] notifySessionsUpdated failed:", error);
+  }
+}
+
 // --- Session Persistence Helpers ---
 
 async function getOrCreateRemoteSession() {
@@ -713,6 +776,7 @@ async function getOrCreateRemoteSession() {
     };
     sessions.push(session);
     await savePersistedSessions(sessions);
+    notifySessionsUpdated();
   }
 
   return session;
@@ -728,4 +792,5 @@ async function saveRemoteSession(updatedSession) {
     sessions.push(updatedSession);
   }
   await savePersistedSessions(sessions);
+  notifySessionsUpdated();
 }

@@ -147,6 +147,34 @@ export function useSessions({
   }, []);
 
   useEffect(() => {
+    if (typeof window.agentWindow.onSessionsUpdated !== "function") return;
+
+    const unsubscribe = window.agentWindow.onSessionsUpdated(async () => {
+      try {
+        const savedSessions = await window.agentWindow.loadSessions();
+        let nextSessions = Array.isArray(savedSessions) ? savedSessions : [];
+        if (nextSessions.length > 0) {
+          setSessions(nextSessions);
+          const activeSession = nextSessions.find((s) => s.id === activeSessionId);
+          if (activeSession) {
+            setMessages(activeSession.messages);
+            setTokenUsage(activeSession.tokenUsage);
+            if (activeSession.workspace && activeSession.workspace !== workspace) {
+              setWorkspace(activeSession.workspace);
+              await refreshWorkspace(activeSession.workspace);
+              await refreshGit(activeSession.workspace);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to reload sessions on update event:", error);
+      }
+    });
+
+    return unsubscribe;
+  }, [activeSessionId, refreshGit, refreshWorkspace, setMessages, setTokenUsage, setWorkspace, workspace]);
+
+  useEffect(() => {
     if (!sessionsLoaded || !activeSessionId) return;
     setSessions((current) => {
       const next = current

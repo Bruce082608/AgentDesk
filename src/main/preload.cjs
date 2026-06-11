@@ -48,5 +48,10 @@ contextBridge.exposeInMainWorld("agentWindow", {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on("system:open-paths", listener);
     return () => ipcRenderer.removeListener("system:open-paths", listener);
+  },
+  onSessionsUpdated: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on("sessions:updated", listener);
+    return () => ipcRenderer.removeListener("sessions:updated", listener);
   }
 });

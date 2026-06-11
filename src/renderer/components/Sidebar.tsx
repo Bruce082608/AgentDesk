@@ -114,7 +114,7 @@ export const Sidebar = memo(function Sidebar({
       </nav>
 
       {sidebarSection === "chats" && (
-        <section className="panel chat-panel">
+        <section className="panel chats-panel">
           <div className="panel-title row-title">
             <span>{t.chats}</span>
             <button className="icon-button new-chat-button" onClick={startNewSession} disabled={busy} title={t.newChat} aria-label={t.newChat}>
