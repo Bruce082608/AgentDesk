@@ -4623,7 +4623,9 @@ body[data-theme="dark"] .settings-modal-overlay {
     grid-template-columns: 1fr !important;
     grid-template-rows: 1fr 56px !important;
     height: 100vh !important;
+    height: 100dvh !important;
     max-height: 100vh !important;
+    max-height: 100dvh !important;
     overflow: hidden !important;
   }
 
@@ -4639,8 +4641,8 @@ body[data-theme="dark"] .settings-modal-overlay {
   .activity {
     grid-row: 1 !important;
     grid-column: 1 !important;
-    height: calc(100vh - 56px) !important;
-    max-height: calc(100vh - 56px) !important;
+    height: 100% !important;
+    max-height: 100% !important;
     border: none !important;
   }
 
@@ -4686,7 +4688,31 @@ body[data-theme="dark"] .settings-modal-overlay {
 
   /* Adjust composer height on mobile to prevent overflow */
   .conversation > .composer {
-    padding: 8px 12px !important;
+    min-height: unset !important;
+    max-height: 220px !important;
+    height: auto !important;
+    padding: 0 10px 10px !important;
+    gap: 6px !important;
+    grid-template-rows: 1fr !important;
+  }
+
+  .composer-surface {
+    height: auto !important;
+    min-height: 80px !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+  }
+
+  .composer textarea {
+    height: 80px !important;
+    padding: 10px 12px 42px !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+  }
+
+  .composer-controls {
+    padding: 4px 8px 6px !important;
+    height: 38px !important;
   }
 
   /* Adjust message paddings for narrower screen */
