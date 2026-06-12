@@ -473,6 +473,18 @@ describe("tool execution permissions", () => {
 
     expect(started.sessionId).toBeTruthy();
     expect(output.output).toContain("session-ready");
+    if (output.running) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      output = JSON.parse(await executeToolCall({
+        function: {
+          name: "read_command_output",
+          arguments: JSON.stringify({ session_id: started.sessionId })
+        }
+      }, {
+        workspace,
+        language: "zh"
+      }));
+    }
     expect(output.running).toBe(false);
   });
 

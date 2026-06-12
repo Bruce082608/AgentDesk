@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { __test__ } from "./agent.js";
+
+vi.mock("./providers.js", async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
+    completeChat: vi.fn()
+  };
+});
 
 describe("agent history compression budgets", () => {
   it("scales summary and transcript budgets for a 1M-token summary model", () => {
@@ -41,7 +49,7 @@ describe("agent history compression budgets", () => {
     expect(budgets.transcriptBudget).toBeLessThanOrEqual(budgets.summaryInputBudgetTokens);
   });
 
-  it("builds stable compression cache keys for identical inputs", () => {
+  it("builds stable compression cache keys for identical inputs across different sessions", () => {
     const keyA = __test__.buildCompressionCacheKey({
       transcript: "alpha",
       sessionId: "session-1",
@@ -51,7 +59,7 @@ describe("agent history compression budgets", () => {
     });
     const keyB = __test__.buildCompressionCacheKey({
       transcript: "alpha",
-      sessionId: "session-1",
+      sessionId: "session-2",
       summaryModel: "summary-a",
       contextTokens: 1000,
       maxSummaryTokens: 200
@@ -66,6 +74,43 @@ describe("agent history compression budgets", () => {
 
     expect(keyA).toBe(keyB);
     expect(keyA).not.toBe(keyC);
+  });
+
+  it("proactively triggers compression when messages count is high and partitions memory", async () => {
+    const { completeChat } = await import("./providers.js");
+    completeChat.mockResolvedValue({
+      message: { content: JSON.stringify({ goals: "Test overall goals" }) }
+    });
+
+    const priorMessages = [];
+    for (let i = 0; i < 16; i++) {
+      priorMessages.push({ role: "user", content: `Prompt ${i}` });
+      priorMessages.push({ role: "assistant", content: `Response ${i}` });
+    }
+
+    const systemMessage = { role: "system", content: "System prompt" };
+    const attachmentMessage = null;
+
+    const result = await __test__.buildMessages({
+      systemMessage,
+      attachmentMessage,
+      priorMessages,
+      userInput: "Next user input",
+      contextTokens: 128000,
+      providerConfig: {
+        model: "deepseek-v4-pro",
+        thinkingMode: "disabled"
+      },
+      language: "zh",
+      sessionId: "session-123",
+      emit: vi.fn()
+    });
+
+    expect(result.compressed).toBe(true);
+    expect(result.messages[0]).toEqual(systemMessage);
+    expect(result.messages[1].role).toBe("system");
+    expect(result.messages[1].content).toContain("goals");
+    expect(result.messages[1].content).toContain("Test overall goals");
   });
 
   it("classifies only read-only tools as parallel safe", () => {

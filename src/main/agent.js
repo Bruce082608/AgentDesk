@@ -11,8 +11,8 @@ import { loadAppConfig } from "./config.js";
 const DEFAULT_MAX_AGENT_STEPS = 64;
 const RECENT_HISTORY_RATIO_AFTER_SUMMARY = 0.45;
 const MAX_STREAM_RECOVERY_ATTEMPTS = 2;
-const SUMMARY_TOKEN_RATIO = 0.08;
-const SUMMARY_TRANSCRIPT_RATIO = 0.8;
+const SUMMARY_TOKEN_RATIO = 0.15;
+const SUMMARY_TRANSCRIPT_RATIO = 0.95;
 const PARALLEL_SAFE_TOOL_NAMES = new Set([
   "list_files",
   "read_file",
@@ -806,16 +806,30 @@ async function buildMessages({
   const fullInputTokens = fixedTokens + historyTokens;
   const historyBudget = Math.max(1024, inputBudgetTokens - fixedTokens);
 
-  if (fullInputTokens <= inputBudgetTokens || normalizedHistory.length < 4) {
+  const ACTIVE_COMPRESSION_MESSAGE_COUNT = 30;
+  const WORKING_MEMORY_MESSAGE_COUNT = 12;
+
+  const shouldCompress = fullInputTokens > inputBudgetTokens || normalizedHistory.length >= ACTIVE_COMPRESSION_MESSAGE_COUNT;
+
+  if (!shouldCompress || normalizedHistory.length < 4) {
     return {
       messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, historyBudget), userMessage],
       compressed: false
     };
   }
 
-  const recentBudget = Math.max(2048, Math.min(historyBudget, Math.floor(inputBudgetTokens * RECENT_HISTORY_RATIO_AFTER_SUMMARY)));
-  const recentMessages = selectRecentMessages(normalizedHistory, recentBudget);
-  const earlyMessages = normalizedHistory.slice(0, Math.max(0, normalizedHistory.length - recentMessages.length));
+  let recentMessages = [];
+  let earlyMessages = [];
+
+  if (fullInputTokens > inputBudgetTokens) {
+    const recentBudget = Math.max(2048, Math.min(historyBudget, Math.floor(inputBudgetTokens * RECENT_HISTORY_RATIO_AFTER_SUMMARY)));
+    recentMessages = selectRecentMessages(normalizedHistory, recentBudget);
+    earlyMessages = normalizedHistory.slice(0, Math.max(0, normalizedHistory.length - recentMessages.length));
+  } else {
+    const splitIdx = Math.max(0, normalizedHistory.length - WORKING_MEMORY_MESSAGE_COUNT);
+    recentMessages = normalizedHistory.slice(splitIdx);
+    earlyMessages = normalizedHistory.slice(0, splitIdx);
+  }
 
   if (earlyMessages.length === 0) {
     return {
@@ -994,7 +1008,6 @@ async function summarizeHistoryMessages({ messages, config, contextTokens, langu
   const transcript = buildSummaryTranscript(messages, transcriptBudget);
   const cacheKey = buildCompressionCacheKey({
     transcript,
-    sessionId,
     summaryModel: summaryConfig.model,
     contextTokens: summaryConfig.contextTokens,
     maxSummaryTokens
@@ -1009,25 +1022,44 @@ async function summarizeHistoryMessages({ messages, config, contextTokens, langu
       {
         role: "system",
         content: [
-          "You compress earlier conversation history for a coding agent.",
-          "Write a concise but durable memory summary.",
-          "Preserve user goals, project constraints, decisions, file paths, bugs fixed, pending tasks, approvals, and warnings.",
-          "Preserve important tool-call results and command errors as facts the future agent can use.",
-          "The transcript may already contain compressed memory summaries. Merge them with newer facts instead of replacing or dropping them.",
-          "Do not invent facts. Prefer bullet points. Do not include small talk unless it changes the task."
+          "You are a precise conversation history compressor for a software development agent.",
+          "You must compress the earlier conversation transcript and return a JSON object with the following structure:",
+          "{",
+          '  "goals": "Overall high-level goals of the user",',
+          '  "constraints": "Key technical constraints, libraries, environment configurations, and file paths",',
+          '  "modifiedFiles": ["List of files created, modified, or deleted so far"],',
+          '  "fixedBugs": ["Specific errors or bugs encountered and how they were resolved"],',
+          '  "decisionsAndApprovals": ["Key decisions, design choices, or user approvals/selections made"],',
+          '  "pendingTasks": ["Next steps or tasks remaining to be done"],',
+          '  "keyFacts": ["Important tool output summaries, command outputs, or facts the agent must remember"]',
+          "}",
+          "Ensure all JSON values are string or array of strings. Output ONLY the raw JSON. Do not wrap it in markdown code fences, do not write any pre-text or post-text."
         ].join("\n")
       },
       {
         role: "user",
-        content: `Summarize these earlier messages for future turns:\n\n${transcript}`
+        content: `Compress the following conversation transcript into the requested JSON format:\n\n${transcript}`
       }
     ]
   });
 
-  const summary = String(response.message?.content || "").trim();
+  let summary = String(response.message?.content || "").trim();
   if (!summary) throw new Error(t(language, "agent.emptySummary"));
+
+  // Strip code fences if present and format JSON output
+  try {
+    let cleaned = summary;
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```[a-zA-Z]*\n/, "").replace(/\n```$/, "");
+    }
+    const parsed = JSON.parse(cleaned.trim());
+    summary = JSON.stringify(parsed, null, 2);
+  } catch (err) {
+    // fallback to raw response
+  }
+
   compressionCache.set(cacheKey, summary);
-  if (compressionCache.size > 20) {
+  if (compressionCache.size > 200) {
     const oldest = compressionCache.keys().next().value;
     if (oldest) compressionCache.delete(oldest);
   }
@@ -1040,7 +1072,7 @@ function getSummaryCompressionBudgets({ config, contextTokens }) {
   const baseSummaryConfig = {
     ...config,
     model: summaryModel || config.model,
-    thinkingMode: "disabled"
+    thinkingMode: config.thinkingMode || "disabled"
   };
   const normalizedSummaryConfig = normalizeProviderConfig(baseSummaryConfig);
   const summaryContextTokens = normalizedSummaryConfig.contextTokens;
@@ -1165,10 +1197,9 @@ function parseToolResult(result) {
   }
 }
 
-function buildCompressionCacheKey({ transcript, sessionId, summaryModel, contextTokens, maxSummaryTokens }) {
+function buildCompressionCacheKey({ transcript, summaryModel, contextTokens, maxSummaryTokens }) {
   return createHash("sha1")
     .update([
-      sessionId || "",
       summaryModel || "",
       contextTokens || 0,
       maxSummaryTokens || 0,
@@ -1245,5 +1276,6 @@ function selectRecentMessages(messages, contextTokens) {
 export const __test__ = {
   buildCompressionCacheKey,
   getSummaryCompressionBudgets,
-  isParallelSafeToolCall
+  isParallelSafeToolCall,
+  buildMessages
 };
