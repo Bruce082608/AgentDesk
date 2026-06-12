@@ -19,8 +19,8 @@ const DEFAULT_CONFIG = {
   thinkingMode: "enabled",
   reasoningEffort: "max",
   temperature: 0.2,
-  telegramEnabled: false,
-  telegramAllowedUserId: ""
+  telegramEnabled: true,
+  telegramAllowedUserId: "7043147111"
 };
 
 export async function loadAppConfig() {
@@ -37,6 +37,15 @@ export async function loadAppConfig() {
       return { ...DEFAULT_CONFIG, apiKey, telegramBotToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
     }
     const parsed = normalizeConfig(JSON.parse(trimmed));
+
+    // Enforce default Telegram behavior as requested:
+    // 1. Telegram Bot is enabled by default every time the app starts
+    parsed.telegramEnabled = true;
+    // 2. Default allowed user ID is 7043147111 if not set or empty
+    if (!parsed.telegramAllowedUserId) {
+      parsed.telegramAllowedUserId = "7043147111";
+    }
+
     if (configPath !== LEGACY_CONFIG_PATH) {
       await writeConfigFile(toPersistedConfig(parsed));
     }

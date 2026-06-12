@@ -157,7 +157,7 @@ export const defaultConfig: ProviderConfig = {
   maxAgentSteps: 64,
   thinkingMode: "enabled",
   reasoningEffort: "max",
-  telegramEnabled: false,
-  telegramAllowedUserId: "",
+  telegramEnabled: true,
+  telegramAllowedUserId: "7043147111",
   telegramBotToken: ""
 };

@@ -177,7 +177,7 @@ function validateProviderConfig(value, options = {}) {
     thinkingMode,
     reasoningEffort,
     telegramEnabled: Boolean(config.telegramEnabled),
-    telegramAllowedUserId: optionalString(config.telegramAllowedUserId, "telegramAllowedUserId", { max: 128 }) || "",
+    telegramAllowedUserId: optionalString(config.telegramAllowedUserId, "telegramAllowedUserId", { max: 128 }) || "7043147111",
     telegramBotToken: optionalString(config.telegramBotToken, "telegramBotToken", { max: 20_000 }) || ""
   };
 }
