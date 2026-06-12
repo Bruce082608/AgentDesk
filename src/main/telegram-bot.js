@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { BrowserWindow } from "electron";
+import { BrowserWindow, desktopCapturer, screen } from "electron";
 import { runAgentTurn, resumeAgentContinuation } from "./agent.js";
 import { loadPersistedSessions, savePersistedSessions } from "./persistence.js";
 import { loadAppConfig } from "./config.js";
@@ -203,6 +203,7 @@ async function handleMessage(message) {
           "• `/sessions` - 列出本地会话，并支持通过按钮快速切换工作区\n" +
           "• `/clear` - 清空当前积攒的待处理文件附件队列\n" +
           "• `/webapp_url [HTTPS链接]` - 配置并挂载底部的 Telegram 网页面板按钮\n" +
+          "• `/screenshot` - 截取当前电脑屏幕并发送图片\n" +
           "• `/cancel` - 中断当前正在执行的 Agent 任务\n" +
           "• `/help` - 显示此帮助信息\n\n" +
           `🖥️ **局域网直接访问链接** (限同 Wi-Fi 访问):\n\`${lanUrl}\`\n\n` +
@@ -407,6 +408,18 @@ async function handleMessage(message) {
         await sendTelegramMessage(chatId, "⏹️ 任务取消指令已下发，正在中止 Agent...");
       } else {
         await sendTelegramMessage(chatId, "ℹ️ 当前没有正在运行的 Agent 任务。");
+      }
+      return;
+    }
+
+    if (cmd === "/screenshot") {
+      try {
+        await sendTelegramMessage(chatId, "📸 正在截取电脑屏幕，请稍候...");
+        const pngBuffer = await capturePrimaryScreen();
+        await sendTelegramPhoto(chatId, pngBuffer, "🖥️ **当前电脑屏幕截图**");
+      } catch (error) {
+        console.error("[Telegram Bot] Screenshot failed:", error);
+        await sendTelegramMessage(chatId, `❌ 截图失败: ${error.message}`);
       }
       return;
     }
@@ -729,7 +742,7 @@ function createTelegramEmit(chatId, requestId, workspace) {
 
     if (event.type === "error") {
       void cleanUpStreams().then(async () => {
-        await sendTelegramMessage(chatId, `❌ **运行出错**:\n${event.message}`);
+        await sendTelegramMessage(chatId, `❌ **运行出错**:\n${escapeMarkdown(event.message)}`);
         const session = await getOrCreateRemoteSession();
         session.messages.push({
           role: "assistant",
@@ -743,7 +756,7 @@ function createTelegramEmit(chatId, requestId, workspace) {
 
     if (event.type === "cancelled") {
       void cleanUpStreams().then(async () => {
-        await sendTelegramMessage(chatId, `⏹️ **任务取消**:\n${event.message}`);
+        await sendTelegramMessage(chatId, `⏹️ **任务取消**:\n${escapeMarkdown(event.message)}`);
       });
       return;
     }
@@ -889,7 +902,18 @@ async function sendTelegramMessage(chatId, text, extra = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    return await response.json();
+    const data = await response.json();
+    if (data && !data.ok && body.parse_mode) {
+      console.warn(`[Telegram Bot] sendMessage failed with Markdown, retrying without parse_mode: ${data.description}`);
+      delete body.parse_mode;
+      const retryRes = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      return await retryRes.json();
+    }
+    return data;
   } catch (error) {
     console.error("[Telegram Bot] sendMessage failed:", error.message);
   }
@@ -910,9 +934,88 @@ async function editTelegramMessage(chatId, messageId, text, extra = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    return await response.json();
+    const data = await response.json();
+    if (data && !data.ok && body.parse_mode) {
+      console.warn(`[Telegram Bot] editMessageText failed with Markdown, retrying without parse_mode: ${data.description}`);
+      delete body.parse_mode;
+      const retryRes = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      return await retryRes.json();
+    }
+    return data;
   } catch (error) {
     console.error("[Telegram Bot] editMessageText failed:", error.message);
+  }
+}
+
+async function capturePrimaryScreen() {
+  if (typeof desktopCapturer === "undefined" || typeof screen === "undefined" || !desktopCapturer || !screen) {
+    throw new Error("截屏功能仅在 Electron 桌面客户端运行时可用。");
+  }
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.size;
+  
+  const sources = await desktopCapturer.getSources({
+    types: ["screen"],
+    thumbnailSize: { width, height }
+  });
+  
+  const primarySource = sources[0];
+  if (!primarySource) {
+    throw new Error("未找到任何可用屏幕数据");
+  }
+  
+  return primarySource.thumbnail.toPNG();
+}
+
+async function sendTelegramPhoto(chatId, photoBuffer, caption = "") {
+  try {
+    const url = `https://api.telegram.org/bot${activeBotToken}/sendPhoto`;
+    const formData = new FormData();
+    formData.append("chat_id", chatId);
+    
+    const blob = new Blob([photoBuffer], { type: "image/png" });
+    formData.append("photo", blob, "screenshot.png");
+    
+    if (caption) {
+      formData.append("caption", caption);
+      formData.append("parse_mode", "Markdown");
+    }
+    
+    const response = await fetch(url, {
+      method: "POST",
+      body: formData
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("[Telegram Bot] sendPhoto failed:", error.message);
+  }
+}
+
+async function sendTelegramDocument(chatId, fileBuffer, fileName, caption = "") {
+  try {
+    const url = `https://api.telegram.org/bot${activeBotToken}/sendDocument`;
+    const formData = new FormData();
+    formData.append("chat_id", chatId);
+    
+    const blob = new Blob([fileBuffer], { type: "application/octet-stream" });
+    formData.append("document", blob, fileName);
+    
+    if (caption) {
+      formData.append("caption", caption);
+      formData.append("parse_mode", "Markdown");
+    }
+    
+    const response = await fetch(url, {
+      method: "POST",
+      body: formData
+    });
+    return await response.json();
+  } catch (error) {
+    console.error("[Telegram Bot] sendDocument failed:", error.message);
   }
 }
 
@@ -1005,6 +1108,7 @@ async function registerBotCommands() {
         { command: "sessions", description: "列出本地会话，并支持通过按钮快速切换工作区" },
         { command: "clear", description: "清空当前积攒的待处理文件附件队列" },
         { command: "webapp_url", description: "配置并挂载底部的 Telegram 网页面板按钮" },
+        { command: "screenshot", description: "截取当前电脑屏幕并发送图片" },
         { command: "cancel", description: "中止当前正在执行的 Agent 任务" },
         { command: "help", description: "显示帮助与使用指南" }
       ]

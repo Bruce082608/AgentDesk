@@ -3,6 +3,26 @@ import { startTelegramBot, stopTelegramBot } from "./telegram-bot.js";
 import { runAgentTurn } from "./agent.js";
 import { readAttachmentFiles } from "./attachments.js";
 
+vi.mock("electron", () => ({
+  BrowserWindow: {
+    getAllWindows: vi.fn().mockReturnValue([])
+  },
+  desktopCapturer: {
+    getSources: vi.fn().mockResolvedValue([
+      {
+        thumbnail: {
+          toPNG: () => Buffer.from("mock-png-data")
+        }
+      }
+    ])
+  },
+  screen: {
+    getPrimaryDisplay: () => ({
+      size: { width: 1920, height: 1080 }
+    })
+  }
+}));
+
 vi.mock("./agent.js", () => ({
   runAgentTurn: vi.fn().mockImplementation((payload, emit) => {
     return Promise.resolve();
@@ -506,6 +526,218 @@ describe("Telegram Bot Remote Control", () => {
         return body.text.includes("已成功将控制工作区切换为");
       });
       expect(sendMessageCall).toBeDefined();
+    });
+  });
+
+  it("retries sendMessage without parse_mode if it fails with Markdown", async () => {
+    let hasReturnedUpdate = false;
+    let capturedEmit = null;
+
+    runAgentTurn.mockImplementation((payload, emit) => {
+      capturedEmit = emit;
+      return Promise.resolve();
+    });
+
+    const fetchCalls = [];
+    const fetchMock = vi.fn().mockImplementation((url, init) => {
+      if (url.includes("getUpdates")) {
+        if (!hasReturnedUpdate) {
+          hasReturnedUpdate = true;
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              ok: true,
+              result: [
+                {
+                  update_id: 4000,
+                  message: {
+                    chat: { id: 12345 },
+                    from: { id: 98765432 },
+                    text: "trigger_error"
+                  }
+                }
+              ]
+            })
+          });
+        }
+        return new Promise(() => {});
+      }
+
+      if (init && init.body) {
+        try {
+          fetchCalls.push({ url, body: JSON.parse(init.body) });
+        } catch {}
+      }
+
+      if (url.includes("sendMessage")) {
+        const body = JSON.parse(init.body);
+        if (body.parse_mode === "Markdown") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ ok: false, description: "Bad Request: can't parse entities" })
+          });
+        } else {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ ok: true, result: { message_id: 123 } })
+          });
+        }
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ ok: true, result: { message_id: 123 } })
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    startTelegramBot({
+      telegramEnabled: true,
+      telegramBotToken: "123456:TESTTOKEN",
+      telegramAllowedUserId: "98765432"
+    });
+
+    await vi.waitFor(() => {
+      expect(capturedEmit).not.toBeNull();
+    });
+
+    // Emit error event
+    capturedEmit({
+      type: "error",
+      message: "An error occurred with_underscores_and_[brackets]"
+    });
+
+    // Advance timer to trigger cleanUpStreams and sendTelegramMessage
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await vi.waitFor(() => {
+      const retryCall = fetchCalls.find(c => c.url.includes("sendMessage") && !c.body.parse_mode && c.body.text.includes("运行出错"));
+      expect(retryCall).toBeDefined();
+      expect(retryCall.body.text).toContain("An error occurred with\\_underscores\\_and\\_\\[brackets\\]");
+    });
+  });
+
+  it("retries editTelegramMessage without parse_mode if it fails with Markdown", async () => {
+    let hasReturnedUpdate = false;
+    let capturedEmit = null;
+
+    runAgentTurn.mockImplementation((payload, emit) => {
+      capturedEmit = emit;
+      return Promise.resolve();
+    });
+
+    const editCalls = [];
+    const fetchMock = vi.fn().mockImplementation((url, init) => {
+      if (url.includes("getUpdates")) {
+        if (!hasReturnedUpdate) {
+          hasReturnedUpdate = true;
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              ok: true,
+              result: [
+                {
+                  update_id: 5000,
+                  message: {
+                    chat: { id: 12345 },
+                    from: { id: 98765432 },
+                    text: "trigger_stream"
+                  }
+                }
+              ]
+            })
+          });
+        }
+        return new Promise(() => {});
+      }
+
+      if (url.includes("editMessageText")) {
+        const body = JSON.parse(init.body);
+        editCalls.push(body);
+        if (body.parse_mode === "Markdown") {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ ok: false, description: "Bad Request: can't parse entities" })
+          });
+        } else {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ ok: true, result: { message_id: 123 } })
+          });
+        }
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ ok: true, result: { message_id: 123 } })
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    startTelegramBot({
+      telegramEnabled: true,
+      telegramBotToken: "123456:TESTTOKEN",
+      telegramAllowedUserId: "98765432"
+    });
+
+    await vi.waitFor(() => {
+      expect(capturedEmit).not.toBeNull();
+    });
+
+    // 1. Emit status to set streamMessageId
+    capturedEmit({ type: "status", message: "Starting" });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    // 2. Emit stream_delta with some problematic text
+    capturedEmit({ type: "stream_delta", text: "text_with_unmatched_markdown" });
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await vi.waitFor(() => {
+      const retryCall = editCalls.find(c => !c.parse_mode);
+      expect(retryCall).toBeDefined();
+      expect(retryCall.text).toContain("text_with_unmatched_markdown");
+    });
+  });
+
+  it("processes /screenshot command and sends captured image", async () => {
+    let hasReturnedUpdate = false;
+    const fetchMock = vi.fn().mockImplementation((url, init) => {
+      if (url.includes("getUpdates")) {
+        if (!hasReturnedUpdate) {
+          hasReturnedUpdate = true;
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              ok: true,
+              result: [
+                {
+                  update_id: 6000,
+                  message: {
+                    chat: { id: 12345 },
+                    from: { id: 98765432 },
+                    text: "/screenshot"
+                  }
+                }
+              ]
+            })
+          });
+        }
+        return new Promise(() => {});
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, result: { message_id: 123 } }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    startTelegramBot({
+      telegramEnabled: true,
+      telegramBotToken: "123456:TESTTOKEN",
+      telegramAllowedUserId: "98765432"
+    });
+
+    await vi.waitFor(() => {
+      const sendPhotoCall = fetchMock.mock.calls.find(call => call[0].includes("sendPhoto"));
+      expect(sendPhotoCall).toBeDefined();
+      expect(sendPhotoCall[1].body).toBeInstanceOf(FormData);
     });
   });
 });

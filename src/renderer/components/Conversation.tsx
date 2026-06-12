@@ -244,18 +244,22 @@ export function Conversation({
           detail: language === "zh" ? "更新成功！请重新启动本软件。" : "Update completed! Please restart the app."
         }));
       } else {
+        const errorDetail = result.error || "";
         setGitUpdateState(prev => ({
           ...prev,
           status: "error",
-          detail: (language === "zh" ? "更新失败: " : "Update failed: ") + (result.error || "")
+          detail: (language === "zh" ? "更新失败: " : "Update failed: ") + errorDetail
         }));
+        alert((language === "zh" ? "更新失败：\n" : "Update failed:\n") + errorDetail);
       }
     } catch (err: any) {
+      const errorDetail = err.message || String(err);
       setGitUpdateState(prev => ({
         ...prev,
         status: "error",
-        detail: (language === "zh" ? "更新出错: " : "Update error: ") + (err.message || String(err))
+        detail: (language === "zh" ? "更新出错: " : "Update error: ") + errorDetail
       }));
+      alert((language === "zh" ? "更新出错：\n" : "Update error:\n") + errorDetail);
     } finally {
       unsubscribe();
     }
