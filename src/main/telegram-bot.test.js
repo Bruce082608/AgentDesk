@@ -32,7 +32,13 @@ vi.mock("./agent.js", () => ({
 
 vi.mock("./persistence.js", () => ({
   loadPersistedSessions: vi.fn().mockResolvedValue([{ id: "telegram-remote", workspace: "C:/mock/project", messages: [] }]),
-  savePersistedSessions: vi.fn().mockResolvedValue()
+  savePersistedSessions: vi.fn().mockResolvedValue(),
+  getAgentContinuation: vi.fn().mockResolvedValue({
+    workspace: "C:/mock/project",
+    approval: {
+      options: ["Option A", "Option B"]
+    }
+  })
 }));
 
 vi.mock("./config.js", () => ({
@@ -784,6 +790,120 @@ describe("Telegram Bot Remote Control", () => {
       const sendPhotoCall = fetchMock.mock.calls.find(call => call[0].includes("sendPhoto"));
       expect(sendPhotoCall).toBeDefined();
       expect(sendPhotoCall[1].body).toBeInstanceOf(FormData);
+    });
+  });
+
+  it("handles ask_user_pending event and maps shortened question callback_data correctly", async () => {
+    let hasReturnedUpdate = true; // Start with true so callback query is not returned immediately
+    let capturedEmit = null;
+
+    runAgentTurn.mockImplementation((payload, emit) => {
+      capturedEmit = emit;
+      return Promise.resolve();
+    });
+
+    const fetchCalls = [];
+    let updatesReturned = 0;
+    const fetchMock = vi.fn().mockImplementation((url, init) => {
+      if (url.includes("getUpdates")) {
+        if (updatesReturned === 0) {
+          updatesReturned = 1;
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              ok: true,
+              result: [
+                {
+                  update_id: 8000,
+                  message: {
+                    chat: { id: 12345 },
+                    from: { id: 98765432 },
+                    text: "start_task"
+                  }
+                }
+              ]
+            })
+          });
+        } else if (updatesReturned === 1 && !hasReturnedUpdate) {
+          hasReturnedUpdate = true;
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              ok: true,
+              result: [
+                {
+                  update_id: 8001,
+                  callback_query: {
+                    id: "query_777",
+                    from: { id: 98765432 },
+                    message: {
+                      chat: { id: 12345 },
+                      message_id: 999,
+                      text: "Original question text"
+                    },
+                    data: "tg:q:a:uuid_1234:0"
+                  }
+                }
+              ]
+            })
+          });
+        }
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve({
+              ok: true,
+              json: () => Promise.resolve({ ok: true, result: [] })
+            });
+          }, 100);
+        });
+      }
+
+      if (init && init.body) {
+        try {
+          fetchCalls.push({ url, body: JSON.parse(init.body) });
+        } catch {}
+      }
+
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, result: { message_id: 123 } }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    startTelegramBot({
+      telegramEnabled: true,
+      telegramBotToken: "123456:TESTTOKEN",
+      telegramAllowedUserId: "98765432"
+    });
+
+    await vi.waitFor(() => {
+      expect(capturedEmit).not.toBeNull();
+    });
+
+    capturedEmit({
+      type: "ask_user_pending",
+      questionId: "uuid_1234",
+      question: "Are you sure you want to proceed?",
+      options: ["Option A", "Option B"]
+    });
+
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await vi.waitFor(() => {
+      const questionMsg = fetchCalls.find(c => c.url.includes("sendMessage") && c.body.text.includes("Are you sure"));
+      expect(questionMsg).toBeDefined();
+      const buttons = questionMsg.body.reply_markup.inline_keyboard;
+      expect(buttons[0][0].callback_data).toBe("tg:q:a:uuid_1234:0");
+      expect(buttons[1][0].callback_data).toBe("tg:q:a:uuid_1234:1");
+      expect(buttons[2][0].callback_data).toBe("tg:q:d:uuid_1234");
+    });
+
+    fetchCalls.length = 0;
+    hasReturnedUpdate = false;
+
+    await vi.advanceTimersByTimeAsync(3000);
+
+    await vi.waitFor(() => {
+      const editMsgCall = fetchCalls.find(c => c.url.includes("editMessageText") && c.body.text.includes("已回答: Option A"));
+      expect(editMsgCall).toBeDefined();
     });
   });
 });

@@ -477,13 +477,35 @@ async function handleCallbackQuery(query) {
 
   await answerCallbackQuery(queryId, "正在处理审批...");
 
-  const action = parts[1]; // "approve" or "discard"
-  const type = parts[2]; // "patch" or "command" or "question"
-  const id = parts[3];
-  const option = parts[4] ? decodeURIComponent(parts[4]) : undefined;
+  let action, type, id, option;
 
-  // Edit message to remove buttons and show action status
-  const actionText = action === "approve" ? "已批准 ✅" : "已拒绝 ❌";
+  if (data.startsWith("tg:q:")) {
+    const subAction = parts[2];
+    action = subAction === "a" ? "approve" : "discard";
+    type = "question";
+    id = parts[3];
+    const idx = parts[4] ? parseInt(parts[4], 10) : undefined;
+
+    if (subAction === "a" && idx !== undefined) {
+      try {
+        const continuation = await getOrCreateRemoteSession().then(() =>
+          import("./persistence.js").then((p) => p.getAgentContinuation(id))
+        );
+        option = continuation?.approval?.options?.[idx];
+      } catch (err) {
+        console.error("[Telegram Bot] Failed to load continuation for option mapping:", err);
+      }
+    }
+  } else {
+    action = parts[1];
+    type = parts[2];
+    id = parts[3];
+    option = parts[4] ? decodeURIComponent(parts[4]) : undefined;
+  }
+
+  const actionText = action === "approve"
+    ? (type === "question" && option ? `已回答: ${option} ✅` : "已批准 ✅")
+    : "已拒绝 ❌";
   const originalText = String(query.message.text || "");
   await editTelegramMessage(chatId, messageId, `${originalText}\n\n**我的决策：${actionText}**`);
 
@@ -865,16 +887,16 @@ function createTelegramEmit(chatId, requestId, workspace) {
       void cleanUpStreams().then(async () => {
         const text =
           `❓ **Agent 提问澄清**:\n` +
-          `${event.question}\n\n` +
-          `${event.context ? `背景: _${event.context}_\n\n` : ""}` +
+          `${escapeMarkdown(event.question)}\n\n` +
+          `${event.context ? `背景: _${escapeMarkdown(event.context)}_\n\n` : ""}` +
           `请选择一个选项答复：`;
 
         const buttons = (event.options || ["Yes", "No"]).map((option, idx) => {
-          return [{ text: option, callback_data: `tg:approve:question:${event.questionId}:${encodeURIComponent(option)}` }];
+          return [{ text: option, callback_data: `tg:q:a:${event.questionId}:${idx}` }];
         });
 
         // Add a cancel/dismiss option
-        buttons.push([{ text: "❌ 忽略/跳过", callback_data: `tg:discard:question:${event.questionId}` }]);
+        buttons.push([{ text: "❌ 忽略/跳过", callback_data: `tg:q:d:${event.questionId}` }]);
 
         await sendTelegramMessage(chatId, text, {
           reply_markup: {

@@ -683,7 +683,7 @@ export function Conversation({
             <button
               type="button"
               className={`update-badge-btn ${gitUpdateState.status}`}
-              onClick={handleApplyUpdate}
+              onClick={() => handleApplyUpdate()}
               disabled={gitUpdateState.status === "updating" || gitUpdateState.status === "completed"}
               title={gitUpdateState.detail || (language === "zh" ? "检测到新版本，点击自动更新" : "New version detected, click to auto update")}
             >
