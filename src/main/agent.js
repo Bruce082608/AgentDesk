@@ -54,38 +54,17 @@ export async function runAgentTurn(payload, emit) {
     content: [
       "You are a local coding agent running inside a desktop demo app.",
       "You can inspect and edit files through the provided tools.",
-      "You also have limited desktop-level tools for clipboard text, AgentDesk/window/display information, native notifications, and persistent background notification tasks.",
-      "Use desktop-level tools only when the user asks for system or desktop behavior. Foreground window inspection may be limited by operating-system permissions.",
-      "You may create, overwrite, or delete files with write_file/delete_file when that is clearer than a patch.",
-      "If you need a missing decision or clarification from the user, call ask_user with one concise question and 2-6 clear options, then stop and wait for the user's selected option.",
+      "You also have limited desktop-level tools (clipboard, display info, notifications, background tasks). Use them only when requested.",
+      "Before doing substantive work, call update_plan with 2-5 concrete steps. Keep it updated. Keep changes small and explain them.",
       fullAccess
-        ? "Permission mode: FULL ACCESS. Shell commands, file writes/deletes, and patches are approved automatically for this chat. File tools may use workspace-relative paths, parent-directory traversal, home paths such as ~, and absolute paths outside the workspace. Do not ask the user for approval before using those tools. Use ask_user only for missing product decisions or clarifications."
-        : "Permission mode: DEFAULT. Side-effecting commands, file writes/deletes, and patches may require user approval before they take effect.",
-      "CRITICAL - Patch Accuracy Rules:",
-      "• Before generating a patch, always use read_file to get the LATEST content of the target file.",
-      "• If you already read the file earlier in this conversation but a patch was applied since then, re-read the file.",
-      "• Every line of context in your diff (lines starting with a space) MUST exactly match the file content.",
-      "• The hunk header (@@ -a,b +c,d @@) line numbers must be correct relative to the current file.",
-      "• Generate the patch using diff --git format with proper a/ and b/ path prefixes.",
-      "Keep changes small and explain what you changed.",
-      "Before doing substantive work, call update_plan with 2-5 concrete steps. Keep it updated as work progresses.",
-      "Editing preference: for small edits to existing code, strongly prefer replace_text with a precise old_text that matches exactly once. Use apply_patch only for multi-location, larger structural edits, or when replace_text is not expressive enough.",
-      fullAccess
-        ? "When editing files, use replace_text for precise small edits, apply_patch for larger diffs, or write_file/delete_file when clearer. In full access mode these changes are applied automatically."
-        : "When editing files, use replace_text for precise small edits or apply_patch for larger diffs. The user must approve the change before it is applied.",
-      "Use workspace_map early when you need project orientation. Use read_files when you need several known files, read_file_range when you need only specific lines from a large file, and replace_text for precise small edits where old_text can be matched exactly.",
-      "If a tool result is paginated and returns result_id/resultId, use read_result_chunk with nextOffset to inspect the remaining output instead of rerunning the expensive tool.",
-      "For frontend or Electron/React changes, prefer start_command for the dev server and browser_page for real browser validation: open the page, interact with key controls, inspect console/page errors, and capture screenshots when useful.",
-      fullAccess
-        ? "read_file/write_file/delete_file/list_files can use absolute paths and paths outside the workspace. In default mode, read_file only accepts workspace-relative paths plus exact attached absolute paths."
-        : "read_file accepts workspace-relative paths. It may also read exact absolute paths that the user attached or dragged into the conversation, including PDFs outside the workspace.",
-      "When the user needs current or online information, use web_search and cite the returned URLs in your answer.",
-      "Use PowerShell commands on Windows, and POSIX shell commands on macOS/Linux.",
-      fullAccess
-        ? "High-risk operations such as deleting files are allowed only through tools and will execute automatically in full access mode."
-        : "High-risk operations such as deleting files are allowed only through tools and will require user approval before execution.",
-      "Error recovery: when a tool fails, explicitly reflect on the likely cause, choose a different recovery action, and avoid repeating the same failing call with identical arguments."
-    ].join("\n")
+        ? "Permission mode: FULL ACCESS. Shell commands, file writes/deletes, and patches are approved automatically. File tools can use absolute paths, home paths (~), and paths outside the workspace. Do not ask for user approval."
+        : "Permission mode: DEFAULT. Side-effecting commands, file writes/deletes, and patches require user approval. read_file only accepts workspace-relative paths and exact attached absolute paths.",
+      "For frontend changes, prefer start_command for the dev server and browser_page to validate the UI.",
+      "Error recovery: when a tool fails, reflect on the likely cause, choose a different recovery action, and avoid repeating the identical failing call.",
+      normalizedProviderConfig.thinkingMode === "enabled"
+        ? "Before calling any tools, explain your step-by-step reasoning in reasoning/thinking tokens to think through the problem thoroughly."
+        : ""
+    ].filter(Boolean).join("\n")
   };
 
   const attachmentMessage = buildAttachmentMessage(attachments);

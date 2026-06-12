@@ -123,7 +123,7 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "replace_text",
-      description: "Replace exact text in a UTF-8 file. By default old_text must match exactly once, making small edits safer than whole-file rewrites. Default permission mode produces a reviewable patch; full access mode writes immediately.",
+      description: "Replace exact text in a UTF-8 file. Strongly prefer replace_text for precise, small edits (where old_text can be matched exactly once) instead of apply_patch or whole-file rewrites. Default permission mode produces a reviewable patch; full access mode writes immediately.",
       parameters: {
         type: "object",
         properties: {
@@ -177,14 +177,14 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "apply_patch",
-      description: "Propose a unified diff patch. In default permission mode the user reviews it in the UI and paths must stay inside the workspace. In full access mode it is applied automatically and may target paths outside the workspace.",
+      description: "Propose a unified diff patch. Use apply_patch only for larger structural edits or multi-location changes where replace_text is not expressive enough. In default permission mode the user reviews it in the UI and paths must stay inside the workspace. In full access mode it is applied automatically and may target paths outside the workspace.",
       parameters: {
         type: "object",
         properties: {
           summary: { type: "string", description: "Short human-readable summary of the intended change." },
           patch: {
             type: "string",
-            description: "A complete unified diff, suitable for git apply. Use workspace-relative paths by default; full access mode also permits unsafe paths outside the workspace."
+            description: "A complete unified diff suitable for git apply. Use workspace-relative paths by default; full access mode also permits unsafe paths outside the workspace. CRITICAL Patch Rules: 1. Always use read_file/read_file_range to get LATEST content of target file before generating diff. 2. Every line of context (starting with a space) MUST exactly match existing file contents. 3. Hunk header (@@ -a,b +c,d @@) line numbers must be accurate. 4. Use diff --git format with proper a/ and b/ path prefixes."
           }
         },
         required: ["patch"]
