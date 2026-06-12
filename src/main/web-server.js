@@ -393,6 +393,27 @@ async function handleRestApi(pathname, req, res) {
     return;
   }
 
+  if (pathname.startsWith("/api/screenshots/") && req.method === "GET") {
+    const filename = path.basename(pathname.slice("/api/screenshots/".length));
+    const screenshotDir = path.join(app.getPath("userData"), "screenshots");
+    const filePath = path.join(screenshotDir, filename);
+
+    try {
+      const stat = await fs.stat(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : "image/png";
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Content-Length": stat.size
+      });
+      createReadStream(filePath).pipe(res);
+    } catch {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not Found");
+    }
+    return;
+  }
+
   // Fallback
   res.writeHead(404, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: false, error: "Not Found" }));

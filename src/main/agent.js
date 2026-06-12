@@ -54,7 +54,8 @@ export async function runAgentTurn(payload, emit) {
     content: [
       "You are a local coding agent running inside a desktop demo app.",
       "You can inspect and edit files through the provided tools.",
-      "You also have limited desktop-level tools (clipboard, display info, notifications, background tasks). Use them only when requested.",
+      "You also have limited desktop-level tools (clipboard, display info, notifications, take_screenshot, send_image, background tasks). Use them only when requested.",
+      "When the user requests a screenshot or requests to send an image, you MUST call the take_screenshot or send_image tool to capture/deliver the image. Do NOT claim you have captured or sent it without actually calling the corresponding tool.",
       "Before doing substantive work, call update_plan with 2-5 concrete steps. Keep it updated. Keep changes small and explain them.",
       fullAccess
         ? "Permission mode: FULL ACCESS. Shell commands, file writes/deletes, and patches are approved automatically. File tools can use absolute paths, home paths (~), and paths outside the workspace. Do not ask for user approval."
@@ -67,7 +68,7 @@ export async function runAgentTurn(payload, emit) {
     ].filter(Boolean).join("\n")
   };
 
-  const attachmentMessage = buildAttachmentMessage(attachments);
+  const attachmentMessage = buildAttachmentMessage(attachments, normalizedProviderConfig.supportsVision);
   const { messages, compressed } = await buildMessages({
     systemMessage,
     attachmentMessage,
@@ -299,7 +300,7 @@ async function processToolCalls({
         index += 1;
       }
 
-      const executions = await Promise.all(batch.map(({ toolCall }) => executeRuntimeToolCall(toolCall, runtime, language)));
+      const executions = await Promise.all(batch.map(({ toolCall }) => executeRuntimeToolCall(toolCall, runtime, language, emit)));
       for (let batchIndex = 0; batchIndex < executions.length; batchIndex += 1) {
         const execution = executions[batchIndex];
         const nextToolIndex = batch[batchIndex].index + 1;
@@ -323,7 +324,7 @@ async function processToolCalls({
     const name = toolCall.function?.name ?? "unknown";
     const rawArgs = toolCall.function?.arguments ?? "{}";
     emit({ type: "tool_start", name, args: rawArgs, toolCallId: toolCall.id });
-    const execution = await executeRuntimeToolCall(toolCall, runtime, language);
+    const execution = await executeRuntimeToolCall(toolCall, runtime, language, emit);
     const handled = await handleToolExecution({
       runtime,
       emit,
@@ -350,7 +351,7 @@ async function processToolCalls({
   return { paused: false };
 }
 
-async function executeRuntimeToolCall(toolCall, runtime, language) {
+async function executeRuntimeToolCall(toolCall, runtime, language, emit) {
   const name = toolCall.function?.name ?? "unknown";
   const rawArgs = toolCall.function?.arguments ?? "{}";
   let result = "";
@@ -362,7 +363,8 @@ async function executeRuntimeToolCall(toolCall, runtime, language) {
       sessionId: runtime.sessionId || "",
       language,
       fullAccessAutoApproval: isRuntimeFullAccess(runtime),
-      attachments: runtime.attachments
+      attachments: runtime.attachments,
+      emit
     });
     parsed = parseToolResult(result);
   } catch (error) {
@@ -771,15 +773,55 @@ function buildResumeResponse(continuation, resumeResult) {
   };
 }
 
-function buildAttachmentMessage(attachments) {
+function buildAttachmentMessage(attachments, supportsVision) {
   if (attachments.length === 0) return null;
-  return {
-    role: "user",
-    content: [
-      "Attached files for context. Some paths may be outside the workspace; exact attached paths are allowed for read_file:",
-      ...attachments.map((file) => `\n--- ${file.path} ---\n${String(file.content ?? "").slice(0, 50000)}`)
-    ].join("\n")
-  };
+  
+  const textAttachments = attachments.filter(a => !a.isImage);
+  const imageAttachments = attachments.filter(a => a.isImage);
+  
+  if (supportsVision && imageAttachments.length > 0) {
+    const contents = [];
+    if (textAttachments.length > 0) {
+      const textHeader = "Attached files for context. Some paths may be outside the workspace; exact attached paths are allowed for read_file:\n" +
+        textAttachments.map((file) => `\n--- ${file.path} ---\n${String(file.content ?? "").slice(0, 50000)}`).join("\n");
+      contents.push({ type: "text", text: textHeader });
+    } else {
+      contents.push({ type: "text", text: "Attached images for visual analysis:" });
+    }
+
+    for (const img of imageAttachments) {
+      contents.push({
+        type: "image_url",
+        image_url: {
+          url: img.content
+        }
+      });
+      contents.push({
+        type: "text",
+        text: `[Image file path: ${img.path}]`
+      });
+    }
+
+    return {
+      role: "user",
+      content: contents
+    };
+  } else {
+    const lines = [
+      "Attached files for context. Some paths may be outside the workspace; exact attached paths are allowed for read_file:"
+    ];
+    for (const file of attachments) {
+      if (file.isImage) {
+        lines.push(`\n--- ${file.path} ---\n[图片附件 (当前模型不支持视觉解析，已自动降级为纯文本占位符)]`);
+      } else {
+        lines.push(`\n--- ${file.path} ---\n${String(file.content ?? "").slice(0, 50000)}`);
+      }
+    }
+    return {
+      role: "user",
+      content: lines.join("\n")
+    };
+  }
 }
 
 async function buildMessages({

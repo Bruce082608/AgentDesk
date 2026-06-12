@@ -105,6 +105,12 @@ export function showDesktopNotification({ title, body = "", silent = false } = {
 
 export function handleAgentDesktopEvent(message) {
   if (!message || typeof message !== "object") return;
+  if (message.type === "image_sent") {
+    import("./telegram-bot.js").then(({ sendPhotoToActiveUser }) => {
+      void sendPhotoToActiveUser(message.buffer, message.caption || "");
+    }).catch(() => {});
+    return;
+  }
   if (message.type === "command_pending") {
     showDesktopNotification({
       title: "AgentDesk is waiting",

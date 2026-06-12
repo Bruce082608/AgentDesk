@@ -5,11 +5,15 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
+import { app } from "electron";
 import { normalizeLanguage, t } from "./i18n.js";
 import { webSearch } from "./web-search.js";
 import { executeSystemTool, isSystemTool } from "./system-tools.js";
 import { searchWorkspaceTextWithRg } from "../shared/ripgrep.js";
 import { extractPdfText, isPdfExtension, looksBinaryBuffer } from "../shared/pdfReader.js";
+import { capturePrimaryScreen } from "./screen-capture.js";
+import { getWebServerState } from "./web-server.js";
+
 
 import {
   buildWholeFilePatch,
@@ -98,6 +102,10 @@ async function executeToolImplementation(name, args, context) {
       return stopCommand(args.session_id, context.language);
     case "update_plan":
       return JSON.stringify({ ok: true, items: Array.isArray(args.items) ? args.items : [] });
+    case "take_screenshot":
+      return takeScreenshot(context, args.caption);
+    case "send_image":
+      return sendImage(context, args.path, args.caption);
     default:
       throw localizedError(context.language, "tools.unknownTool", { name });
   }
@@ -1525,6 +1533,78 @@ function pathSecurityOptions(language) {
     language: normalized,
     message: (key, values) => t(normalized, `tools.${key}`, values)
   };
+}
+
+async function takeScreenshot(context, caption = "") {
+  const buffer = await capturePrimaryScreen();
+  const filename = `screenshot_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.png`;
+  const screenshotDir = path.join(app.getPath("userData"), "screenshots");
+  await fs.mkdir(screenshotDir, { recursive: true });
+  const filePath = path.join(screenshotDir, filename);
+  await fs.writeFile(filePath, buffer);
+
+  const serverState = getWebServerState();
+  const token = serverState.token;
+  const port = serverState.port;
+  const url = `http://localhost:${port}/api/screenshots/${filename}?token=${token}`;
+
+  if (typeof context.emit === "function") {
+    context.emit({
+      type: "image_sent",
+      path: filePath,
+      buffer: buffer,
+      caption: caption || "🖥️ 电脑屏幕截图"
+    });
+  }
+
+  return JSON.stringify({
+    ok: true,
+    path: filePath,
+    url: url,
+    message: "Screenshot successfully captured and sent."
+  });
+}
+
+async function sendImage(context, relativePath, caption = "") {
+  const workspace = context.workspace;
+  const absolutePath = path.isAbsolute(relativePath)
+    ? relativePath
+    : path.resolve(workspace, relativePath);
+
+  let buffer;
+  try {
+    buffer = await fs.readFile(absolutePath);
+  } catch (error) {
+    throw new Error(`Failed to read file at ${relativePath}: ${error.message}`);
+  }
+
+  const ext = path.extname(absolutePath) || ".png";
+  const filename = `image_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+  const screenshotDir = path.join(app.getPath("userData"), "screenshots");
+  await fs.mkdir(screenshotDir, { recursive: true });
+  const filePath = path.join(screenshotDir, filename);
+  await fs.writeFile(filePath, buffer);
+
+  const serverState = getWebServerState();
+  const token = serverState.token;
+  const port = serverState.port;
+  const url = `http://localhost:${port}/api/screenshots/${filename}?token=${token}`;
+
+  if (typeof context.emit === "function") {
+    context.emit({
+      type: "image_sent",
+      path: absolutePath,
+      buffer: buffer,
+      caption: caption || `图片附件: ${path.basename(relativePath)}`
+    });
+  }
+
+  return JSON.stringify({
+    ok: true,
+    path: absolutePath,
+    url: url,
+    message: "Image successfully read and sent."
+  });
 }
 
 export const __test__ = {

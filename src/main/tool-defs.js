@@ -384,5 +384,33 @@ export const toolDefinitions = [
         required: ["session_id"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "take_screenshot",
+      description: "Take a screenshot of the user's primary desktop display screen. This tool captures the screen, returns a local preview URL, and pushes the image directly to the user's phone if Telegram bot is active.",
+      parameters: {
+        type: "object",
+        properties: {
+          caption: { type: "string", description: "Optional caption for the screenshot." }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_image",
+      description: "Send an existing image file from the workspace to the user. This tool reads the file, generates a local preview URL, and pushes the image directly to the user's phone if Telegram bot is active.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "The workspace-relative or absolute path to the image file." },
+          caption: { type: "string", description: "Optional caption for the image." }
+        },
+        required: ["path"]
+      }
+    }
   }
 ];

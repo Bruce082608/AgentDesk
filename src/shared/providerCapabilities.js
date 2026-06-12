@@ -18,6 +18,7 @@ export const PROVIDER_CAPABILITIES = {
         supportsThinking: true,
         supportsToolCalls: true,
         supportsTemperature: false,
+        supportsVision: false,
         defaultThinkingMode: "enabled",
         reasoningEfforts: ["low", "medium", "high", "max"],
         defaultReasoningEffort: "max"
@@ -30,6 +31,7 @@ export const PROVIDER_CAPABILITIES = {
         supportsThinking: false,
         supportsToolCalls: true,
         supportsTemperature: true,
+        supportsVision: false,
         defaultThinkingMode: "disabled",
         reasoningEfforts: ["medium"],
         defaultReasoningEffort: "medium"
@@ -42,6 +44,7 @@ export const PROVIDER_CAPABILITIES = {
         supportsThinking: false,
         supportsToolCalls: true,
         supportsTemperature: true,
+        supportsVision: false,
         defaultThinkingMode: "disabled",
         reasoningEfforts: ["medium"],
         defaultReasoningEffort: "medium"
@@ -65,6 +68,7 @@ export const PROVIDER_CAPABILITIES = {
         supportsThinking: false,
         supportsToolCalls: true,
         supportsTemperature: true,
+        supportsVision: true,
         defaultThinkingMode: "disabled",
         reasoningEfforts: ["medium"],
         defaultReasoningEffort: "medium"
@@ -78,6 +82,7 @@ export const PROVIDER_CAPABILITIES = {
       supportsThinking: false,
       supportsToolCalls: true,
       supportsTemperature: true,
+      supportsVision: true,
       defaultThinkingMode: "disabled",
       reasoningEfforts: ["medium"],
       defaultReasoningEffort: "medium"
@@ -97,7 +102,17 @@ export function getModelCapability(config = {}) {
     : provider.provider === "openai-compatible" && rawModel
       ? rawModel
       : provider.defaultModel;
-  const capability = provider.models[model] || provider.fallbackModel || provider.models[provider.defaultModel];
+  const rawCapability = provider.models[model] || provider.fallbackModel || provider.models[provider.defaultModel];
+  
+  const modelName = String(model).toLowerCase();
+  const isCommonVisionModel = /gpt-4o|claude-3|gemini|vl|vision|qwen-vl|internvl/i.test(modelName);
+  const capability = {
+    ...rawCapability,
+    supportsVision: typeof rawCapability.supportsVision === "boolean"
+      ? rawCapability.supportsVision
+      : isCommonVisionModel
+  };
+
   return { provider, model, capability };
 }
 
@@ -125,6 +140,7 @@ export function normalizeConfigForCapabilities(config = {}) {
     thinkingMode,
     reasoningEffort,
     temperature,
+    supportsVision: capability.supportsVision,
     telegramEnabled: typeof config.telegramEnabled === "boolean" ? config.telegramEnabled : undefined,
     telegramAllowedUserId: typeof config.telegramAllowedUserId === "string" ? config.telegramAllowedUserId : undefined,
     telegramBotToken: typeof config.telegramBotToken === "string" ? config.telegramBotToken : undefined

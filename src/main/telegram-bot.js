@@ -7,6 +7,7 @@ import { runAgentTurn, resumeAgentContinuation } from "./agent.js";
 import { loadPersistedSessions, savePersistedSessions } from "./persistence.js";
 import { loadAppConfig } from "./config.js";
 import { readAttachmentFiles } from "./attachments.js";
+import { capturePrimaryScreen } from "./screen-capture.js";
 
 let isPolling = false;
 let abortController = null;
@@ -586,7 +587,7 @@ async function runRemoteAgentTurn(chatId, userInput, attachments = []) {
         workspace: session.workspace,
         input: userInput,
         providerConfig: config,
-        messages: [], // Do not send prior history, only reply to the latest message
+        messages: Array.isArray(session.messages) ? session.messages.slice(0, -1) : [],
         attachments,
         permissionMode: "full",
         language: "zh",
@@ -688,6 +689,11 @@ function createTelegramEmit(chatId, requestId, workspace) {
   };
 
   return (event) => {
+    if (event.type === "image_sent") {
+      void sendTelegramPhoto(chatId, event.buffer, event.caption || "");
+      return;
+    }
+
     if (event.type === "status") {
       // Filter out technical context/token sending status messages
       if (
@@ -1027,24 +1033,17 @@ async function editTelegramMessage(chatId, messageId, text, extra = {}) {
   }
 }
 
-async function capturePrimaryScreen() {
-  if (typeof desktopCapturer === "undefined" || typeof screen === "undefined" || !desktopCapturer || !screen) {
-    throw new Error("截屏功能仅在 Electron 桌面客户端运行时可用。");
+export async function sendPhotoToActiveUser(photoBuffer, caption = "") {
+  if (!activeBotToken || !activeAllowedUserId) {
+    return false;
   }
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.size;
-  
-  const sources = await desktopCapturer.getSources({
-    types: ["screen"],
-    thumbnailSize: { width, height }
-  });
-  
-  const primarySource = sources[0];
-  if (!primarySource) {
-    throw new Error("未找到任何可用屏幕数据");
+  try {
+    await sendTelegramPhoto(activeAllowedUserId, photoBuffer, caption);
+    return true;
+  } catch (error) {
+    console.error("[Telegram Bot] sendPhotoToActiveUser failed:", error);
+    return false;
   }
-  
-  return primarySource.thumbnail.toPNG();
 }
 
 async function sendTelegramPhoto(chatId, photoBuffer, caption = "") {

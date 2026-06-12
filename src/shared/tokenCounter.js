@@ -19,10 +19,24 @@ export function countTextTokens(value) {
 
 export function countChatMessageTokens(message) {
   if (!message) return 0;
+  
+  let contentTokens = 0;
+  if (Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (part?.type === "text") {
+        contentTokens += countTextTokens(part.text || "");
+      } else if (part?.type === "image_url") {
+        contentTokens += 200; // Flat estimate for image tokens
+      }
+    }
+  } else {
+    contentTokens = countTextTokens(message.content || "");
+  }
+
   return (
     MESSAGE_OVERHEAD_TOKENS +
     countTextTokens(message.role || "") +
-    countTextTokens(message.content || "") +
+    contentTokens +
     countTextTokens(message.reasoning || "") +
     countTextTokens(message.tool_call_id || "") +
     countTextTokens(message.name || "") +
@@ -36,6 +50,9 @@ export function countChatMessagesTokens(messages = []) {
 
 export function countAttachmentsTokens(attachments = []) {
   return attachments.reduce((total, file) => {
+    if (file?.isImage) {
+      return total + countTextTokens(file.path || "") + 200;
+    }
     return total + countTextTokens(file?.path || "") + countTextTokens(file?.content || "");
   }, 0);
 }

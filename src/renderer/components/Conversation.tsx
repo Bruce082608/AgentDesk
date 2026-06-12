@@ -772,14 +772,30 @@ export function Conversation({
           )}
           {attachedFiles.length > 0 && (
             <div className="composer-attachments">
-              {attachedFiles.map((file) => (
-                <button key={file.path} type="button" onClick={() => detachFile(file.path)} title={formatAttachmentTitle(file, language, t.removeContextTitle)}>
-                  <span className="attachment-name">{file.path}</span>
-                  <span className={`attachment-badge ${file.status || "ready"}`}>{formatAttachmentStatus(file, language)}</span>
-                  {file.duplicateCount && file.duplicateCount > 1 && <span className="attachment-badge duplicate">×{file.duplicateCount}</span>}
-                  <X size={13} strokeWidth={2.4} aria-hidden="true" />
-                </button>
-              ))}
+              {attachedFiles.map((file) => {
+                const isImage = file.content?.startsWith("data:image/");
+                return (
+                  <button key={file.path} type="button" onClick={() => detachFile(file.path)} title={formatAttachmentTitle(file, language, t.removeContextTitle)}>
+                    {isImage && (
+                      <img
+                        src={file.content}
+                        alt="preview"
+                        style={{
+                          width: "16px",
+                          height: "16px",
+                          objectFit: "cover",
+                          borderRadius: "3px",
+                          marginRight: "4px"
+                        }}
+                      />
+                    )}
+                    <span className="attachment-name">{file.path}</span>
+                    <span className={`attachment-badge ${file.status || "ready"}`}>{formatAttachmentStatus(file, language)}</span>
+                    {file.duplicateCount && file.duplicateCount > 1 && <span className="attachment-badge duplicate">×{file.duplicateCount}</span>}
+                    <X size={13} strokeWidth={2.4} aria-hidden="true" />
+                  </button>
+                );
+              })}
             </div>
           )}
           <textarea

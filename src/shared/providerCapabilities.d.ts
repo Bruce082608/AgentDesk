@@ -8,6 +8,7 @@ export type ModelCapability = {
   supportsThinking: boolean;
   supportsToolCalls: boolean;
   supportsTemperature: boolean;
+  supportsVision: boolean;
   defaultThinkingMode: "enabled" | "disabled";
   reasoningEfforts: Array<"low" | "medium" | "high" | "max">;
   defaultReasoningEffort: "low" | "medium" | "high" | "max";
@@ -43,5 +44,7 @@ export function normalizeConfigForCapabilities<T extends Record<string, unknown>
   thinkingMode: "enabled" | "disabled";
   reasoningEffort: "low" | "medium" | "high" | "max";
   temperature: number;
+  supportsVision: boolean;
 };
 export function trimTrailingSlash(value: unknown): string;
+

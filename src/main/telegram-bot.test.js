@@ -31,7 +31,7 @@ vi.mock("./agent.js", () => ({
 }));
 
 vi.mock("./persistence.js", () => ({
-  loadPersistedSessions: vi.fn().mockResolvedValue([{ id: "telegram-remote", workspace: "C:/mock/project", messages: [] }]),
+  loadPersistedSessions: vi.fn().mockImplementation(() => Promise.resolve([{ id: "telegram-remote", workspace: "C:/mock/project", messages: [] }])),
   savePersistedSessions: vi.fn().mockResolvedValue(),
   getAgentContinuation: vi.fn().mockResolvedValue({
     workspace: "C:/mock/project",
