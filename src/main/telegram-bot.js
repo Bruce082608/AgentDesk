@@ -592,13 +592,47 @@ function createTelegramEmit(chatId, requestId, workspace) {
   let reasoningBuffer = "";
   let streamTimer = null;
   let lastStatusText = "";
+  let sentLength = 0;
 
   const sendOrEditStreamMessage = async (isFinal = false) => {
-    let output = `📁 **工作区:** \`${workspace}\`\n\n`;
-    output += textBuffer;
+    const maxChunkSize = 3500;
+    const currentText = textBuffer.slice(sentLength);
 
-    if (!isFinal && lastStatusText) {
-      output += `\n\n⏳ _${lastStatusText}_`;
+    if (currentText.length > maxChunkSize) {
+      const chunk = currentText.slice(0, maxChunkSize);
+      let output = `📁 **工作区:** \`${workspace}\` (第 ${Math.floor(sentLength / maxChunkSize) + 1} 部分)\n\n`;
+      output += chunk;
+      output += `\n\n📄 _(内容过长，本段已结束，后续内容将在新消息中发送...)_`;
+
+      try {
+        const extra = { reply_markup: { inline_keyboard: [] } };
+        if (streamMessageId === null) {
+          const res = await sendTelegramMessage(chatId, output, extra);
+          if (res && res.ok) {
+            streamMessageId = res.result.message_id;
+          }
+        } else {
+          await editTelegramMessage(chatId, streamMessageId, output, extra);
+        }
+      } catch (err) {
+        // ignore
+      }
+
+      sentLength += maxChunkSize;
+      streamMessageId = null;
+
+      await sendOrEditStreamMessage(isFinal);
+      return;
+    }
+
+    let output = `📁 **工作区:** \`${workspace}\`${sentLength > 0 ? ` (接上文 - 第 ${Math.floor(sentLength / maxChunkSize) + 1} 部分)` : ""}\n\n`;
+    output += currentText;
+
+    if (!isFinal) {
+      output += `\n\n🤖 **Agent 正在工作中...**`;
+      if (lastStatusText) {
+        output += `\n⏳ _${lastStatusText}_`;
+      }
     }
 
     try {
@@ -718,6 +752,7 @@ function createTelegramEmit(chatId, requestId, workspace) {
       planMessageId = null;
       textBuffer = "";
       reasoningBuffer = "";
+      sentLength = 0;
     };
 
     if (event.type === "done") {
@@ -790,7 +825,7 @@ function createTelegramEmit(chatId, requestId, workspace) {
       void cleanUpStreams().then(async () => {
         // Show summary and preview patch (truncated if too large)
         const diffText = String(event.patch || "");
-        const truncatedDiff = diffText.length > 2500 ? `${diffText.slice(0, 2500)}\n... (剩余较长，已截断)` : diffText;
+        const truncatedDiff = diffText.length > 2500 ? `${diffText.slice(0, 2500)}\n... (剩余较长，已截断并附带完整文件)` : diffText;
 
         const text =
           `📝 **待审批补丁**:\n` +
@@ -809,6 +844,19 @@ function createTelegramEmit(chatId, requestId, workspace) {
             ]
           }
         });
+
+        if (diffText.length > 2500) {
+          // Write the full diff to a temp file and upload it
+          try {
+            const tempDir = os.tmpdir();
+            const tempFilePath = path.join(tempDir, `patch_${event.patchId}.diff`);
+            await fs.promises.writeFile(tempFilePath, diffText, "utf8");
+            await sendTelegramDocument(chatId, tempFilePath, `完整的补丁代码文件 - ${event.summary}`);
+            fs.promises.unlink(tempFilePath).catch(() => {});
+          } catch (err) {
+            console.error("[Telegram Bot] Failed to send full patch document:", err);
+          }
+        }
       });
       return;
     }
@@ -902,18 +950,21 @@ async function sendTelegramMessage(chatId, text, extra = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    const data = await response.json();
-    if (data && !data.ok && body.parse_mode) {
-      console.warn(`[Telegram Bot] sendMessage failed with Markdown, retrying without parse_mode: ${data.description}`);
-      delete body.parse_mode;
-      const retryRes = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      return await retryRes.json();
+    const resData = await response.json();
+    if (!resData.ok && body.parse_mode) {
+      const desc = resData.description || "";
+      if (!desc.includes("message is not modified") && !desc.includes("message to edit not found")) {
+        console.warn(`[Telegram Bot] sendMessage failed with Markdown, retrying without parse_mode: ${desc}`);
+        delete body.parse_mode;
+        const fallbackResponse = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        return await fallbackResponse.json();
+      }
     }
-    return data;
+    return resData;
   } catch (error) {
     console.error("[Telegram Bot] sendMessage failed:", error.message);
   }
@@ -934,18 +985,21 @@ async function editTelegramMessage(chatId, messageId, text, extra = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    const data = await response.json();
-    if (data && !data.ok && body.parse_mode) {
-      console.warn(`[Telegram Bot] editMessageText failed with Markdown, retrying without parse_mode: ${data.description}`);
-      delete body.parse_mode;
-      const retryRes = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      return await retryRes.json();
+    const resData = await response.json();
+    if (!resData.ok && body.parse_mode) {
+      const desc = resData.description || "";
+      if (!desc.includes("message is not modified") && !desc.includes("message to edit not found")) {
+        console.warn(`[Telegram Bot] editMessageText failed with Markdown, retrying without parse_mode: ${desc}`);
+        delete body.parse_mode;
+        const fallbackResponse = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        return await fallbackResponse.json();
+      }
     }
-    return data;
+    return resData;
   } catch (error) {
     console.error("[Telegram Bot] editMessageText failed:", error.message);
   }
@@ -995,20 +1049,20 @@ async function sendTelegramPhoto(chatId, photoBuffer, caption = "") {
   }
 }
 
-async function sendTelegramDocument(chatId, fileBuffer, fileName, caption = "") {
+async function sendTelegramDocument(chatId, filePath, caption = "") {
   try {
     const url = `https://api.telegram.org/bot${activeBotToken}/sendDocument`;
     const formData = new FormData();
-    formData.append("chat_id", chatId);
-    
-    const blob = new Blob([fileBuffer], { type: "application/octet-stream" });
-    formData.append("document", blob, fileName);
-    
+    formData.append("chat_id", String(chatId));
+
+    const fileContent = await fs.promises.readFile(filePath);
+    const blob = new Blob([fileContent], { type: "application/octet-stream" });
+    formData.append("document", blob, path.basename(filePath));
     if (caption) {
       formData.append("caption", caption);
       formData.append("parse_mode", "Markdown");
     }
-    
+
     const response = await fetch(url, {
       method: "POST",
       body: formData

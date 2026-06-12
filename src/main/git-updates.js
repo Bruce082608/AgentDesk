@@ -83,7 +83,7 @@ export async function applyGitUpdate(event) {
     const oldHash = await runGit(["rev-parse", "HEAD"]);
 
     sendProgress("pulling", "正在从 GitHub 拉取最新代码...");
-    await runGit(["pull", "origin", branchName]);
+    await runGit(["pull", "--no-rebase", "origin", branchName]);
 
     const newHash = await runGit(["rev-parse", "HEAD"]);
 
