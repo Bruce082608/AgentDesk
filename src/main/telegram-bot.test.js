@@ -508,4 +508,50 @@ describe("Telegram Bot Remote Control", () => {
       expect(sendMessageCall).toBeDefined();
     });
   });
+
+  it("falls back to plain text if sendMessage returns a markdown parse error", async () => {
+    const fetchCalls = [];
+    const fetchMock = vi.fn().mockImplementation((url, init) => {
+      if (url.includes("sendMessage")) {
+        fetchCalls.push({ url, body: init ? JSON.parse(init.body) : null });
+        if (fetchCalls.length === 1) {
+          // First call fails with markdown error
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ ok: false, description: "Bad Request: can't find end of italic entity" })
+          });
+        }
+        // Second call succeeds
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ok: true, result: { message_id: 12345 } })
+        });
+      }
+      if (url.includes("getUpdates")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ok: true, result: [] })
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ ok: true })
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    startTelegramBot({
+      telegramEnabled: true,
+      telegramBotToken: "123456:TESTTOKEN",
+      telegramAllowedUserId: "98765432"
+    });
+
+    const { sendTelegramPushNotification } = await import("./telegram-bot.js");
+    const result = await sendTelegramPushNotification("test message *invalid_markdown");
+
+    expect(result).toEqual({ ok: true, result: { message_id: 12345 } });
+    expect(fetchCalls.length).toBe(2);
+    expect(fetchCalls[0].body.parse_mode).toBe("Markdown");
+    expect(fetchCalls[1].body.parse_mode).toBeUndefined();
+  });
 });
