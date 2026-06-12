@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld("agentWindow", {
   setOpenPathsReady: () => ipcRenderer.invoke("system:open-paths-ready"),
   checkForUpdates: () => ipcRenderer.invoke("updates:check"),
   checkGitUpdate: () => ipcRenderer.invoke("git:check-update"),
-  applyGitUpdate: () => ipcRenderer.invoke("git:apply-update"),
+  applyGitUpdate: (options) => ipcRenderer.invoke("git:apply-update", options),
   onGitUpdateProgress: (callback) => {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on("git:update-progress", listener);

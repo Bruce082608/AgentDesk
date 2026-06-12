@@ -387,7 +387,8 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/git/apply-update" && req.method === "POST") {
-    const result = await applyGitUpdate(null);
+    const body = await readBody();
+    const result = await applyGitUpdate(null, body);
     sendJson(result);
     return;
   }

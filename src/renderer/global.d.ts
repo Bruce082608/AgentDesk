@@ -26,7 +26,7 @@ declare global {
       setOpenPathsReady: () => Promise<{ ok: boolean }>;
       checkForUpdates: () => Promise<UpdateState>;
       checkGitUpdate: () => Promise<{ updateAvailable: boolean; localHash?: string; remoteHash?: string; branch?: string; error?: string }>;
-      applyGitUpdate: () => Promise<{ success: boolean; npmInstalled?: boolean; error?: string }>;
+      applyGitUpdate: (options?: { forceReset?: boolean }) => Promise<{ success: boolean; npmInstalled?: boolean; error?: string }>;
       onGitUpdateProgress: (callback: (data: { status: "pulling" | "checking_deps" | "installing_deps" | "completed" | "error"; detail: string }) => void) => () => void;
       listBackgroundTasks: (payload?: { includeCompleted?: boolean }) => Promise<BackgroundTask[]>;
       scheduleBackgroundTask: (payload: {

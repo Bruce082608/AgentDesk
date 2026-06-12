@@ -188,6 +188,14 @@ export function Conversation({
     detail: ""
   });
 
+  const [updateError, setUpdateError] = useState<{
+    show: boolean;
+    message: string;
+  }>({
+    show: false,
+    message: ""
+  });
+
   useEffect(() => {
     let timer: any;
     const check = async () => {
@@ -220,7 +228,7 @@ export function Conversation({
     };
   }, [isOnline]);
 
-  const handleApplyUpdate = async () => {
+  const handleApplyUpdate = async (options?: { forceReset?: boolean }) => {
     if (gitUpdateState.status === "updating") return;
     setGitUpdateState(prev => ({
       ...prev,
@@ -235,14 +243,23 @@ export function Conversation({
       }));
     });
 
+    const startTime = Date.now();
+
     try {
-      const result = await window.agentWindow.applyGitUpdate();
+      const result = await window.agentWindow.applyGitUpdate(options);
+      
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime < 800) {
+        await new Promise(resolve => setTimeout(resolve, 800 - elapsedTime));
+      }
+
       if (result.success) {
         setGitUpdateState(prev => ({
           ...prev,
           status: "completed",
           detail: language === "zh" ? "更新成功！请重新启动本软件。" : "Update completed! Please restart the app."
         }));
+        setUpdateError({ show: false, message: "" });
       } else {
         const errorDetail = result.error || "";
         setGitUpdateState(prev => ({
@@ -250,16 +267,28 @@ export function Conversation({
           status: "error",
           detail: (language === "zh" ? "更新失败: " : "Update failed: ") + errorDetail
         }));
-        alert((language === "zh" ? "更新失败：\n" : "Update failed:\n") + errorDetail);
+        setUpdateError({
+          show: true,
+          message: errorDetail
+        });
       }
     } catch (err: any) {
       const errorDetail = err.message || String(err);
+      
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime < 800) {
+        await new Promise(resolve => setTimeout(resolve, 800 - elapsedTime));
+      }
+
       setGitUpdateState(prev => ({
         ...prev,
         status: "error",
         detail: (language === "zh" ? "更新出错: " : "Update error: ") + errorDetail
       }));
-      alert((language === "zh" ? "更新出错：\n" : "Update error:\n") + errorDetail);
+      setUpdateError({
+        show: true,
+        message: errorDetail
+      });
     } finally {
       unsubscribe();
     }
@@ -812,6 +841,56 @@ export function Conversation({
           </div>
         </div>
       </footer>
+
+      {updateError.show && (
+        <div className="git-update-modal-overlay">
+          <div className="git-update-modal-container">
+            <div className="git-update-modal-header">
+              <TriangleAlert className="error-icon" size={18} strokeWidth={2.5} />
+              <h3>{language === "zh" ? "更新失败" : "Update Failed"}</h3>
+            </div>
+            <div className="git-update-modal-body">
+              <p style={{ margin: "0 0 12px 0" }}>
+                {language === "zh"
+                  ? "在从 GitHub 拉取代码时遇到了一个错误。如果本地存在未提交的修改，可能会导致更新冲突。"
+                  : "An error occurred while pulling updates from GitHub. Local uncommitted modifications might cause conflicts."}
+              </p>
+              <div className="git-update-modal-error-box">
+                {updateError.message}
+              </div>
+            </div>
+            <div className="git-update-modal-actions">
+              <button
+                type="button"
+                className="cancel-btn"
+                onClick={() => setUpdateError({ show: false, message: "" })}
+              >
+                {language === "zh" ? "取消" : "Cancel"}
+              </button>
+              <button
+                type="button"
+                className="retry-btn"
+                onClick={() => {
+                  setUpdateError({ show: false, message: "" });
+                  void handleApplyUpdate();
+                }}
+              >
+                {language === "zh" ? "重试" : "Retry"}
+              </button>
+              <button
+                type="button"
+                className="force-btn"
+                onClick={() => {
+                  setUpdateError({ show: false, message: "" });
+                  void handleApplyUpdate({ forceReset: true });
+                }}
+              >
+                {language === "zh" ? "强制更新 (丢弃本地修改)" : "Force Update (Discard Local)"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

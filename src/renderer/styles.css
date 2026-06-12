@@ -4788,6 +4788,126 @@ body[data-theme="dark"] .settings-modal-overlay {
     max-height: 85vh !important;
   }
 }
+/* ===== Git Update Dialog Modal ===== */
+.git-update-modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 20px;
+  animation: fade-in 0.2s ease-out;
+}
 
+.git-update-modal-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  animation: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
 
+.git-update-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(220, 38, 38, 0.05);
+}
 
+.git-update-modal-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.git-update-modal-header .error-icon {
+  color: #dc2626;
+}
+
+.git-update-modal-body {
+  padding: 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.git-update-modal-body p {
+  margin: 0 0 10px 0;
+}
+
+.git-update-modal-error-box {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: #ef4444;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.git-update-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--bg-hover);
+  border-top: 1px solid var(--border);
+}
+
+.git-update-modal-actions button {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.git-update-modal-actions button.cancel-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+}
+
+.git-update-modal-actions button.cancel-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+
+.git-update-modal-actions button.retry-btn {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: #ffffff;
+}
+
+.git-update-modal-actions button.retry-btn:hover {
+  opacity: 0.9;
+}
+
+.git-update-modal-actions button.force-btn {
+  background: #dc2626;
+  border: 1px solid #dc2626;
+  color: #ffffff;
+}
+
+.git-update-modal-actions button.force-btn:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}

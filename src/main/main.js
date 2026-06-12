@@ -211,8 +211,8 @@ ipcMain.handle("git:check-update", async () => {
   return await checkGitUpdate();
 });
 
-ipcMain.handle("git:apply-update", async (event) => {
-  return await applyGitUpdate(event);
+ipcMain.handle("git:apply-update", async (event, options) => {
+  return await applyGitUpdate(event, options);
 });
 
 

@@ -198,8 +198,8 @@ if (typeof window.agentWindow === "undefined") {
     checkGitUpdate: async () => {
       return fetchApi("/api/git/check-update", "POST");
     },
-    applyGitUpdate: async () => {
-      return fetchApi("/api/git/apply-update", "POST");
+    applyGitUpdate: async (options) => {
+      return fetchApi("/api/git/apply-update", "POST", options);
     },
     onGitUpdateProgress: (callback) => {
       gitUpdateProgressCallbacks.add(callback);

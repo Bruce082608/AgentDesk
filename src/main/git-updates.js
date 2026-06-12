@@ -67,7 +67,7 @@ export async function checkGitUpdate() {
 /**
  * Applies the git update by running git pull and optionally npm install.
  */
-export async function applyGitUpdate(event) {
+export async function applyGitUpdate(event, options = {}) {
   const sendProgress = (status, detail) => {
     if (event && event.sender) {
       event.sender.send("git:update-progress", { status, detail });
@@ -81,6 +81,16 @@ export async function applyGitUpdate(event) {
     const appPath = app.getAppPath();
     const branchName = await runGit(["rev-parse", "--abbrev-ref", "HEAD"]);
     const oldHash = await runGit(["rev-parse", "HEAD"]);
+
+    if (options && options.forceReset) {
+      sendProgress("pulling", "正在丢弃本地修改并重置工作区...");
+      try {
+        await runGit(["reset", "--hard", "HEAD"]);
+        await runGit(["clean", "-fd"]);
+      } catch (resetErr) {
+        console.error("Failed to run git reset/clean:", resetErr);
+      }
+    }
 
     sendProgress("pulling", "正在从 GitHub 拉取最新代码...");
     await runGit(["pull", "--no-rebase", "origin", branchName]);

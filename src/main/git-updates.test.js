@@ -97,4 +97,39 @@ describe("git-updates", () => {
     expect(mockSend).toHaveBeenCalledWith("git:update-progress", { status: "installing_deps", detail: "检测到依赖更新，正在下载依赖库 (npm install)..." });
     expect(mockSend).toHaveBeenCalledWith("git:update-progress", { status: "completed", detail: "更新成功，且已安装最新依赖库！请重启应用。" });
   });
+
+  it("applies git pull with forceReset option and executes reset and clean", async () => {
+    const mockSend = vi.fn();
+    const event = { sender: { send: mockSend } };
+    const executedCommands = [];
+
+    execFile.mockImplementation((cmd, args, opts, callback) => {
+      const argsStr = args.join(" ");
+      executedCommands.push(`${cmd} ${argsStr}`);
+      if (argsStr.includes("rev-parse --abbrev-ref")) {
+        callback(null, { stdout: "main\n", stderr: "" });
+      } else if (argsStr.includes("rev-parse HEAD")) {
+        callback(null, { stdout: "hash\n", stderr: "" });
+      } else if (argsStr.includes("reset --hard")) {
+        callback(null, { stdout: "HEAD is now at hash\n", stderr: "" });
+      } else if (argsStr.includes("clean -fd")) {
+        callback(null, { stdout: "Removing files\n", stderr: "" });
+      } else if (argsStr.includes("pull")) {
+        callback(null, { stdout: "Already up to date\n", stderr: "" });
+      } else {
+        callback(new Error(`Unknown args: ${argsStr}`));
+      }
+    });
+
+    const result = await applyGitUpdate(event, { forceReset: true });
+    expect(result.success).toBe(true);
+
+    const hasReset = executedCommands.some(cmd => cmd.includes("reset --hard HEAD"));
+    const hasClean = executedCommands.some(cmd => cmd.includes("clean -fd"));
+    expect(hasReset).toBe(true);
+    expect(hasClean).toBe(true);
+
+    expect(mockSend).toHaveBeenCalledWith("git:update-progress", { status: "pulling", detail: "正在丢弃本地修改并重置工作区..." });
+    expect(mockSend).toHaveBeenCalledWith("git:update-progress", { status: "pulling", detail: "正在从 GitHub 拉取最新代码..." });
+  });
 });
