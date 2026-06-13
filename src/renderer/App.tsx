@@ -17,7 +17,7 @@ import { useWorkspace } from "./hooks/useWorkspace";
 // Custom infrastructure hooks
 import { useDragAndDrop } from "./hooks/useDragAndDrop";
 import { useColumnResize } from "./hooks/useColumnResize";
-import { useComposerResize } from "./hooks/useComposerResize";
+
 import { useTheme } from "./hooks/useTheme";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
@@ -118,11 +118,6 @@ function App() {
     startColumnResize
   } = useColumnResize();
 
-  // Hook 7: Composer Input Resizer
-  const {
-    composerHeight,
-    startComposerResize
-  } = useComposerResize();
 
   // Hook 8: Theme Switcher
   const { theme, setTheme } = useTheme();
@@ -469,7 +464,7 @@ function App() {
           chooseWorkspace={chooseWorkspace}
           commandAutoApproval={agentState.commandAutoApproval}
           commandAutoApprovalExpiresAt={agentState.commandAutoApprovalExpiresAt}
-          composerHeight={composerHeight}
+
           composerInputRef={composerInputRef}
           configContextTokens={inputBudgetTokens}
           contextCompression={agentState.contextCompression}
@@ -499,7 +494,7 @@ function App() {
           taskStatus={agentState.taskStatus}
           sessionContextTokenCount={contextTokenCount}
           setInput={setInput}
-          startComposerResize={startComposerResize}
+
           streamingResponse={agentState.streamingResponse}
           t={t}
           toolDraft={agentState.toolDraft}

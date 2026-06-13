@@ -57,14 +57,6 @@ export function TopBar({
         >
           {leftSidebarCollapsed ? <PanelLeftOpen size={16} strokeWidth={2.2} /> : <PanelLeftClose size={16} strokeWidth={2.2} />}
         </button>
-        <span className="topbar-divider">|</span>
-        <FolderOpen size={14} strokeWidth={2.2} className="topbar-icon" />
-        <span className="topbar-workspace" title={workspace || t.notSelected}>
-          {workspace || t.notSelected}
-        </span>
-        <span className={`status-badge ${busy ? "running" : "ready"}`}>
-          {busy ? t.running : t.ready}
-        </span>
       </div>
       <div className="topbar-actions">
         {gitUpdateState.available && (

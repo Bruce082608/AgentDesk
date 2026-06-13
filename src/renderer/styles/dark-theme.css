@@ -27,15 +27,15 @@ body[data-theme="dark"] {
   --text-body: #e5eaf2;
   --text-label: #d8e0ee;
 
-  --primary: #5b83ff;
-  --primary-hover: rgba(91, 131, 255, 0.12);
-  --primary-light: #152544;
-  --primary-light-alt: #172746;
-  --primary-border: #3252bb;
-  --primary-text: #d8e7ff;
-  --primary-dark: #4a70e6;
-  --primary-shadow: rgba(91, 131, 255, 0.16);
-  --primary-focus-ring: rgba(91, 131, 255, 0.2);
+  --primary: #8da9c4;
+  --primary-hover: rgba(141, 169, 196, 0.12);
+  --primary-light: #1d2a3a;
+  --primary-light-alt: #212f41;
+  --primary-border: #4f6b88;
+  --primary-text: #e2ebf3;
+  --primary-dark: #7492b0;
+  --primary-shadow: rgba(141, 169, 196, 0.16);
+  --primary-focus-ring: rgba(141, 169, 196, 0.2);
 
   --secondary-bg: #1a2435;
   --secondary-border: #2f3d54;

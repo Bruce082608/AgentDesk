@@ -1,8 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import {
   Copy,
   RefreshCcw,
   ChevronDown,
+  ChevronRight,
   X,
   LoaderCircle,
   ArrowDown,
@@ -32,6 +33,16 @@ import {
 } from "./conversation-utils";
 
 type Translation = typeof translations[keyof typeof translations];
+
+const getReasoningDurationSec = (msg: ChatMessage) => {
+  if (msg.reasoningDurationMs) {
+    return Math.max(1, Math.round(msg.reasoningDurationMs / 1000));
+  }
+  if (msg.reasoning) {
+    return Math.max(1, Math.round(msg.reasoning.length / 120));
+  }
+  return 0;
+};
 
 type RenderItem =
   | { type: "message"; message: ChatMessage; index: number }
@@ -72,7 +83,7 @@ type MessageListProps = {
   scrollToBottom: () => void;
 };
 
-export function MessageList({
+export const MessageList = memo(function MessageList({
   messages,
   t,
   busy,
@@ -204,8 +215,9 @@ export function MessageList({
           );
         }
         if (message.role === "assistant" && !message.content && !message.reasoning && message.tool_calls?.length) return null;
+        const isThinking = index === streamingMessageIndex && busy;
         const reasoningKey = `${message.role}-${index}`;
-        const reasoningView = reasoningViews[reasoningKey] || "collapsed";
+        const reasoningView = reasoningViews[reasoningKey] || (isThinking ? "full" : "collapsed");
         return (
           <article className={`message ${message.role}${index === streamingMessageIndex ? " streaming" : ""}`} key={`${message.role}-${index}`} title={formatMessageTimestamp(message.createdAt, language)}>
             <div className="message-meta">
@@ -223,29 +235,37 @@ export function MessageList({
             </div>
             <div className="message-body">
               {message.reasoning && (
-                <section className="reasoning-block">
-                  <div className="reasoning-header">
-                    <span className="reasoning-title" title={t.reasoning}>
-                      <span>
-                        <Lightbulb size={13} strokeWidth={2.6} aria-hidden="true" />
-                      </span>
-                    </span>
-                    <div className="reasoning-actions">
-                      {reasoningView === "collapsed" && (
-                        <span className="reasoning-preview-text">{truncateInline(message.reasoning, 50)}</span>
+                <div className="reasoning-block">
+                  <button
+                    type="button"
+                    className="reasoning-toggle"
+                    onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "full" : "collapsed")}
+                    title={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
+                    aria-label={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
+                  >
+                    <span className="reasoning-arrow">
+                      {reasoningView !== "collapsed" ? (
+                        <ChevronDown size={14} strokeWidth={2.5} aria-hidden="true" />
+                      ) : (
+                        <ChevronRight size={14} strokeWidth={2.5} aria-hidden="true" />
                       )}
-                      <button
-                        type="button"
-                        onClick={() => updateReasoningView(reasoningKey, reasoningView === "collapsed" ? "preview" : "collapsed")}
-                        title={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
-                        aria-label={reasoningView === "collapsed" ? t.previewReasoning : t.collapseReasoning}
-                      >
-                        {reasoningView === "collapsed" ? <ChevronDown size={13} strokeWidth={2.4} aria-hidden="true" /> : <X size={13} strokeWidth={2.4} aria-hidden="true" />}
-                      </button>
+                    </span>
+                    <span className="reasoning-summary">
+                      {isThinking && !message.reasoningDurationMs
+                        ? (language === "zh" ? "正在思考..." : "Thinking...")
+                        : (language === "zh"
+                          ? `思考了 ${getReasoningDurationSec(message)} 秒`
+                          : `Thought for ${getReasoningDurationSec(message)}s`
+                        )
+                      }
+                    </span>
+                  </button>
+                  {reasoningView !== "collapsed" && (
+                    <div className="reasoning-content">
+                      <pre>{message.reasoning}</pre>
                     </div>
-                  </div>
-                  {reasoningView !== "collapsed" && <pre>{message.reasoning}</pre>}
-                </section>
+                  )}
+                </div>
               )}
               {message.content ? <MarkdownContent content={message.content} copyLabel={t.copy} copiedLabel={t.copied} /> : null}
             </div>
@@ -341,4 +361,25 @@ export function MessageList({
       {busy && <div className="thinking">{t.thinking}</div>}
     </>
   );
-}
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.messages === nextProps.messages &&
+    prevProps.busy === nextProps.busy &&
+    prevProps.language === nextProps.language &&
+    prevProps.toolDetailsMode === nextProps.toolDetailsMode &&
+    prevProps.reasoningViews === nextProps.reasoningViews &&
+    prevProps.streamingMessageIndex === nextProps.streamingMessageIndex &&
+    prevProps.activeToolRuns === nextProps.activeToolRuns &&
+    prevProps.now === nextProps.now &&
+    prevProps.toolDraft === nextProps.toolDraft &&
+    prevProps.activeCommands === nextProps.activeCommands &&
+    prevProps.activePatches === nextProps.activePatches &&
+    prevProps.activeQuestions === nextProps.activeQuestions &&
+    prevProps.commandAutoApproval === nextProps.commandAutoApproval &&
+    prevProps.contextCompressionStatus === nextProps.contextCompressionStatus &&
+    prevProps.taskStatus === nextProps.taskStatus &&
+    prevProps.streamRecoveryStatus === nextProps.streamRecoveryStatus &&
+    prevProps.retryRequestPending === nextProps.retryRequestPending &&
+    prevProps.showScrollToBottom === nextProps.showScrollToBottom
+  );
+});

@@ -1,5 +1,5 @@
-import type { RefObject } from "react";
-import { X, Paperclip, Square, Send } from "lucide-react";
+import { useState, useRef, type RefObject } from "react";
+import { X, Plus, Mic, Square, Send, ChevronDown } from "lucide-react";
 import type { Language, translations } from "../../i18n";
 import type { AttachedFile, ContextCompressionState } from "../../types";
 import { formatAttachmentTitle, formatAttachmentStatus } from "./conversation-utils";
@@ -11,12 +11,10 @@ type ComposerProps = {
   setInput: (value: string) => void;
   send: () => void;
   busy: boolean;
-  composerHeight: number;
   composerInputRef: RefObject<HTMLTextAreaElement | null>;
   textareaHeight: number;
   language: Language;
   t: Translation;
-  startComposerResize: (event: React.PointerEvent<HTMLDivElement>) => void;
   contextCompression: ContextCompressionState;
   contextCompressionStatus: string;
   attachedFiles: AttachedFile[];
@@ -39,12 +37,10 @@ export function Composer({
   setInput,
   send,
   busy,
-  composerHeight,
   composerInputRef,
   textareaHeight,
   language,
   t,
-  startComposerResize,
   contextCompression,
   contextCompressionStatus,
   attachedFiles,
@@ -61,15 +57,23 @@ export function Composer({
   uploadAttachmentFiles,
   cancelActiveRequest
 }: ComposerProps) {
+  const toggleRecording = async () => {
+    composerInputRef.current?.focus();
+
+    try {
+      const result = await window.agentWindow.startDictation();
+      if (result && !result.ok) {
+        alert(language === "zh"
+          ? "当前系统不支持语音听写功能。仅 macOS 桌面客户端支持。"
+          : "System dictation is not supported on this platform. Only macOS desktop client is supported.");
+      }
+    } catch (err) {
+      console.error("Failed to trigger dictation:", err);
+    }
+  };
+
   return (
-    <footer className="composer" style={input.length > 0 ? { height: "auto" } : { height: `${composerHeight + 30}px` }}>
-      <div
-        className="composer-resize-handle"
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label={language === "zh" ? "调整底部对话框高度" : "Resize composer height"}
-        onPointerDown={startComposerResize}
-      />
+    <footer className="composer">
       <div className="composer-surface">
         {contextCompression.phase !== "idle" && (
           <details className={`composer-compression ${contextCompression.phase}`} open={contextCompression.phase === "start" || contextCompression.phase === "failed"}>
@@ -115,7 +119,7 @@ export function Composer({
         <textarea
           ref={composerInputRef}
           value={input}
-          placeholder={t.composerPlaceholder}
+          placeholder=""
           onChange={(event) => setInput(event.target.value)}
           style={input.length > 0 ? { height: `${textareaHeight}px` } : undefined}
           onKeyDown={(event) => {
@@ -127,46 +131,64 @@ export function Composer({
           }}
         />
         <div className="composer-controls">
-          <div className="permission-segment" title={hasAutoPermissions ? t.fullAccessPermissionHint : t.defaultPermissionHint} aria-label={t.permissionMode}>
+          <div className="composer-controls-left">
             <button
+              className="composer-icon attach-btn"
               type="button"
-              className={!fullAccessEnabled ? "active" : ""}
-              onClick={() => updatePermissionMode("default")}
+              disabled={busy}
+              onClick={uploadAttachmentFiles}
+              title={t.uploadFiles}
+              aria-label={t.uploadFiles}
             >
-              {t.defaultPermission}
+              <Plus size={16} strokeWidth={2.5} />
             </button>
-            <button
-              type="button"
-              className={fullAccessEnabled ? "active" : ""}
-              onClick={() => updatePermissionMode("full")}
-            >
-              {t.fullAccessPermission}
-            </button>
-          </div>
-          {hasAutoPermissions && (
-            <span className="permission-status" title={autoPermissionTitle}>
-              {language === "zh" ? "当前会话完全访问" : "Full access for session"}
-            </span>
-          )}
-          <div className="composer-actions">
-            {!isOnline && <span className="offline-pill">{t.offlineTitle}</span>}
+
+            <div className="permission-dropdown-container" title={hasAutoPermissions ? t.fullAccessPermissionHint : t.defaultPermissionHint}>
+              <select
+                value={fullAccessEnabled ? "full" : "default"}
+                onChange={(e) => updatePermissionMode(e.target.value as "default" | "full")}
+                title={t.permissionMode}
+                aria-label={t.permissionMode}
+              >
+                <option value="default">{t.defaultPermission}</option>
+                <option value="full">{t.fullAccessPermission}</option>
+              </select>
+              <ChevronDown size={11} strokeWidth={2.5} className="dropdown-chevron" />
+            </div>
+
             <span
-              className={`context-meter ${contextPercent >= 90 ? "danger" : contextPercent >= 70 ? "warn" : ""}`}
+              className="composer-context-badge"
               title={`${t.contextUsage}: ${Math.round(sessionContextTokenCount).toLocaleString(language === "zh" ? "zh-CN" : "en-US")} / ${Math.round(configContextTokens).toLocaleString(language === "zh" ? "zh-CN" : "en-US")} tokens`}
             >
               {contextUsageLabel}
             </span>
-            <button className="composer-icon" type="button" disabled={busy} onClick={uploadAttachmentFiles} title={t.uploadFiles} aria-label={t.uploadFiles}>
-              <Paperclip size={17} strokeWidth={2.4} aria-hidden="true" />
+          </div>
+
+          <div className="composer-controls-right">
+            {!isOnline && <span className="offline-pill">{t.offlineTitle}</span>}
+
+            <button
+              className="composer-icon mic-btn"
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={toggleRecording}
+              title={language === "zh" ? "语音输入" : "Voice Input"}
+              aria-label="Voice Input"
+            >
+              <Mic size={15} strokeWidth={2.4} />
             </button>
+
             {busy && (
-              <button className="composer-icon danger" type="button" onClick={cancelActiveRequest} title={t.stop} aria-label={t.stop}>
-                <Square size={15} strokeWidth={2.6} aria-hidden="true" />
+              <button className="composer-icon stop-btn danger" type="button" onClick={cancelActiveRequest} title={t.stop} aria-label={t.stop}>
+                <Square size={13} strokeWidth={2.6} aria-hidden="true" />
               </button>
             )}
-            <button className="send composer-send" type="button" disabled={busy || !input.trim()} onClick={send} title={t.send} aria-label={t.send}>
-              <Send size={18} strokeWidth={2.5} aria-hidden="true" />
-            </button>
+
+            {input.trim().length > 0 && (
+              <button className="send composer-send" type="button" disabled={busy} onClick={send} title={t.send} aria-label={t.send}>
+                <Send size={14} strokeWidth={2.5} aria-hidden="true" />
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -24,6 +24,7 @@ declare global {
       saveConfig: (config: ProviderConfig) => Promise<{ ok: boolean; path: string }>;
       getSystemState: () => Promise<SystemState>;
       showNotification: (payload: { title: string; body?: string; silent?: boolean }) => Promise<{ ok: boolean; reason?: string }>;
+      startDictation: () => Promise<{ ok: boolean; error?: string }>;
       openSystemPaths: (payload: { paths: string[] }) => Promise<{ ok: boolean } | void>;
       setOpenPathsReady: () => Promise<{ ok: boolean }>;
       checkForUpdates: () => Promise<UpdateState>;
@@ -77,6 +78,7 @@ export type ChatMessage = {
   content: string;
   createdAt?: number;
   reasoning?: string;
+  reasoningDurationMs?: number;
   tool_calls?: ChatToolCall[];
   tool_call_id?: string;
   name?: string;

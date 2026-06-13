@@ -192,6 +192,10 @@ if (typeof window.agentWindow === "undefined") {
       console.log("[Mock Notification]", payload);
       return { ok: true };
     },
+    startDictation: async () => {
+      console.log("[Mock Dictation] startDictation invoked");
+      return { ok: false, error: "Not supported in web fallback" };
+    },
     openSystemPaths: async () => {
       // Mock, not applicable in browser
     },

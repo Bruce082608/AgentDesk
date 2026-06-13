@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, protocol, net } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell, protocol, net, Menu, systemPreferences } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import process from "node:process";
@@ -235,6 +235,24 @@ ipcMain.handle("system:state", async () => {
 
 ipcMain.handle("system:notify", async (_event, payload) => {
   return showDesktopNotification(validateDesktopNotificationPayload(payload));
+});
+
+ipcMain.handle("system:start-dictation", async () => {
+  if (process.platform === "darwin") {
+    try {
+      const status = systemPreferences.getMediaAccessStatus("microphone");
+      if (status !== "granted") {
+        systemPreferences.askForMediaAccess("microphone").catch((err) => {
+          console.warn("Failed to request microphone permission:", err);
+        });
+      }
+    } catch (err) {
+      console.warn("Failed to check microphone permission:", err);
+    }
+    Menu.sendActionToFirstResponder("startDictation:");
+    return { ok: true };
+  }
+  return { ok: false, error: "Unsupported platform" };
 });
 
 ipcMain.handle("system:open-paths", async (_event, payload) => {

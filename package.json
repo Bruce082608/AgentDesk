@@ -66,6 +66,9 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "identity": null,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "此应用需要访问您的麦克风以支持语音听写输入功能。 (This application requires microphone access to support speech dictation.)"
+      },
       "target": [
         {
           "target": "dmg",

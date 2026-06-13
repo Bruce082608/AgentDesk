@@ -31,15 +31,15 @@
   --text-label: #334155;
 
   /* Primary / Accent */
-  --primary: #2458ff;
-  --primary-hover: rgba(36, 88, 255, 0.08);
-  --primary-light: #edf3ff;
-  --primary-light-alt: #f4f7ff;
-  --primary-border: #c8d5ff;
-  --primary-text: #27407a;
-  --primary-dark: #1f4fe0;
-  --primary-shadow: rgba(36, 88, 255, 0.15);
-  --primary-focus-ring: rgba(36, 88, 255, 0.18);
+  --primary: #577399;
+  --primary-hover: rgba(87, 115, 153, 0.08);
+  --primary-light: #f0f3f6;
+  --primary-light-alt: #f5f7fa;
+  --primary-border: #bdc9d7;
+  --primary-text: #3c4f68;
+  --primary-dark: #476080;
+  --primary-shadow: rgba(87, 115, 153, 0.12);
+  --primary-focus-ring: rgba(87, 115, 153, 0.15);
 
   /* Secondary */
   --secondary-bg: #eef2f7;

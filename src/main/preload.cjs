@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("agentWindow", {
   saveConfig: (config) => ipcRenderer.invoke("config:save", config),
   getSystemState: () => ipcRenderer.invoke("system:state"),
   showNotification: (payload) => ipcRenderer.invoke("system:notify", payload),
+  startDictation: () => ipcRenderer.invoke("system:start-dictation"),
   openSystemPaths: (payload) => ipcRenderer.invoke("system:open-paths", payload),
   setOpenPathsReady: () => ipcRenderer.invoke("system:open-paths-ready"),
   checkForUpdates: () => ipcRenderer.invoke("updates:check"),

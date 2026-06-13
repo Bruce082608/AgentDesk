@@ -31,7 +31,6 @@ type ConversationProps = {
   chooseWorkspace: () => void;
   commandAutoApproval: boolean;
   commandAutoApprovalExpiresAt?: number | null;
-  composerHeight: number;
   composerInputRef: RefObject<HTMLTextAreaElement | null>;
   configContextTokens: number;
   contextCompression: ContextCompressionState;
@@ -58,7 +57,7 @@ type ConversationProps = {
   send: () => void;
   sessionContextTokenCount: number;
   setInput: (value: string) => void;
-  startComposerResize: (event: React.PointerEvent<HTMLDivElement>) => void;
+
   streamRecoveryStatus: StreamRecoveryStatus | null;
   streamingResponse: boolean;
   t: Translation;
@@ -93,7 +92,6 @@ export function Conversation({
   chooseWorkspace,
   commandAutoApproval,
   commandAutoApprovalExpiresAt,
-  composerHeight,
   composerInputRef,
   configContextTokens,
   contextCompression,
@@ -121,7 +119,7 @@ export function Conversation({
   send,
   sessionContextTokenCount,
   setInput,
-  startComposerResize,
+
   streamRecoveryStatus,
   streamingResponse,
   t,
@@ -150,7 +148,7 @@ export function Conversation({
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [toolDetailsMode, setToolDetailsMode] = useState<"default" | "expanded" | "collapsed">("default");
-  const [textareaHeight, setTextareaHeight] = useState<number>(110);
+  const [textareaHeight, setTextareaHeight] = useState<number>(36);
 
   const [gitUpdateState, setGitUpdateState] = useState<{
     available: boolean;
@@ -273,7 +271,7 @@ export function Conversation({
     if (!textarea) return;
 
     if (!input) {
-      setTextareaHeight(110);
+      setTextareaHeight(36);
       textarea.style.height = "";
       return;
     }
@@ -283,7 +281,7 @@ export function Conversation({
     const sh = textarea.scrollHeight;
     textarea.style.height = originalHeight;
 
-    const targetHeight = Math.min(Math.max(sh, 110), 240);
+    const targetHeight = Math.min(Math.max(sh, 36), 200);
     setTextareaHeight(targetHeight);
   }, [input]);
 
@@ -428,12 +426,12 @@ export function Conversation({
         setInput={setInput}
         send={send}
         busy={busy}
-        composerHeight={composerHeight}
+
         composerInputRef={composerInputRef}
         textareaHeight={textareaHeight}
         language={language}
         t={t}
-        startComposerResize={startComposerResize}
+
         contextCompression={contextCompression}
         contextCompressionStatus={contextCompressionStatus}
         attachedFiles={attachedFiles}
