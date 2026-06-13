@@ -1,6 +1,27 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, protocol, net } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import process from "node:process";
+
+// Prevent application crash on EPIPE error (occurs when parent terminal process closes stdout/stderr pipes)
+process.stdout.on("error", (err) => {
+  if (err && err.code === "EPIPE") {
+    // Ignore EPIPE
+  }
+});
+process.stderr.on("error", (err) => {
+  if (err && err.code === "EPIPE") {
+    // Ignore EPIPE
+  }
+});
+
+process.on("uncaughtException", (err) => {
+  if (err && err.code === "EPIPE") {
+    return;
+  }
+  console.error("Uncaught Exception:", err);
+  process.exit(1);
+});
 
 // Register custom media scheme
 protocol.registerSchemesAsPrivileged([

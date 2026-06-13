@@ -34,12 +34,40 @@ export function escapeMarkdown(text) {
   return String(text || "").replace(/([_*`\[\]()])/g, "\\$1");
 }
 
+export function sanitizeTextForTelegram(text) {
+  if (typeof text !== "string") return text;
+  
+  // Split by backticks to identify code blocks/spans and avoid escaping underscores inside them
+  const parts = text.split(/(`+)/);
+  let inCode = false;
+  let codeMarker = "";
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part.startsWith("`")) {
+      if (!inCode) {
+        inCode = true;
+        codeMarker = part;
+      } else if (part === codeMarker) {
+        inCode = false;
+      }
+    } else {
+      if (!inCode) {
+        // Escape underscores outside code blocks/spans
+        parts[i] = part.replace(/_/g, "\\_");
+      }
+    }
+  }
+  return parts.join("");
+}
+
 export async function sendTelegramMessage(chatId, text, extra = {}) {
   try {
     const url = `https://api.telegram.org/bot${telegramState.activeBotToken}/sendMessage`;
+    const sanitizedText = sanitizeTextForTelegram(text);
     const body = {
       chat_id: chatId,
-      text,
+      text: sanitizedText,
       parse_mode: "Markdown",
       ...extra
     };
@@ -52,8 +80,9 @@ export async function sendTelegramMessage(chatId, text, extra = {}) {
     if (!resData.ok && body.parse_mode) {
       const desc = resData.description || "";
       if (!desc.includes("message is not modified") && !desc.includes("message to edit not found")) {
-        console.warn(`[Telegram Bot] sendMessage failed with Markdown, retrying without parse_mode: ${desc}`);
+        console.warn(`[Telegram Bot] sendMessage failed with Markdown, retrying without parse_mode: ${desc}. Content length: ${text.length}`);
         delete body.parse_mode;
+        body.text = text;
         const fallbackResponse = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -71,10 +100,11 @@ export async function sendTelegramMessage(chatId, text, extra = {}) {
 export async function editTelegramMessage(chatId, messageId, text, extra = {}) {
   try {
     const url = `https://api.telegram.org/bot${telegramState.activeBotToken}/editMessageText`;
+    const sanitizedText = sanitizeTextForTelegram(text);
     const body = {
       chat_id: chatId,
       message_id: messageId,
-      text,
+      text: sanitizedText,
       parse_mode: "Markdown",
       ...extra
     };
@@ -87,8 +117,9 @@ export async function editTelegramMessage(chatId, messageId, text, extra = {}) {
     if (!resData.ok && body.parse_mode) {
       const desc = resData.description || "";
       if (!desc.includes("message is not modified") && !desc.includes("message to edit not found")) {
-        console.warn(`[Telegram Bot] editMessageText failed with Markdown, retrying without parse_mode: ${desc}`);
+        console.warn(`[Telegram Bot] editMessageText failed with Markdown, retrying without parse_mode: ${desc}. Content length: ${text.length}`);
         delete body.parse_mode;
+        body.text = text;
         const fallbackResponse = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -119,22 +150,42 @@ export async function sendPhotoToActiveUser(photoBuffer, caption = "") {
 export async function sendTelegramPhoto(chatId, photoBuffer, caption = "") {
   try {
     const url = `https://api.telegram.org/bot${telegramState.activeBotToken}/sendPhoto`;
-    const formData = new FormData();
-    formData.append("chat_id", chatId);
     
-    const blob = new Blob([photoBuffer], { type: "image/png" });
-    formData.append("photo", blob, "screenshot.png");
-    
-    if (caption) {
-      formData.append("caption", caption);
-      formData.append("parse_mode", "Markdown");
+    // Normalize photoBuffer in case it is serialized over IPC/network
+    let buffer = photoBuffer;
+    if (photoBuffer && typeof photoBuffer === "object" && photoBuffer.type === "Buffer" && Array.isArray(photoBuffer.data)) {
+      buffer = Buffer.from(photoBuffer.data);
+    } else if (photoBuffer instanceof Uint8Array) {
+      buffer = Buffer.from(photoBuffer.buffer, photoBuffer.byteOffset, photoBuffer.byteLength);
     }
-    
-    const response = await fetch(url, {
-      method: "POST",
-      body: formData
-    });
-    return await response.json();
+
+    const makeRequest = async (useMarkdown) => {
+      const formData = new FormData();
+      formData.append("chat_id", chatId);
+      const blob = new Blob([buffer], { type: "image/png" });
+      formData.append("photo", blob, "screenshot.png");
+      if (caption) {
+        formData.append("caption", useMarkdown ? sanitizeTextForTelegram(caption) : caption);
+        if (useMarkdown) {
+          formData.append("parse_mode", "Markdown");
+        }
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        body: formData
+      });
+      return await response.json();
+    };
+
+    const resData = await makeRequest(true);
+    if (!resData.ok && caption) {
+      const desc = resData.description || "";
+      if (desc.includes("can't find end") || desc.includes("can't parse entities") || desc.includes("can't parse")) {
+        console.warn(`[Telegram Bot] sendPhoto failed with Markdown, retrying without parse_mode: ${desc}. Caption length: ${caption.length}`);
+        return await makeRequest(false);
+      }
+    }
+    return resData;
   } catch (error) {
     console.error("[Telegram Bot] sendPhoto failed:", error.message);
   }
@@ -143,22 +194,35 @@ export async function sendTelegramPhoto(chatId, photoBuffer, caption = "") {
 export async function sendTelegramDocument(chatId, filePath, caption = "") {
   try {
     const url = `https://api.telegram.org/bot${telegramState.activeBotToken}/sendDocument`;
-    const formData = new FormData();
-    formData.append("chat_id", String(chatId));
-
     const fileContent = await fs.promises.readFile(filePath);
-    const blob = new Blob([fileContent], { type: "application/octet-stream" });
-    formData.append("document", blob, path.basename(filePath));
-    if (caption) {
-      formData.append("caption", caption);
-      formData.append("parse_mode", "Markdown");
-    }
+    
+    const makeRequest = async (useMarkdown) => {
+      const formData = new FormData();
+      formData.append("chat_id", String(chatId));
+      const blob = new Blob([fileContent], { type: "application/octet-stream" });
+      formData.append("document", blob, path.basename(filePath));
+      if (caption) {
+        formData.append("caption", useMarkdown ? sanitizeTextForTelegram(caption) : caption);
+        if (useMarkdown) {
+          formData.append("parse_mode", "Markdown");
+        }
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        body: formData
+      });
+      return await response.json();
+    };
 
-    const response = await fetch(url, {
-      method: "POST",
-      body: formData
-    });
-    return await response.json();
+    const resData = await makeRequest(true);
+    if (!resData.ok && caption) {
+      const desc = resData.description || "";
+      if (desc.includes("can't find end") || desc.includes("can't parse entities") || desc.includes("can't parse")) {
+        console.warn(`[Telegram Bot] sendDocument failed with Markdown, retrying without parse_mode: ${desc}. Caption length: ${caption.length}`);
+        return await makeRequest(false);
+      }
+    }
+    return resData;
   } catch (error) {
     console.error("[Telegram Bot] sendDocument failed:", error.message);
   }

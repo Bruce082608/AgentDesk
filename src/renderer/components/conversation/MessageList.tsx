@@ -5,7 +5,8 @@ import {
   ChevronDown,
   X,
   LoaderCircle,
-  ArrowDown
+  ArrowDown,
+  Lightbulb
 } from "lucide-react";
 import type { Language, translations } from "../../i18n";
 import type {
@@ -224,7 +225,11 @@ export function MessageList({
               {message.reasoning && (
                 <section className="reasoning-block">
                   <div className="reasoning-header">
-                    <span className="reasoning-title">{t.reasoning}</span>
+                    <span className="reasoning-title" title={t.reasoning}>
+                      <span>
+                        <Lightbulb size={13} strokeWidth={2.6} aria-hidden="true" />
+                      </span>
+                    </span>
                     <div className="reasoning-actions">
                       {reasoningView === "collapsed" && (
                         <span className="reasoning-preview-text">{truncateInline(message.reasoning, 50)}</span>

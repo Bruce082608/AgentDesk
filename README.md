@@ -149,7 +149,7 @@ AgentDesk 是一个使用 Electron + React + TypeScript 构建的本地桌面 co
 
 **工程质量**
 - TypeScript 类型检查
-- 52 个单元测试覆盖核心模块
+- 81 个单元测试覆盖核心模块
 - 编码检查（mojibake 扫描）
 - 一条命令 `npm run check` 完成全量质检
 
@@ -359,7 +359,7 @@ It defaults to the DeepSeek API (`deepseek-v4-pro`, 1M context window, 65536 max
 
 **Engineering Quality**
 - TypeScript across the stack
-- 52 unit tests covering core modules
+- 81 unit tests covering core modules
 - Encoding check (mojibake scan for Chinese source strings)
 - One‑command quality gate: `npm run check`
 

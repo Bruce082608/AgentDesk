@@ -2,7 +2,7 @@
 .conversation-approvals {
   position: relative;
   width: min(calc(100% - 24px), 960px);
-  margin: 0 auto 16px 24px;
+  margin: 0 0 16px 24px;
 }
 
 .conversation-approvals::before {

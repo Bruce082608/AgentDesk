@@ -407,7 +407,7 @@ export function normalizeAttachmentPaths(attachments) {
 
 export function normalizeToolContext(context) {
   if (typeof context === "string") {
-    return { workspace: context, requestId: "", sessionId: "", language: "zh", fullAccessAutoApproval: false, attachments: [] };
+    return { workspace: context, requestId: "", sessionId: "", language: "zh", fullAccessAutoApproval: false, attachments: [], emit: undefined };
   }
   return {
     workspace: context?.workspace || process.cwd(),
@@ -415,6 +415,7 @@ export function normalizeToolContext(context) {
     sessionId: String(context?.sessionId || ""),
     language: normalizeLanguage(context?.language),
     fullAccessAutoApproval: Boolean(context?.fullAccessAutoApproval),
-    attachments: normalizeAttachmentPaths(context?.attachments)
+    attachments: normalizeAttachmentPaths(context?.attachments),
+    emit: typeof context?.emit === "function" ? context.emit : undefined
   };
 }
