@@ -1,0 +1,106 @@
+/* ===== App shell ===== */
+.app-shell {
+  display: grid;
+  grid-template-columns: 292px 7px minmax(440px, 1fr) 7px 340px;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 18%), var(--app-bg);
+}
+
+body[data-theme="dark"] .app-shell {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 20%), var(--app-bg);
+}
+
+/* ===== Explicit Grid Column Positioning for Collapsible Layout ===== */
+.sidebar {
+  grid-column: 1;
+}
+.column-resize-handle.left {
+  grid-column: 2;
+}
+.conversation {
+  grid-column: 3;
+}
+.column-resize-handle.right {
+  grid-column: 4;
+}
+.activity {
+  grid-column: 5;
+}
+
+/* ===== Resize handles ===== */
+.column-resize-handle {
+  position: relative;
+  height: 100vh;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 5;
+}
+
+.column-resize-handle::before,
+.composer-resize-handle::before {
+  content: "";
+  position: absolute;
+}
+
+.column-resize-handle::before {
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  background: var(--border);
+}
+
+.column-resize-handle:hover,
+.column-resize-handle:focus-visible,
+.composer-resize-handle:hover,
+.composer-resize-handle:focus-visible {
+  background: var(--primary-hover);
+  outline: none;
+}
+
+.column-resize-handle:hover::before,
+.column-resize-handle:focus-visible::before,
+.composer-resize-handle:hover::before,
+.composer-resize-handle:focus-visible::before {
+  background: var(--primary);
+}
+
+body.resizing-columns,
+body.resizing-columns * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.resizing-rows,
+body.resizing-rows * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+
+/* ===== Collapsible Sidebar Toggle Button Styles ===== */
+.topbar-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.topbar-toggle-btn:hover {
+  background: var(--primary-hover);
+  color: var(--primary);
+  border-color: var(--primary-border);
+}
+
+.topbar-toggle-btn svg {
+  display: block;
+}

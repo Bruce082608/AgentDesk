@@ -1,0 +1,114 @@
+/* ===== CSS Custom Properties (Light Theme) ===== */
+:root {
+  /* Background */
+  --app-bg: #f3f5f8;
+  --surface: #ffffff;
+  --surface-dim: #f7f9fc;
+  --surface-glass: rgba(255, 255, 255, 0.9);
+  --surface-glass-heavy: rgba(255, 255, 255, 0.94);
+  --surface-glass-max: rgba(255, 255, 255, 0.98);
+  --surface-glass-light: rgba(255, 255, 255, 0.88);
+  --surface-glass-subtle: rgba(255, 255, 255, 0.82);
+  --surface-glass-clear: rgba(255, 255, 255, 0.76);
+  --surface-glass-header: rgba(255, 255, 255, 0.95);
+  --surface-glass-activity: rgba(255, 255, 255, 0.88);
+  --surface-glass-dock: rgba(255, 255, 255, 0.98);
+
+  /* Borders */
+  --border: #d8e0eb;
+  --border-light: #e1e7f0;
+  --border-heavy: #d9e2ee;
+  --border-input: #cfd7e3;
+  --border-row: #d7dfe9;
+  --border-focus-ring: rgba(37, 99, 235, 0.12);
+
+  /* Text */
+  --text: #182133;
+  --text-heading: #0f172a;
+  --text-secondary: #546277;
+  --text-muted: #6b7280;
+  --text-body: #1f2937;
+  --text-label: #334155;
+
+  /* Primary / Accent */
+  --primary: #2458ff;
+  --primary-hover: rgba(36, 88, 255, 0.08);
+  --primary-light: #edf3ff;
+  --primary-light-alt: #f4f7ff;
+  --primary-border: #c8d5ff;
+  --primary-text: #27407a;
+  --primary-dark: #1f4fe0;
+  --primary-shadow: rgba(36, 88, 255, 0.15);
+  --primary-focus-ring: rgba(36, 88, 255, 0.18);
+
+  /* Secondary */
+  --secondary-bg: #eef2f7;
+  --secondary-border: #d4dbe6;
+
+  /* Success */
+  --success: #0f7a53;
+  --success-bg: #f3fbf6;
+  --success-border: #bee0cb;
+
+  /* Danger */
+  --danger: #b42318;
+  --danger-bg: #fff2f1;
+  --danger-border: #f3b5b2;
+  --danger-light-bg: #fee5e3;
+  --danger-light-border: #f6b1ad;
+  --danger-subtle-border: #f0b2b0;
+  --danger-subtle-bg: #fff8f7;
+
+  /* Warning */
+  --warning-border: #f0c36d;
+  --warning-bg: #fffdf7;
+  --warning-text: #845208;
+  --warning-light-bg: #fff5dc;
+
+  /* Code */
+  --code-bg: #f7f9fc;
+  --code-border: #d8e2ef;
+  --code-text: #1f2937;
+  --code-inline: #c2410c;
+  --code-toolbar-bg: #eef3f9;
+
+  /* Markdown */
+  --md-blockquote-bg: #f8fbff;
+  --md-blockquote-border: #c4d3f0;
+  --md-th-bg: #f6f8fc;
+  --md-link: #2458ff;
+  --md-hr: #dde5ef;
+
+  /* Patch */
+  --patch-bg: #fff9ef;
+  --patch-border: #ead39b;
+  --patch-text: #6a430c;
+  --patch-chip-bg: #fff1cb;
+  --patch-success-bg: #f4fff7;
+  --patch-success-border: #9ed7b6;
+  --patch-highrisk-text: #9f1d1d;
+
+  /* Question */
+  --question-bg: #f5f8ff;
+  --question-shadow: rgba(37, 99, 235, 0.08);
+
+  /* Activity */
+  --activity-event-border: #c9d7e8;
+  --activity-model-border: #c9d7e8;
+
+  /* Shadow */
+  --shadow: rgba(15, 23, 42, 0.05);
+  --shadow-heavy: rgba(15, 23, 42, 0.08);
+  --shadow-card: rgba(15, 23, 42, 0.04);
+  --shadow-approval: rgba(133, 92, 20, 0.08);
+  --shadow-composer: rgba(15, 23, 42, 0.08);
+
+  /* hljs (light github theme) */
+  --hljs-color: #24292f;
+  --hljs-keyword: #d73a49;
+  --hljs-string: #032f62;
+  --hljs-title: #6f42c1;
+  --hljs-number: #005cc5;
+  --hljs-comment: #6a737d;
+  --hljs-built_in: #005cc5;
+}

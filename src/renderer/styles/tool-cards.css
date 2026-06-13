@@ -1,0 +1,390 @@
+/* ===== Tool cards ===== */
+.tool-call-card {
+  width: min(calc(100% - 24px), 960px);
+  margin: 0 auto 12px 24px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: none;
+  overflow: visible;
+  position: relative;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.tool-call-card.running {
+  border-color: var(--primary-border);
+}
+
+.tool-call-card.error {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+
+.tool-call-card::before {
+  content: "";
+  position: absolute;
+  left: -19px;
+  top: 19px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.tool-call-card.running::before {
+  border-color: var(--primary);
+}
+
+.tool-call-card.error::before {
+  border-color: var(--warning-border);
+}
+
+.tool-call-card summary {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto 14px;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+  background: var(--surface);
+}
+
+.tool-call-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-call-card summary::after {
+  align-self: center;
+  content: "›";
+  justify-self: end;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 900;
+  transform: rotate(0deg);
+  transition: transform 140ms ease;
+}
+
+.tool-call-card[open] summary::after {
+  transform: rotate(90deg);
+}
+
+.tool-status-indicator {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid var(--primary-border);
+  background: var(--surface);
+}
+
+.tool-status-indicator.running {
+  border-color: var(--primary-border);
+  border-top-color: var(--primary);
+  animation: tool-spin 780ms linear infinite;
+}
+
+.tool-status-indicator.completed {
+  border-color: var(--success-border);
+  background: var(--success);
+}
+
+.tool-status-indicator.error {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.tool-call-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--surface-dim);
+  color: var(--text-secondary);
+}
+
+.tool-call-card.running .tool-call-icon {
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+  color: var(--primary);
+  animation: soft-pulse 1.4s ease-in-out infinite;
+}
+
+.tool-call-card.error .tool-call-icon {
+  border-color: var(--danger-border);
+  background: var(--danger-light-bg);
+  color: var(--danger);
+}
+
+.tool-call-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tool-call-name {
+  color: var(--text-heading);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.tool-call-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border-row);
+  border-radius: 999px;
+  background: var(--surface-dim);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.4;
+}
+
+.tool-call-status.completed {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.tool-call-status.error {
+  border-color: var(--danger-border);
+  background: var(--danger-light-bg);
+  color: var(--danger);
+}
+
+.tool-call-card.running .tool-call-status {
+  border-color: var(--primary-border);
+  color: var(--primary);
+}
+
+.tool-call-summary {
+  display: block;
+  max-width: 100%;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tool-call-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tool-call-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--surface-dim);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.tool-call-details {
+  display: grid;
+  gap: 10px;
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border-light);
+  background: var(--surface-dim);
+  animation: panel-slide-in 150ms ease-out;
+}
+
+.tool-call-section:first-child {
+  padding-top: 10px;
+}
+
+.tool-call-section-title {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.tool-call-details .code-block {
+  margin: 0;
+}
+
+/* ===== Plan checklist items ===== */
+.plan-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 9px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-label);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: none;
+}
+
+.plan-check {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-row);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.plan-row.in_progress {
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.plan-row.in_progress .plan-check {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.plan-row.completed {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.plan-row.completed span:last-child {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  text-decoration-color: rgba(25, 115, 68, 0.55);
+}
+
+.plan-row.completed .plan-check {
+  border-color: var(--success);
+  background: var(--success);
+  color: #fff;
+}
+
+/* Plan chips */
+.plan-view {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.plan-chip {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 750;
+  border: 1px solid var(--border-row);
+  background: var(--surface-dim);
+  color: var(--text-muted);
+}
+
+.plan-chip.in_progress {
+  border-color: var(--primary-border);
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.plan-chip.completed {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+/* Pulse dots for active tool */
+.plan-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plan-row.in_progress .plan-step-text {
+  font-weight: 700;
+}
+
+.plan-active-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--primary-border);
+  font-size: 11px;
+  color: var(--text-body);
+  width: fit-content;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.plan-active-tool code {
+  font-family: var(--font-mono);
+  background: var(--surface-secondary);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.plan-active-tool .pulse-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: tool-pulse 1.8s infinite cubic-bezier(0.66, 0, 0, 1);
+}
+
+/* ===== Group Tool Card Styles ===== */
+.tool-call-card.group {
+  border-left: 3px solid var(--primary);
+}
+
+.tool-call-card.group.error {
+  border-left: 3px solid var(--danger-border);
+}
+
+.group-items .tool-call-card {
+  margin-bottom: 8px;
+  background: var(--surface-glass-light);
+  box-shadow: none;
+  border-color: var(--border-light);
+  width: 100%;
+  max-width: 100%;
+}
+
+.group-items .tool-call-card:last-child {
+  margin-bottom: 0;
+}

@@ -1,0 +1,601 @@
+/* ===== Approvals and Decisions Panels ===== */
+.conversation-approvals {
+  position: relative;
+  width: min(calc(100% - 24px), 960px);
+  margin: 0 auto 16px 24px;
+}
+
+.conversation-approvals::before {
+  content: "";
+  position: absolute;
+  left: -19px;
+  top: 24px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--warning-border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.approval-thread {
+  padding: 14px;
+  border: 1px solid var(--warning-border);
+  border-radius: 12px;
+  background: var(--warning-bg);
+  box-shadow: none;
+  border-left-width: 3px;
+  animation: panel-slide-in 160ms ease-out;
+}
+
+.approval-thread .patch-stack:last-child {
+  margin-bottom: 0;
+}
+
+.approval-dock {
+  max-height: 48vh;
+  overflow: auto;
+  padding: 12px 14px 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-glass-dock);
+  box-shadow: 0 16px 32px var(--shadow);
+  z-index: 2;
+}
+
+.approval-dock-title {
+  margin-bottom: 10px;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+/* ===== Permission mode box ===== */
+.permission-mode-box {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--border-row);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.permission-mode-box label {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.permission-mode-box select {
+  margin: 0;
+}
+
+.permission-mode-box p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ===== Patch stack ===== */
+.patch-stack {
+  margin-bottom: 16px;
+}
+
+.command-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.approval-banner {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-light-bg);
+  color: var(--warning-text);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+}
+
+.approval-banner span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== Question card ===== */
+.question-card {
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid var(--primary-border);
+  border-radius: 10px;
+  background: var(--question-bg);
+  box-shadow: none;
+}
+
+.question-context {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.question-text {
+  margin-bottom: 10px;
+  color: var(--text-body);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.45;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+}
+
+.question-text span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.question-option {
+  width: auto;
+  min-width: 72px;
+}
+
+body[data-theme="dark"] .question-text {
+  color: var(--primary-text);
+}
+
+/* ===== Patch card ===== */
+.patch-card {
+  margin-bottom: 10px;
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--patch-bg);
+  box-shadow: none;
+}
+
+.patch-card summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  cursor: pointer;
+  color: var(--patch-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.patch-card summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.patch-card summary small {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: var(--patch-chip-bg);
+  color: var(--warning-text);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.patch-card pre {
+  max-height: 300px;
+  margin: 0 10px 10px;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--patch-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--text-label);
+  white-space: pre;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.patch-card.applied {
+  border-color: var(--patch-success-border);
+  background: var(--patch-success-bg);
+}
+
+.patch-card.discarded {
+  border-color: var(--border-row);
+  background: var(--surface-dim);
+}
+
+.patch-card.failed {
+  border-color: var(--danger-subtle-border);
+  background: var(--danger-subtle-bg);
+}
+
+.patch-card.high-risk {
+  border-color: var(--danger-subtle-border);
+  background: var(--danger-subtle-bg);
+}
+
+.patch-card.high-risk summary {
+  color: var(--patch-highrisk-text);
+}
+
+.patch-card.high-risk summary small {
+  background: var(--danger-light-bg);
+  color: var(--patch-highrisk-text);
+}
+
+.patch-error {
+  margin: 0 10px 10px;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.command-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0 10px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--patch-border);
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.command-meta dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 850;
+}
+
+.command-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-label);
+}
+
+.patch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.approval-heading,
+.icon-title,
+.approval-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.approval-heading {
+  color: var(--warning-text);
+}
+
+.approval-summary-main {
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.patch-card summary .approval-summary-main > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== Event items ===== */
+.event-list {
+  padding: 14px;
+  overflow: auto;
+  min-height: 0;
+  position: relative;
+  padding: 12px 12px 42px;
+}
+
+.event-list::before {
+  content: "";
+  position: absolute;
+  left: 22px;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--border-light);
+}
+
+.event {
+  position: relative;
+  margin-left: 14px;
+  margin-right: 4px;
+  border: 1px solid var(--border-light);
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.event summary {
+  padding: 9px 10px;
+  cursor: pointer;
+  color: var(--text-label);
+  font-size: 13px;
+  font-weight: 760;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.event-summary-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.event-summary-main span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event summary small {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.event pre {
+  max-height: 260px;
+  margin: 0;
+  padding: 0 10px 10px;
+  overflow: auto;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.45;
+  background: transparent;
+}
+
+.event.error {
+  border-color: var(--danger-subtle-border);
+  background: var(--danger-subtle-bg);
+}
+
+.event.tool {
+  border-color: var(--activity-event-border);
+}
+
+.event.model {
+  border-color: var(--activity-model-border);
+}
+
+/* ===== hljs overrides ===== */
+.hljs {
+  color: var(--hljs-color);
+  background: transparent;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: var(--hljs-keyword);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-attr {
+  color: var(--hljs-string);
+}
+
+.hljs-title,
+.hljs-name,
+.hljs-function {
+  color: var(--hljs-title);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-built_in {
+  color: var(--hljs-built_in);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--hljs-comment);
+}
+
+/* ===== Git Update Dialog Modal ===== */
+.git-update-modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 20px;
+  animation: fade-in 0.2s ease-out;
+}
+
+.git-update-modal-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  animation: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.git-update-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(220, 38, 38, 0.05);
+}
+
+.git-update-modal-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.git-update-modal-header .error-icon {
+  color: #dc2626;
+}
+
+.git-update-modal-body {
+  padding: 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.git-update-modal-body p {
+  margin: 0 0 10px 0;
+}
+
+.git-update-modal-error-box {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: #ef4444;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.git-update-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--bg-hover);
+  border-top: 1px solid var(--border);
+}
+
+.git-update-modal-actions button {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.git-update-modal-actions button.cancel-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+}
+
+.git-update-modal-actions button.cancel-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+
+.git-update-modal-actions button.retry-btn {
+  background: var(--primary);
+  border: 1px solid var(--primary);
+  color: #ffffff;
+}
+
+.git-update-modal-actions button.retry-btn:hover {
+  opacity: 0.9;
+}
+
+.git-update-modal-actions button.force-btn {
+  background: #dc2626;
+  border: 1px solid #dc2626;
+  color: #ffffff;
+}
+
+.git-update-modal-actions button.force-btn:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+/* ===== Git Update Button in topbar ===== */
+.update-badge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 10px rgba(29, 78, 216, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.update-badge-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border-color: rgba(37, 99, 235, 0.4);
+  box-shadow: 0 6px 14px rgba(29, 78, 216, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+.update-badge-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.update-badge-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
+.update-badge-btn.updating {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  border-color: rgba(37, 99, 235, 0.3);
+  box-shadow: none;
+}
+
+.update-badge-btn.completed {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+  border-color: rgba(22, 163, 74, 0.2);
+  box-shadow: 0 4px 10px rgba(22, 163, 74, 0.2);
+}
+
+.update-badge-btn.error {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  border-color: rgba(220, 38, 38, 0.2);
+  box-shadow: 0 4px 10px rgba(220, 38, 38, 0.2);
+}

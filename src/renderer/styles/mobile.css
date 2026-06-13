@@ -1,0 +1,172 @@
+/* ===== Mobile Adaptations ===== */
+@media (max-width: 767px) {
+  .app-shell {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr 56px !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    overflow: hidden !important;
+  }
+
+  /* Hide resize handles on mobile */
+  .column-resize-handle,
+  .composer-resize-handle {
+    display: none !important;
+  }
+
+  /* Make panels fill the first row */
+  .sidebar,
+  .conversation,
+  .activity {
+    grid-row: 1 !important;
+    grid-column: 1 !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    border: none !important;
+  }
+
+  /* Bottom tab bar styling */
+  .mobile-tab-bar {
+    grid-row: 2 !important;
+    grid-column: 1 !important;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    height: 56px;
+    z-index: 100;
+  }
+
+  .mobile-tab-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--fg-muted);
+    font-size: 11px;
+    font-weight: 500;
+    gap: 4px;
+    cursor: pointer;
+    height: 100%;
+    transition: color 0.2s, background-color 0.2s;
+  }
+
+  .mobile-tab-btn.active {
+    color: var(--primary);
+    font-weight: 600;
+    background-color: var(--hover);
+  }
+  
+  .mobile-tab-btn-icon {
+    font-size: 16px;
+  }
+
+  /* Adjust composer height on mobile to prevent overflow */
+  .conversation > .composer {
+    min-height: unset !important;
+    max-height: 220px !important;
+    height: auto !important;
+    padding: 0 10px 10px !important;
+    gap: 6px !important;
+    grid-template-rows: 1fr !important;
+  }
+
+  .composer-surface {
+    height: auto !important;
+    min-height: 80px !important;
+    border-radius: 12px !important;
+    box-shadow: none !important;
+  }
+
+  .composer textarea {
+    height: 80px !important;
+    padding: 10px 12px 42px !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+  }
+
+  .composer-controls {
+    padding: 4px 8px 6px !important;
+    height: 38px !important;
+  }
+
+  /* Adjust message paddings for narrower screen */
+  .message-item {
+    padding: 12px 14px !important;
+    margin: 8px 12px !important;
+  }
+
+  /* Prevent messages and pre-formatted text from expanding page width */
+  .message-list {
+    padding: 12px 12px 16px !important;
+    overflow-x: hidden !important;
+  }
+
+  .message {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .message-body {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    padding: 12px 14px !important;
+    overflow-wrap: break-word !important;
+    word-wrap: break-word !important;
+  }
+
+  .markdown-content {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow-wrap: break-word !important;
+    word-wrap: break-word !important;
+  }
+
+  .markdown-code-wrap {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: auto !important;
+  }
+
+  /* Topbars adjustment for mobile */
+  .topbar {
+    padding: 0 10px !important;
+    height: 50px !important;
+    min-height: 50px !important;
+  }
+
+  .topbar-left {
+    min-width: 0 !important;
+    flex: 1 !important;
+  }
+
+  .topbar-workspace {
+    max-width: 110px !important;
+  }
+
+  .topbar-divider,
+  .topbar-icon {
+    display: none !important;
+  }
+
+  .topbar-actions {
+    gap: 8px !important;
+  }
+
+  /* Dialogs / Modals size adaptation */
+  .modal-container {
+    width: 92% !important;
+    max-width: 420px !important;
+    max-height: 85vh !important;
+  }
+}

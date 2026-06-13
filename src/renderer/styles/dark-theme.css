@@ -1,0 +1,100 @@
+/* ===== Dark theme variable overrides ===== */
+body[data-theme="dark"] {
+  --app-bg: #0b1220;
+  --surface: #111827;
+  --surface-dim: #0f1726;
+  --surface-glass: rgba(17, 24, 39, 0.94);
+  --surface-glass-heavy: rgba(17, 24, 39, 0.96);
+  --surface-glass-max: rgba(17, 24, 39, 0.98);
+  --surface-glass-light: rgba(15, 23, 42, 0.92);
+  --surface-glass-subtle: rgba(15, 23, 42, 0.92);
+  --surface-glass-clear: rgba(15, 23, 42, 0.94);
+  --surface-glass-header: rgba(15, 23, 42, 0.96);
+  --surface-glass-activity: rgba(15, 23, 42, 0.94);
+  --surface-glass-dock: rgba(15, 23, 42, 0.96);
+
+  --border: #253246;
+  --border-light: #2b384c;
+  --border-heavy: #2b384c;
+  --border-input: #314056;
+  --border-row: #2a3648;
+  --border-focus-ring: rgba(91, 131, 255, 0.18);
+
+  --text: #e5eaf2;
+  --text-heading: #f8fbff;
+  --text-secondary: #94a3b8;
+  --text-muted: #94a3b8;
+  --text-body: #e5eaf2;
+  --text-label: #d8e0ee;
+
+  --primary: #5b83ff;
+  --primary-hover: rgba(91, 131, 255, 0.12);
+  --primary-light: #152544;
+  --primary-light-alt: #172746;
+  --primary-border: #3252bb;
+  --primary-text: #d8e7ff;
+  --primary-dark: #4a70e6;
+  --primary-shadow: rgba(91, 131, 255, 0.16);
+  --primary-focus-ring: rgba(91, 131, 255, 0.2);
+
+  --secondary-bg: #1a2435;
+  --secondary-border: #2f3d54;
+
+  --success: #4fd48b;
+  --success-bg: #10261b;
+  --success-border: #1c6b46;
+
+  --danger: #f4a3a0;
+  --danger-bg: #371515;
+  --danger-border: #7d2422;
+  --danger-light-bg: #451a1a;
+  --danger-light-border: #7f1d1d;
+  --danger-subtle-border: #7f1d1d;
+  --danger-subtle-bg: #281010;
+
+  --warning-border: #8f5b18;
+  --warning-bg: #2a1f10;
+  --warning-text: #f0bf6b;
+  --warning-light-bg: #37260f;
+
+  --code-bg: #0f1726;
+  --code-border: #2b384c;
+  --code-text: #e5eaf2;
+  --code-inline: #fdba74;
+  --code-toolbar-bg: #111827;
+
+  --md-blockquote-bg: #0f1726;
+  --md-blockquote-border: #334155;
+  --md-th-bg: #0f1726;
+  --md-link: #93c5fd;
+  --md-hr: #2b384c;
+
+  --patch-bg: #2a1f10;
+  --patch-border: #7a4a13;
+  --patch-text: #fed7aa;
+  --patch-chip-bg: #3a290f;
+  --patch-success-bg: #10261b;
+  --patch-success-border: #1c6b46;
+  --patch-highrisk-text: #f4a3a0;
+
+  --question-bg: #10223f;
+  --question-shadow: rgba(91, 131, 255, 0.14);
+
+  --activity-event-border: #2b384c;
+  --activity-model-border: #2b384c;
+
+  --shadow: rgba(0, 0, 0, 0.18);
+  --shadow-heavy: rgba(0, 0, 0, 0.24);
+  --shadow-card: rgba(0, 0, 0, 0.15);
+  --shadow-approval: rgba(0, 0, 0, 0.16);
+  --shadow-composer: rgba(0, 0, 0, 0.2);
+
+  /* hljs overrides for dark theme */
+  --hljs-color: #e5e7eb;
+  --hljs-keyword: #c084fc;
+  --hljs-string: #86efac;
+  --hljs-title: #93c5fd;
+  --hljs-number: #fbbf24;
+  --hljs-comment: #94a3b8;
+  --hljs-built_in: #fbbf24;
+}

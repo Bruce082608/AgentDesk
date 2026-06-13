@@ -13,35 +13,34 @@ import { useAgentEvents } from "./hooks/useAgentEvents";
 import { useProviderConfig } from "./hooks/useProviderConfig";
 import { useSessions } from "./hooks/useSessions";
 import { useWorkspace } from "./hooks/useWorkspace";
+
+// Custom infrastructure hooks
+import { useDragAndDrop } from "./hooks/useDragAndDrop";
+import { useColumnResize } from "./hooks/useColumnResize";
+import { useComposerResize } from "./hooks/useComposerResize";
+import { useTheme } from "./hooks/useTheme";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { useTokenCounter } from "./hooks/useTokenCounter";
+import { useScrollFollow } from "./hooks/useScrollFollow";
+
 import type {
   ActivityFilter,
   ChatMessage,
   ReasoningView,
   RightSidebarSection,
   SidebarSection,
-  ThemeMode,
   TokenUsageStats
 } from "./types";
 import {
-  COMPOSER_HEIGHT_KEY,
-  LEFT_SIDEBAR_WIDTH_KEY,
-  MAX_COMPOSER_HEIGHT,
-  MAX_LEFT_SIDEBAR_WIDTH,
-  MAX_RIGHT_SIDEBAR_WIDTH,
-  MIN_COMPOSER_HEIGHT,
-  MIN_CONVERSATION_WIDTH,
-  MIN_LEFT_SIDEBAR_WIDTH,
-  MIN_RIGHT_SIDEBAR_WIDTH,
-  RESIZE_HANDLE_WIDTH,
-  RIGHT_SIDEBAR_WIDTH_KEY,
-  THEME_KEY,
   LANGUAGE_KEY,
+  RESIZE_HANDLE_WIDTH,
+  MIN_CONVERSATION_WIDTH,
   emptyTokenUsage
 } from "./types";
 import {
   copyText,
-  filterActivityEvents,
-  readStoredNumber
+  filterActivityEvents
 } from "./utils";
 import { getInputBudgetTokens } from "../shared/contextBudget";
 import "./styles.css";
@@ -67,67 +66,22 @@ function App() {
   const [sidebarSection, setSidebarSection] = useState<SidebarSection>("chats");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageStats>(() => emptyTokenUsage());
-  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
-  const [retryRequest, setRetryRequest] = useState<null | {
-    inputText: string;
-    priorMessages: ChatMessage[];
-    nextMessages: ChatMessage[];
-  }>(null);
-  const [baseContextTokenCount, setBaseContextTokenCount] = useState(0);
-  const [inputTokenCount, setInputTokenCount] = useState(0);
-  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const [showActivityScrollToBottom, setShowActivityScrollToBottom] = useState(false);
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === "dark" || saved === "light" || saved === "system") return saved;
-    return "light";
-  });
+
   const [language, setLanguage] = useState<Language>(() => {
     const saved = localStorage.getItem(LANGUAGE_KEY);
     return saved === "en" ? "en" : "zh";
   });
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(() =>
-    readStoredNumber(LEFT_SIDEBAR_WIDTH_KEY, 292, MIN_LEFT_SIDEBAR_WIDTH, MAX_LEFT_SIDEBAR_WIDTH)
-  );
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(() =>
-    readStoredNumber(RIGHT_SIDEBAR_WIDTH_KEY, 340, MIN_RIGHT_SIDEBAR_WIDTH, MAX_RIGHT_SIDEBAR_WIDTH)
-  );
-  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(() =>
-    localStorage.getItem("agent-left-sidebar-collapsed") === "true"
-  );
-  const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(() =>
-    localStorage.getItem("agent-right-sidebar-collapsed") === "true"
-  );
 
-  const toggleLeftSidebar = useCallback(() => {
-    setLeftSidebarCollapsed(prev => {
-      const next = !prev;
-      localStorage.setItem("agent-left-sidebar-collapsed", String(next));
-      return next;
-    });
-  }, []);
-
-  const toggleRightSidebar = useCallback(() => {
-    setRightSidebarCollapsed(prev => {
-      const next = !prev;
-      localStorage.setItem("agent-right-sidebar-collapsed", String(next));
-      return next;
-    });
-  }, []);
-
-  const [composerHeight, setComposerHeight] = useState(() =>
-    readStoredNumber(COMPOSER_HEIGHT_KEY, 78, MIN_COMPOSER_HEIGHT, MAX_COMPOSER_HEIGHT)
-  );
-
-  const messageListRef = useRef<HTMLDivElement | null>(null);
-  const activityListRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const followOutputRef = useRef(true);
-  const followActivityRef = useRef(true);
   const t = translations[language];
 
+  // Hook 1: Activity Log Logger
   const { appendEvent, events, resetEvents } = useActivityLog();
+
+  // Hook 2: Workspace Manager
   const workspaceState = useWorkspace({ appendEvent, t });
+
+  // Hook 3: Agent Events Coordinator
   const agentState = useAgentEvents({
     appendEvent,
     language,
@@ -136,11 +90,78 @@ function App() {
     setMessages,
     setTokenUsage
   });
+
+  // Hook 5: Online Status & Retry
+  const {
+    isOnline,
+    setIsOnline,
+    retryRequest,
+    setRetryRequest
+  } = useOnlineStatus({ appendEvent, t });
+
+  // Hook 4: Provider Configuration
   const providerState = useProviderConfig({
     appendEvent,
     busy: agentState.busy,
     setIsOnline,
     t
+  });
+
+  // Hook 6: Columns Resizer
+  const {
+    leftSidebarWidth,
+    rightSidebarWidth,
+    leftSidebarCollapsed,
+    rightSidebarCollapsed,
+    toggleLeftSidebar,
+    toggleRightSidebar,
+    startColumnResize
+  } = useColumnResize();
+
+  // Hook 7: Composer Input Resizer
+  const {
+    composerHeight,
+    startComposerResize
+  } = useComposerResize();
+
+  // Hook 8: Theme Switcher
+  const { theme, setTheme } = useTheme();
+
+  // Hook 9: Keyboard Shortcuts Listener
+  useKeyboardShortcuts({ toggleLeftSidebar, toggleRightSidebar });
+
+  // Hook 10: Global Drag & Drop Handler
+  useDragAndDrop();
+
+  // Hook 11: Token calculation
+  const {
+    contextTokenCount
+  } = useTokenCounter({
+    messages,
+    attachedFiles: workspaceState.attachedFiles,
+    input
+  });
+
+  // Hook 12: Scroll following
+  const {
+    showScrollToBottom,
+    showActivityScrollToBottom,
+    messageListRef,
+    activityListRef,
+    followOutputRef,
+    scrollToBottom,
+    scrollActivityToBottom
+  } = useScrollFollow({
+    messages,
+    events,
+    patches: agentState.patches,
+    commands: agentState.commands,
+    questions: agentState.questions,
+    activeToolRuns: agentState.activeToolRuns,
+    busy: agentState.busy,
+    activityFilter,
+    activitySearch,
+    rightSidebarSection
   });
 
   const resetSessionTokenUsage = useCallback(() => {
@@ -154,6 +175,7 @@ function App() {
     setReasoningViews({});
   }, [agentState, resetEvents, workspaceState]);
 
+  // Hook 13: Sessions Handler
   const sessionState = useSessions({
     appendEvent,
     busy: agentState.busy,
@@ -217,187 +239,10 @@ function App() {
     });
   }, [agentState.loadAutoApprovalState, agentState.loadPendingApprovals, sessionState.activeSessionId, sessionState.sessionsLoaded, workspaceState.workspace]);
 
-  // ---- Document-level drag-and-drop ----
-  // On Windows Electron, the window must call preventDefault() on dragover
-  // at the document level to accept native file drops.  Without this the
-  // cursor shows "not allowed" as soon as it enters the window, and the
-  // per-element handlers on the conversation never get a chance to fire.
-  useEffect(() => {
-    const onDragEnter = (event: DragEvent) => {
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-    };
-    const onDragOver = (event: DragEvent) => {
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-    };
-    const onDrop = (event: DragEvent) => {
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-    };
-
-    window.addEventListener("dragenter", onDragEnter, true);
-    window.addEventListener("dragover", onDragOver, true);
-    window.addEventListener("drop", onDrop, true);
-    return () => {
-      window.removeEventListener("dragenter", onDragEnter, true);
-      window.removeEventListener("dragover", onDragOver, true);
-      window.removeEventListener("drop", onDrop, true);
-    };
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(THEME_KEY, theme);
-
-    if (theme !== "system") {
-      document.body.dataset.theme = theme;
-      return;
-    }
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const applySystemTheme = () => {
-      document.body.dataset.theme = mediaQuery.matches ? "dark" : "light";
-    };
-    applySystemTheme();
-
-    mediaQuery.addEventListener("change", applySystemTheme);
-    return () => mediaQuery.removeEventListener("change", applySystemTheme);
-  }, [theme]);
-
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
     localStorage.setItem(LANGUAGE_KEY, language);
   }, [language]);
-
-  useEffect(() => {
-    localStorage.setItem(LEFT_SIDEBAR_WIDTH_KEY, String(leftSidebarWidth));
-  }, [leftSidebarWidth]);
-
-  useEffect(() => {
-    localStorage.setItem(RIGHT_SIDEBAR_WIDTH_KEY, String(rightSidebarWidth));
-  }, [rightSidebarWidth]);
-
-  useEffect(() => {
-    localStorage.setItem(COMPOSER_HEIGHT_KEY, String(composerHeight));
-  }, [composerHeight]);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "b") {
-        e.preventDefault();
-        toggleLeftSidebar();
-      }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "b") {
-        e.preventDefault();
-        toggleRightSidebar();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleLeftSidebar, toggleRightSidebar]);
-
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      if (retryRequest) appendEvent("status", t.networkRestoredTitle, t.networkRestoredBody);
-    };
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, [appendEvent, retryRequest, t.networkRestoredBody, t.networkRestoredTitle]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      window.agentWindow.countTokens({ messages, input: "", attachments: workspaceState.attachedFiles })
-        .then((result) => {
-          if (!cancelled) setBaseContextTokenCount(result.tokens);
-        })
-        .catch(() => {
-          if (!cancelled) setBaseContextTokenCount(0);
-        });
-    }, 120);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [messages, workspaceState.attachedFiles]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      window.agentWindow.countTokens({ messages: [], input, attachments: [] })
-        .then((result) => {
-          if (!cancelled) setInputTokenCount(result.tokens);
-        })
-        .catch(() => {
-          if (!cancelled) setInputTokenCount(0);
-        });
-    }, 220);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [input]);
-
-  useEffect(() => {
-    if (!followOutputRef.current) return;
-    const list = messageListRef.current;
-    if (!list) return;
-    requestAnimationFrame(() => {
-      list.scrollTo({ top: list.scrollHeight, behavior: "instant" });
-    });
-  }, [messages, events, agentState.patches, agentState.commands, agentState.questions, agentState.activeToolRuns, agentState.busy]);
-
-  useEffect(() => {
-    const list = messageListRef.current;
-    if (!list) return;
-
-    const onUserScroll = () => {
-      const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
-      followOutputRef.current = distanceToBottom < 32;
-      const shouldShow = !followOutputRef.current;
-      setShowScrollToBottom(prev => prev !== shouldShow ? shouldShow : prev);
-    };
-
-    list.addEventListener("scroll", onUserScroll, { passive: true });
-    return () => list.removeEventListener("scroll", onUserScroll);
-  }, [agentState.busy]);
-
-  useEffect(() => {
-    if (rightSidebarSection !== "activity") return;
-    followActivityRef.current = true;
-    setShowActivityScrollToBottom(false);
-  }, [rightSidebarSection]);
-
-  useEffect(() => {
-    if (rightSidebarSection !== "activity") return;
-    if (!followActivityRef.current) return;
-    const list = activityListRef.current;
-    if (!list) return;
-    requestAnimationFrame(() => {
-      list.scrollTo({ top: list.scrollHeight, behavior: "instant" });
-    });
-  }, [events, activityFilter, activitySearch, rightSidebarSection]);
-
-  useEffect(() => {
-    const list = activityListRef.current;
-    if (!list) return;
-
-    const onActivityScroll = () => {
-      const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
-      followActivityRef.current = distanceToBottom < 32;
-      const shouldShow = rightSidebarSection === "activity" && !followActivityRef.current;
-      setShowActivityScrollToBottom(prev => prev !== shouldShow ? shouldShow : prev);
-    };
-
-    list.addEventListener("scroll", onActivityScroll, { passive: true });
-    return () => list.removeEventListener("scroll", onActivityScroll);
-  }, [rightSidebarSection]);
 
   const activePatches = useMemo(
     () => agentState.patches.filter((patch) => patch.status === "pending" || patch.status === "failed"),
@@ -416,25 +261,8 @@ function App() {
     [activityFilter, activitySearch, events]
   );
   const inputBudgetTokens = getInputBudgetTokens(providerState.config.contextTokens, providerState.config.maxTokens);
-  const contextTokenCount = baseContextTokenCount + inputTokenCount;
   const contextPercent = Math.min(100, Math.round((contextTokenCount / Math.max(inputBudgetTokens, 1)) * 100));
   const contextUsageLabel = `${contextPercent}%`;
-
-  const scrollToBottom = useCallback(() => {
-    const list = messageListRef.current;
-    if (!list) return;
-    list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
-    followOutputRef.current = true;
-    setShowScrollToBottom(false);
-  }, []);
-
-  const scrollActivityToBottom = useCallback(() => {
-    const list = activityListRef.current;
-    if (!list) return;
-    list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
-    followActivityRef.current = true;
-    setShowActivityScrollToBottom(false);
-  }, []);
 
   const startAgentRequest = useCallback(async ({
     inputText,
@@ -461,7 +289,6 @@ function App() {
     const requestId = crypto.randomUUID();
     agentState.beginRequest(requestId, t.waitingPlan);
     followOutputRef.current = true;
-    setShowScrollToBottom(false);
     if (clearInput) setInput("");
     setMessages(nextMessages);
 
@@ -493,7 +320,10 @@ function App() {
     agentState.commandAutoApproval,
     agentState.patchAutoApproval,
     workspaceState.attachedFiles,
-    workspaceState.workspace
+    workspaceState.workspace,
+    setIsOnline,
+    setRetryRequest,
+    followOutputRef
   ]);
 
   const retryLastRequest = useCallback(async () => {
@@ -566,55 +396,6 @@ function App() {
   const resetCommandAutoApproval = useCallback(() => {
     agentState.resetCommandAutoApproval(permissionContext());
   }, [agentState.resetCommandAutoApproval, permissionContext]);
-
-  function startColumnResize(side: "left" | "right", event: React.PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startLeftWidth = leftSidebarWidth;
-    const startRightWidth = rightSidebarWidth;
-
-    const move = (moveEvent: PointerEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      const availableWidth = window.innerWidth - MIN_CONVERSATION_WIDTH - RESIZE_HANDLE_WIDTH * 2;
-      if (side === "left") {
-        const maxWidth = Math.min(MAX_LEFT_SIDEBAR_WIDTH, Math.max(MIN_LEFT_SIDEBAR_WIDTH, availableWidth - startRightWidth));
-        setLeftSidebarWidth(Math.min(Math.max(startLeftWidth + deltaX, MIN_LEFT_SIDEBAR_WIDTH), maxWidth));
-      } else {
-        const maxWidth = Math.min(MAX_RIGHT_SIDEBAR_WIDTH, Math.max(MIN_RIGHT_SIDEBAR_WIDTH, availableWidth - startLeftWidth));
-        setRightSidebarWidth(Math.min(Math.max(startRightWidth - deltaX, MIN_RIGHT_SIDEBAR_WIDTH), maxWidth));
-      }
-    };
-
-    const stop = () => {
-      document.body.classList.remove("resizing-columns");
-      window.removeEventListener("pointermove", move);
-    };
-
-    document.body.classList.add("resizing-columns");
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop, { once: true });
-  }
-
-  function startComposerResize(event: React.PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const startY = event.clientY;
-    const startHeight = composerHeight;
-
-    const move = (moveEvent: PointerEvent) => {
-      const deltaY = startY - moveEvent.clientY;
-      const maxHeight = Math.min(MAX_COMPOSER_HEIGHT, Math.max(MIN_COMPOSER_HEIGHT, window.innerHeight - 220));
-      setComposerHeight(Math.min(Math.max(startHeight + deltaY, MIN_COMPOSER_HEIGHT), maxHeight));
-    };
-
-    const stop = () => {
-      document.body.classList.remove("resizing-rows");
-      window.removeEventListener("pointermove", move);
-    };
-
-    document.body.classList.add("resizing-rows");
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop, { once: true });
-  }
 
   return (
     <div
