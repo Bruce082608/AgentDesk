@@ -45,6 +45,7 @@ declare global {
       sendMessage: (payload: AgentRequest) => Promise<{ ok: boolean; cancelled?: boolean }>;
       resumeApproval: (payload: ApprovalResumeRequest) => Promise<{ ok: boolean; result?: unknown; error?: string }>;
       cancelMessage: (requestId: string) => Promise<{ ok: boolean }>;
+      shellOpen: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
       testProvider: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderTestResult } | { ok: false; error: string }>;
       getBalance: (config: ProviderConfig) => Promise<{ ok: true; result: ProviderBalanceResult } | { ok: false; error: string }>;
       countTokens: (payload: { messages: ChatMessage[]; input: string; attachments: AttachedFile[] }) => Promise<{ tokens: number }>;

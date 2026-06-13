@@ -31,9 +31,14 @@ const MIME_TYPES = {
   ".json": "application/json",
   ".png": "image/png",
   ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
   ".gif": "image/gif",
   ".svg": "image/svg+xml",
-  ".ico": "image/x-icon"
+  ".ico": "image/x-icon",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".ogg": "video/ogg"
 };
 
 export function startWebServer() {
@@ -434,6 +439,30 @@ async function handleRestApi(pathname, req, res) {
       });
       createReadStream(filePath).pipe(res);
     } catch {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not Found");
+    }
+    return;
+  }
+
+  if (pathname === "/api/media" && req.method === "GET") {
+    const filePath = parsedUrl.searchParams.get("path");
+    if (!filePath) {
+      res.writeHead(400, { "Content-Type": "text/plain" });
+      res.end("Path parameter is required");
+      return;
+    }
+
+    try {
+      const stat = await fs.stat(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType = MIME_TYPES[ext] || "application/octet-stream";
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Content-Length": stat.size
+      });
+      createReadStream(filePath).pipe(res);
+    } catch (error) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("Not Found");
     }

@@ -1,6 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell, protocol, net } from "electron";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+// Register custom media scheme
+protocol.registerSchemesAsPrivileged([
+  { scheme: "media", privileges: { bypassCSP: true, secure: true, supportFetchAPI: true, corsEnabled: true } }
+]);
 import { resumeAgentContinuation, runAgentTurn } from "./agent.js";
 import { readAttachmentFiles, readUploadedFiles } from "./attachments.js";
 import { configureBackgroundTasks, listBackgroundTasks, scheduleBackgroundTask, cancelBackgroundTask } from "./background-tasks.js";
@@ -107,6 +112,21 @@ function createWindow() {
 
 app.whenReady().then(() => {
   if (!hasSingleInstanceLock) return;
+
+  // Register media protocol handler to serve local images and videos
+  protocol.handle("media", (request) => {
+    try {
+      const urlPath = request.url.replace(/^media:\/+/i, "");
+      const decoded = decodeURIComponent(urlPath);
+      const normalized = path.normalize(decoded);
+      const fileUrl = pathToFileURL(normalized).toString();
+      return net.fetch(fileUrl);
+    } catch (err) {
+      console.error("[Electron Protocol] failed to fetch file:", err);
+      return new Response("Not Found", { status: 404 });
+    }
+  });
+
   configureSystemToolRuntime({
     notify: showDesktopNotification,
     getDesktopState: getDesktopIntegrationState
@@ -198,6 +218,22 @@ ipcMain.handle("system:notify", async (_event, payload) => {
 
 ipcMain.handle("system:open-paths", async (_event, payload) => {
   return await queueOpenPaths(validateOpenPathsPayload(payload).paths);
+});
+
+ipcMain.handle("system:shell-open", async (_event, filePath) => {
+  try {
+    if (typeof filePath === "string") {
+      const cleanPath = filePath.startsWith("media://")
+        ? decodeURIComponent(filePath.replace(/^media:\/+/i, ""))
+        : filePath;
+      await shell.openPath(cleanPath);
+      return { ok: true };
+    }
+    return { ok: false };
+  } catch (error) {
+    console.error("[main] system:shell-open failed:", error);
+    return { ok: false, error: String(error) };
+  }
 });
 
 ipcMain.handle("system:open-paths-ready", async () => {

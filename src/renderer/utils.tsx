@@ -408,6 +408,24 @@ function highlightCode(code: string, normalizedLanguage: string) {
 
 /* ---- MarkdownContent component ---- */
 
+function resolveMediaUrl(src: string | undefined): string {
+  if (!src) return "";
+  if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("data:")) {
+    return src;
+  }
+
+  const isElectron = window.navigator.userAgent.toLowerCase().includes("electron");
+
+  if (isElectron) {
+    const normalizedPath = src.replace(/\\/g, "/");
+    return `media://${normalizedPath}`;
+  } else {
+    const token = sessionStorage.getItem("api_token") || new URLSearchParams(window.location.search).get("token") || "";
+    const backendOrigin = window.location.origin;
+    return `${backendOrigin}/api/media?path=${encodeURIComponent(src)}&token=${encodeURIComponent(token)}`;
+  }
+}
+
 export function MarkdownContent({ content, copyLabel = translations.zh.copy, copiedLabel = translations.zh.copied }: { content: string; copyLabel?: string; copiedLabel?: string }) {
   const components = useMemo<Components>(() => ({
     a({ href, children }) {
@@ -426,6 +444,36 @@ export function MarkdownContent({ content, copyLabel = translations.zh.copy, cop
     },
     code({ className, children }) {
       return <code className={className}>{children}</code>;
+    },
+    img({ src, alt }) {
+      if (!src) return null;
+      const resolved = resolveMediaUrl(src);
+      const isVideo = src.toLowerCase().match(/\.(mp4|webm|ogg|mov)$/) || src.includes("data:video/");
+      
+      if (isVideo) {
+        return (
+          <div className="media-preview video-preview" style={{ marginTop: "8px", marginBottom: "8px" }}>
+            <video src={resolved} controls style={{ maxWidth: "100%", maxHeight: "360px", borderRadius: "6px", border: "1px solid var(--border-color, #2d3139)" }} />
+          </div>
+        );
+      }
+
+      return (
+        <div className="media-preview image-preview" style={{ marginTop: "8px", marginBottom: "8px" }}>
+          <img
+            src={resolved}
+            alt={alt || "image"}
+            style={{ maxWidth: "100%", maxHeight: "360px", borderRadius: "6px", border: "1px solid var(--border-color, #2d3139)", cursor: "pointer" }}
+            onClick={() => {
+              if (window.agentWindow && typeof window.agentWindow.shellOpen === "function") {
+                void window.agentWindow.shellOpen(src);
+              } else {
+                window.open(resolved, "_blank");
+              }
+            }}
+          />
+        </div>
+      );
     }
   }), [copiedLabel, copyLabel]);
 

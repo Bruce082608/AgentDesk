@@ -231,6 +231,12 @@ if (typeof window.agentWindow === "undefined") {
     cancelMessage: async (requestId) => {
       return fetchApi("/api/agent/cancel", "POST", { requestId });
     },
+    shellOpen: async (filePath) => {
+      const token = sessionStorage.getItem("api_token") || "";
+      const url = `/api/media?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`;
+      window.open(url, "_blank");
+      return { ok: true };
+    },
     testProvider: async (config) => {
       return fetchApi("/api/provider/test", "POST", config);
     },

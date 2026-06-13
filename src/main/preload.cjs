@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld("agentWindow", {
   sendMessage: (payload) => ipcRenderer.invoke("agent:send", payload),
   resumeApproval: (payload) => ipcRenderer.invoke("agent:resume", payload),
   cancelMessage: (requestId) => ipcRenderer.invoke("agent:cancel", requestId),
+  shellOpen: (filePath) => ipcRenderer.invoke("system:shell-open", filePath),
   testProvider: (config) => ipcRenderer.invoke("provider:test", config),
   getBalance: (config) => ipcRenderer.invoke("provider:balance", config),
   countTokens: (payload) => ipcRenderer.invoke("tokens:count", payload),

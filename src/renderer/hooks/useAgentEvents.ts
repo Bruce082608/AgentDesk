@@ -658,28 +658,15 @@ export function useAgentEvents({
   }, [activeRequest, appendEvent, busy, clearActiveToolRuns, clearApprovalItem, language, markApprovalFailed, questions, setBusy, setMessages, startApprovalContinuation, setTaskPhase]);
 
   const dismissQuestion = useCallback(async (questionId: string) => {
-    if (busy) return;
-    const question = questions.find((item) => item.id === questionId);
-    if (!question) return;
-    const requestId = startApprovalContinuation();
-    const result = await window.agentWindow.resumeApproval({
-      requestId,
-      continuationId: questionId,
-      kind: "question",
-      decision: "dismissed",
-      language
-    });
-    if (!result.ok) {
-      markApprovalFailed("question", questionId, result.error || getAgentEventLabels(language).agentError);
-      setBusy(false);
-      activeRequest.current = null;
-      clearActiveToolRuns();
-      setTaskPhase("error", result.error || getAgentEventLabels(language).agentError);
-      appendEvent("error", getAgentEventLabels(language).agentError, result.error || "Unknown error");
-      return;
+    if (activeRequest.current) {
+      try {
+        await window.agentWindow.cancelMessage(activeRequest.current);
+      } catch (err) {
+        console.error("Failed to cancel message on dismiss:", err);
+      }
     }
     clearApprovalItem("question", questionId);
-  }, [activeRequest, appendEvent, busy, clearActiveToolRuns, clearApprovalItem, language, markApprovalFailed, questions, setBusy, startApprovalContinuation, setTaskPhase]);
+  }, [activeRequest, clearApprovalItem]);
 
   const loadAutoApprovalState = useCallback(async (context: { workspace: string; sessionId?: string }) => {
     try {
