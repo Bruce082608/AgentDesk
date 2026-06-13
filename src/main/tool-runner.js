@@ -106,6 +106,8 @@ async function executeToolImplementation(name, args, context) {
       return takeScreenshot(context, args.caption);
     case "send_image":
       return sendImage(context, args.path, args.caption);
+    case "manage_skills":
+      return manageSkills(context, args);
     default:
       throw localizedError(context.language, "tools.unknownTool", { name });
   }
@@ -1605,6 +1607,109 @@ async function sendImage(context, relativePath, caption = "") {
     url: url,
     message: "Image successfully read and sent."
   });
+}
+
+async function manageSkills(context, args) {
+  const { action, id, title, description, type, prompt, code, interval_minutes, enabled } = args;
+  const { loadPersistedSkills, savePersistedSkills } = await import("./persistence.js");
+  const { syncSkillsScheduler } = await import("./skills-scheduler.js");
+  const vm = await import("node:vm");
+
+  const skills = await loadPersistedSkills().catch(() => []);
+
+  if (action === "list") {
+    return JSON.stringify({ ok: true, skills });
+  }
+
+  if (action === "create") {
+    if (!title) {
+      throw new Error("Title is required to create a skill.");
+    }
+    if (!type || !["prompt", "code"].includes(type)) {
+      throw new Error("Type must be 'prompt' or 'code'.");
+    }
+    if (type === "prompt" && !prompt) {
+      throw new Error("Prompt is required for 'prompt' type skill.");
+    }
+    if (type === "code") {
+      if (!code) {
+        throw new Error("Code is required for 'code' type skill.");
+      }
+      // Validate code syntax using vm.Script
+      try {
+        new vm.Script(code);
+      } catch (err) {
+        throw new Error(`JavaScript syntax error in code: ${err.message}`);
+      }
+    }
+
+    const skillId = id || `skill_${Date.now()}`;
+    if (skills.some(s => s.id === skillId)) {
+      throw new Error(`Skill with ID '${skillId}' already exists.`);
+    }
+
+    const newSkill = {
+      id: skillId,
+      title,
+      description: description || "",
+      enabled: enabled !== false,
+      type,
+      prompt: type === "prompt" ? prompt : "",
+      code: type === "code" ? code : "",
+      intervalMinutes: Math.max(0, Number(interval_minutes) || 0),
+      runAt: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+
+    skills.push(newSkill);
+    await savePersistedSkills(skills);
+    void syncSkillsScheduler();
+
+    return JSON.stringify({ ok: true, message: "Skill created successfully", skill: newSkill });
+  }
+
+  if (action === "toggle") {
+    if (!id) {
+      throw new Error("ID is required to toggle a skill.");
+    }
+    const idx = skills.findIndex(s => s.id === id);
+    if (idx === -1) {
+      throw new Error(`Skill with ID '${id}' not found.`);
+    }
+
+    const targetSkill = skills[idx];
+    const nextEnabled = enabled !== undefined ? Boolean(enabled) : !targetSkill.enabled;
+    targetSkill.enabled = nextEnabled;
+    targetSkill.updatedAt = Date.now();
+    // Reset runAt if enabling, so it schedules fresh
+    if (nextEnabled) {
+      targetSkill.runAt = 0;
+    }
+
+    await savePersistedSkills(skills);
+    void syncSkillsScheduler();
+
+    return JSON.stringify({ ok: true, message: `Skill ${nextEnabled ? "enabled" : "disabled"} successfully`, skill: targetSkill });
+  }
+
+  if (action === "delete") {
+    if (!id) {
+      throw new Error("ID is required to delete a skill.");
+    }
+    const idx = skills.findIndex(s => s.id === id);
+    if (idx === -1) {
+      throw new Error(`Skill with ID '${id}' not found.`);
+    }
+
+    const deletedSkill = skills.splice(idx, 1)[0];
+    await savePersistedSkills(skills);
+    void syncSkillsScheduler();
+
+    return JSON.stringify({ ok: true, message: "Skill deleted successfully", skill: deletedSkill });
+  }
+
+  throw new Error(`Unknown action: ${action}`);
 }
 
 export const __test__ = {

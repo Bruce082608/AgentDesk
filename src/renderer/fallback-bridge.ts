@@ -155,6 +155,12 @@ if (typeof window.agentWindow === "undefined") {
     saveActivityEvents: async (events) => {
       return fetchApi("/api/activity", "POST", events);
     },
+    loadSkills: async () => {
+      return fetchApi("/api/skills", "GET");
+    },
+    saveSkills: async (skills) => {
+      return fetchApi("/api/skills", "POST", skills);
+    },
     listPendingApprovals: async (payload) => {
       return fetchApi("/api/approvals/list", "POST", payload || {});
     },

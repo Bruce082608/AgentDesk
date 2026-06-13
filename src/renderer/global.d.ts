@@ -16,6 +16,8 @@ declare global {
       saveSessions: (sessions: PersistedChatSession[]) => Promise<{ ok: boolean; count: number; path: string }>;
       loadActivityEvents: () => Promise<PersistedEventLogItem[]>;
       saveActivityEvents: (events: PersistedEventLogItem[]) => Promise<{ ok: boolean; count: number; path: string }>;
+      loadSkills: () => Promise<Skill[]>;
+      saveSkills: (skills: Skill[]) => Promise<{ ok: boolean; count: number; path: string }>;
       listPendingApprovals: (payload?: { sessionId?: string }) => Promise<Array<ApprovalRecord>>;
       getAutoApprovalState: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       loadConfig: () => Promise<{ config: ProviderConfig & { recoveredFromError?: string }; path: string }>;
@@ -101,6 +103,20 @@ export type ProviderConfig = {
   telegramEnabled?: boolean;
   telegramAllowedUserId?: string;
   telegramBotToken?: string;
+};
+
+export type Skill = {
+  id: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  type: "prompt" | "code";
+  prompt: string;
+  code: string;
+  intervalMinutes: number;
+  runAt: number;
+  createdAt: number;
+  updatedAt: number;
 };
 
 export type ProviderModelCapability = {

@@ -412,5 +412,56 @@ export const toolDefinitions = [
         required: ["path"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "manage_skills",
+      description: "Manage periodic background skills (prompts or custom Node.js code scripts) in the application.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["list", "create", "toggle", "delete"],
+            description: "The action to perform: 'list' to see current skills, 'create' to create a new skill, 'toggle' to enable/disable an existing skill, 'delete' to remove a skill."
+          },
+          id: {
+            type: "string",
+            description: "Required for toggle and delete actions. Optional for create (auto-generated as skill_timestamp if omitted)."
+          },
+          title: {
+            type: "string",
+            description: "Title of the skill (required for create)."
+          },
+          description: {
+            type: "string",
+            description: "Brief description of the skill."
+          },
+          type: {
+            type: "string",
+            enum: ["prompt", "code"],
+            description: "Type of skill: 'prompt' to run an agent instruction headlessly, or 'code' to run a Node.js script."
+          },
+          prompt: {
+            type: "string",
+            description: "The prompt instruction for 'prompt' type skill (required if type is prompt)."
+          },
+          code: {
+            type: "string",
+            description: "The Node.js code block for 'code' type skill (required if type is code)."
+          },
+          interval_minutes: {
+            type: "number",
+            description: "The interval in minutes at which to run the skill (0 or omit for one-off/manual run)."
+          },
+          enabled: {
+            type: "boolean",
+            description: "Whether the skill should be enabled (defaults to true on create)."
+          }
+        },
+        required: ["action"]
+      }
+    }
   }
 ];

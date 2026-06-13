@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("agentWindow", {
   saveSessions: (sessions) => ipcRenderer.invoke("sessions:save", sessions),
   loadActivityEvents: () => ipcRenderer.invoke("activity:load"),
   saveActivityEvents: (events) => ipcRenderer.invoke("activity:save", events),
+  loadSkills: () => ipcRenderer.invoke("skills:load"),
+  saveSkills: (skills) => ipcRenderer.invoke("skills:save", skills),
   listPendingApprovals: (payload) => ipcRenderer.invoke("approvals:list", payload || {}),
   getAutoApprovalState: (payload) => ipcRenderer.invoke("permissions:state", payload),
   loadConfig: () => ipcRenderer.invoke("config:load"),

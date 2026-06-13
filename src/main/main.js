@@ -21,7 +21,8 @@ import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setFullAccessAutoApproval, setPatchAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
-import { listPendingApprovals, loadPersistedActivityEvents, loadPersistedSessions, savePersistedActivityEvents, savePersistedSessions } from "./persistence.js";
+import { listPendingApprovals, loadPersistedActivityEvents, loadPersistedSessions, savePersistedActivityEvents, savePersistedSessions, loadPersistedSkills, savePersistedSkills } from "./persistence.js";
+import { initSkillsScheduler, syncSkillsScheduler } from "./skills-scheduler.js";
 import { classifyLaunchPaths, extractLaunchPaths } from "./launch-paths.js";
 import { normalizeLanguage, t } from "./i18n.js";
 import { configureSystemToolRuntime } from "./system-tools.js";
@@ -124,6 +125,8 @@ app.whenReady().then(() => {
   loadAppConfig().then((config) => {
     startTelegramBot(config);
   }).catch(() => {});
+
+  void initSkillsScheduler();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -242,6 +245,16 @@ ipcMain.handle("activity:load", async () => {
 
 ipcMain.handle("activity:save", async (_event, events) => {
   return await savePersistedActivityEvents(Array.isArray(events) ? events : []);
+});
+
+ipcMain.handle("skills:load", async () => {
+  return await loadPersistedSkills();
+});
+
+ipcMain.handle("skills:save", async (_event, skills) => {
+  const result = await savePersistedSkills(Array.isArray(skills) ? skills : []);
+  void syncSkillsScheduler();
+  return result;
 });
 
 ipcMain.handle("approvals:list", async (_event, payload = {}) => {

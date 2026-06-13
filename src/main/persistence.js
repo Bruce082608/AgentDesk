@@ -132,7 +132,8 @@ function normalizeState(value) {
     sessions: normalizeSessions(state.sessions),
     events: normalizeEvents(state.events),
     continuations: normalizeContinuations(state.continuations),
-    approvalScopes: normalizeApprovalScopes(state.approvalScopes)
+    approvalScopes: normalizeApprovalScopes(state.approvalScopes),
+    skills: normalizeSkillsList(state.skills)
   };
 }
 
@@ -268,4 +269,35 @@ export function getStateDirectory() {
   } catch {
     return FALLBACK_STATE_DIRECTORY;
   }
+}
+
+function normalizeSkillsList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((skill) => skill && typeof skill === "object" && typeof skill.id === "string")
+    .map((skill) => ({
+      id: String(skill.id),
+      title: String(skill.title || "Untitled Skill").slice(0, 120),
+      description: String(skill.description || "").slice(0, 1000),
+      enabled: Boolean(skill.enabled),
+      type: ["prompt", "code"].includes(skill.type) ? skill.type : "prompt",
+      prompt: String(skill.prompt || ""),
+      code: String(skill.code || ""),
+      intervalMinutes: Math.max(0, Number(skill.intervalMinutes) || 0),
+      runAt: Number(skill.runAt) || 0,
+      createdAt: Number(skill.createdAt) || Date.now(),
+      updatedAt: Number(skill.updatedAt) || Date.now()
+    }));
+}
+
+export async function loadPersistedSkills() {
+  const state = await readState();
+  return clone(state.skills || []);
+}
+
+export async function savePersistedSkills(skills = []) {
+  const state = await readState();
+  state.skills = normalizeSkillsList(skills);
+  await writeState(state);
+  return { ok: true, count: state.skills.length, path: getStatePath() };
 }

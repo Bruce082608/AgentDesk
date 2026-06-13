@@ -161,3 +161,17 @@ export const defaultConfig: ProviderConfig = {
   telegramAllowedUserId: "7043147111",
   telegramBotToken: ""
 };
+
+export interface Skill {
+  id: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  type: "prompt" | "code";
+  prompt: string;
+  code: string;
+  intervalMinutes: number;
+  runAt: number;
+  createdAt: number;
+  updatedAt: number;
+}

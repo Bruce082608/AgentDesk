@@ -9,7 +9,7 @@ import { app } from "electron";
 // Import core backend functions
 import { runAgentTurn, resumeAgentContinuation } from "./agent.js";
 import { getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles, getGitSummary, getGitDiff } from "./workspace.js";
-import { loadPersistedSessions, savePersistedSessions, loadPersistedActivityEvents, savePersistedActivityEvents, listPendingApprovals } from "./persistence.js";
+import { loadPersistedSessions, savePersistedSessions, loadPersistedActivityEvents, savePersistedActivityEvents, listPendingApprovals, loadPersistedSkills, savePersistedSkills } from "./persistence.js";
 import { loadAppConfig, saveAppConfig } from "./config.js";
 import { countAgentRequestTokens } from "../shared/tokenCounter.js";
 import { readAttachmentFiles } from "./attachments.js";
@@ -174,6 +174,21 @@ async function handleRestApi(pathname, req, res) {
     const body = await readBody();
     const result = await savePersistedSessions(Array.isArray(body) ? body : []);
     broadcastSseEvent("sessions:updated", {});
+    sendJson(result);
+    return;
+  }
+
+  if (pathname === "/api/skills" && req.method === "GET") {
+    const skills = await loadPersistedSkills();
+    sendJson(skills);
+    return;
+  }
+
+  if (pathname === "/api/skills" && req.method === "POST") {
+    const body = await readBody();
+    const result = await savePersistedSkills(Array.isArray(body) ? body : []);
+    const { syncSkillsScheduler } = await import("./skills-scheduler.js");
+    void syncSkillsScheduler();
     sendJson(result);
     return;
   }

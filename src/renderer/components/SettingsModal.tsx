@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, Globe, Palette, Cpu, Coins, Check, AlertCircle, LoaderCircle, Send } from "lucide-react";
+import { X, Globe, Palette, Cpu, Coins, Check, AlertCircle, LoaderCircle, Send, Zap } from "lucide-react";
 import type { Language, translations } from "../i18n";
 import type { ThemeMode, ProviderConfig, ProviderBalanceResult, TokenUsageStats } from "../types";
 import { formatBalanceAmount, formatInteger } from "../utils";
@@ -28,7 +28,7 @@ type SettingsModalProps = {
   t: Translation;
 };
 
-type TabId = "general" | "api" | "telegram" | "usage";
+type TabId = "general" | "api" | "telegram" | "usage" | "skills";
 
 export function SettingsModal({
   isOpen,
@@ -54,13 +54,82 @@ export function SettingsModal({
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [showApiKeys, setShowApiKeys] = useState(false);
 
+  const [skills, setSkills] = useState<any[]>([]);
+  const [loadingSkills, setLoadingSkills] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<any | null>(null);
+
+  React.useEffect(() => {
+    if (isOpen && activeTab === "skills") {
+      void loadSkills();
+    }
+  }, [isOpen, activeTab]);
+
+  const loadSkills = async () => {
+    setLoadingSkills(true);
+    try {
+      const list = await (window as any).agentWindow.loadSkills();
+      setSkills(list);
+    } catch (err) {
+      console.error("Failed to load skills:", err);
+    } finally {
+      setLoadingSkills(false);
+    }
+  };
+
+  const handleToggleSkill = async (skillId: string, enabled: boolean) => {
+    const updated = skills.map((s) => (s.id === skillId ? { ...s, enabled } : s));
+    setSkills(updated);
+    try {
+      await (window as any).agentWindow.saveSkills(updated);
+    } catch (err) {
+      console.error("Failed to toggle skill:", err);
+      void loadSkills();
+    }
+  };
+
+  const handleDeleteSkill = async (skillId: string) => {
+    const updated = skills.filter((s) => s.id !== skillId);
+    setSkills(updated);
+    try {
+      await (window as any).agentWindow.saveSkills(updated);
+    } catch (err) {
+      console.error("Failed to delete skill:", err);
+      void loadSkills();
+    }
+  };
+
+  const handleSaveSkill = async (skill: any) => {
+    let updated: any[];
+    if (skill.id) {
+      updated = skills.map((s) => (s.id === skill.id ? { ...skill, updatedAt: Date.now() } : s));
+    } else {
+      const newSkill = {
+        ...skill,
+        id: "skill_" + Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      updated = [newSkill, ...skills];
+    }
+    setSkills(updated);
+    setEditingSkill(null);
+    try {
+      await (window as any).agentWindow.saveSkills(updated);
+      void loadSkills();
+    } catch (err) {
+      console.error("Failed to save skill:", err);
+      void loadSkills();
+    }
+  };
+
   if (!isOpen) return null;
 
   const tabs = [
     { id: "general" as TabId, label: language === "zh" ? "常规设置" : "General Settings", icon: Palette },
     { id: "api" as TabId, label: language === "zh" ? "API 与模型" : "API & Models", icon: Cpu },
     { id: "telegram" as TabId, label: language === "zh" ? "Telegram 远控" : "Telegram Remote", icon: Send },
-    { id: "usage" as TabId, label: language === "zh" ? "用量与余额" : "Usage & Balance", icon: Coins }
+    { id: "usage" as TabId, label: language === "zh" ? "用量与余额" : "Usage & Balance", icon: Coins },
+    { id: "skills" as TabId, label: language === "zh" ? "技能管理" : "Skills Management", icon: Zap }
   ];
 
   return (
@@ -506,6 +575,224 @@ export function SettingsModal({
                       </p>
                     </div>
                   </div>
+                </div>
+              </section>
+            )}
+
+            {activeTab === "skills" && (
+              <section className="settings-section">
+                <div className="section-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <h4>{language === "zh" ? "技能管理 (Skills)" : "Skills Management"}</h4>
+                    <p>{language === "zh" ? "配置定时自动触发的开发或查询任务（支持自然语言或 JS 代码）" : "Configure scheduled developer or query tasks using prompts or code"}</p>
+                  </div>
+                  {!editingSkill && (
+                    <button
+                      className="test-btn"
+                      onClick={() => setEditingSkill({ title: "", description: "", enabled: true, type: "prompt", prompt: "", code: "", intervalMinutes: 60 })}
+                      style={{ padding: "6px 12px", fontSize: "12px" }}
+                    >
+                      {language === "zh" ? "+ 新建技能" : "+ New Skill"}
+                    </button>
+                  )}
+                </div>
+
+                <div className="settings-group scrollable-group" style={{ maxHeight: "460px", overflowY: "auto" }}>
+                  {editingSkill ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%" }}>
+                      <div className="settings-field">
+                        <label>{language === "zh" ? "技能标题" : "Title"}</label>
+                        <input
+                          type="text"
+                          placeholder={language === "zh" ? "例如: ETH 价格追踪" : "e.g. ETH Price Tracker"}
+                          value={editingSkill.title || ""}
+                          onChange={(e) => setEditingSkill({ ...editingSkill, title: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="settings-field">
+                        <label>{language === "zh" ? "描述信息" : "Description"}</label>
+                        <input
+                          type="text"
+                          placeholder={language === "zh" ? "简单描述下此技能的用途" : "Brief description of the skill"}
+                          value={editingSkill.description || ""}
+                          onChange={(e) => setEditingSkill({ ...editingSkill, description: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="settings-field">
+                        <label>{language === "zh" ? "定时触发间隔 (分钟)" : "Interval (Minutes)"}</label>
+                        <input
+                          type="number"
+                          min="1"
+                          placeholder="60"
+                          value={editingSkill.intervalMinutes || ""}
+                          onChange={(e) => setEditingSkill({ ...editingSkill, intervalMinutes: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                        />
+                      </div>
+
+                      <div className="settings-field">
+                        <label>{language === "zh" ? "技能类型" : "Type"}</label>
+                        <div className="select-wrapper">
+                          <select
+                            value={editingSkill.type || "prompt"}
+                            onChange={(e) => setEditingSkill({ ...editingSkill, type: e.target.value as any })}
+                          >
+                            <option value="prompt">{language === "zh" ? "对话 Prompt (调用 Agent 运行)" : "Agent Prompt"}</option>
+                            <option value="code">{language === "zh" ? "Node.js 代码" : "Node.js Code"}</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {editingSkill.type === "prompt" ? (
+                        <div className="settings-field">
+                          <label>{language === "zh" ? "对话 Prompt 指令" : "Prompt Instruction"}</label>
+                          <textarea
+                            style={{
+                              width: "100%",
+                              height: "100px",
+                              backgroundColor: "var(--input-bg)",
+                              color: "var(--text-primary)",
+                              border: "1px solid var(--border-color)",
+                              borderRadius: "4px",
+                              padding: "8px",
+                              fontSize: "12px",
+                              resize: "vertical",
+                              fontFamily: "inherit"
+                            }}
+                            placeholder={language === "zh" ? "在此输入要求 Agent 定时执行的任务提示词..." : "Enter prompt instruction for the Agent..."}
+                            value={editingSkill.prompt || ""}
+                            onChange={(e) => setEditingSkill({ ...editingSkill, prompt: e.target.value })}
+                          />
+                        </div>
+                      ) : (
+                        <div className="settings-field">
+                          <label>{language === "zh" ? "JS 源代码" : "JavaScript Code"}</label>
+                          <textarea
+                            style={{
+                              width: "100%",
+                              height: "140px",
+                              backgroundColor: "var(--input-bg)",
+                              color: "var(--text-primary)",
+                              border: "1px solid var(--border-color)",
+                              borderRadius: "4px",
+                              padding: "8px",
+                              fontSize: "11px",
+                              fontFamily: "monospace",
+                              resize: "vertical"
+                            }}
+                            placeholder="// Node.js Code here..."
+                            value={editingSkill.code || ""}
+                            onChange={(e) => setEditingSkill({ ...editingSkill, code: e.target.value })}
+                          />
+                        </div>
+                      )}
+
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px" }}>
+                        <button
+                          className="test-btn"
+                          style={{ backgroundColor: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-color)" }}
+                          onClick={() => setEditingSkill(null)}
+                        >
+                          {language === "zh" ? "取消" : "Cancel"}
+                        </button>
+                        <button
+                          className="test-btn"
+                          disabled={!editingSkill.title || (editingSkill.type === "prompt" ? !editingSkill.prompt : !editingSkill.code)}
+                          onClick={() => handleSaveSkill(editingSkill)}
+                        >
+                          {language === "zh" ? "保存" : "Save"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "10px", width: "100%" }}>
+                      {loadingSkills && (
+                        <div style={{ display: "flex", justifyContent: "center", padding: "24px" }}>
+                          <LoaderCircle className="animate-spin" size={20} />
+                        </div>
+                      )}
+                      {!loadingSkills && skills.length === 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "40px 20px", color: "var(--text-muted)", fontSize: "12px" }}>
+                          <AlertCircle size={24} style={{ marginBottom: "8px" }} />
+                          <p>{language === "zh" ? "目前还没有添加任何定时技能" : "No scheduled skills added yet"}</p>
+                        </div>
+                      )}
+                      {!loadingSkills && skills.map((skill) => (
+                        <div
+                          key={skill.id}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "12px",
+                            backgroundColor: "var(--card-bg)",
+                            border: "1px solid var(--border-color)",
+                            borderRadius: "6px"
+                          }}
+                        >
+                          <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, marginRight: "12px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <span style={{ fontWeight: 600, fontSize: "13px", color: "var(--text-primary)" }}>{skill.title}</span>
+                              <span
+                                style={{
+                                  fontSize: "10px",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  backgroundColor: skill.type === "prompt" ? "rgba(38, 99, 235, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                                  color: skill.type === "prompt" ? "#3b82f6" : "#10b981"
+                                }}
+                              >
+                                {skill.type === "prompt" ? "Prompt" : "Code"}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>{skill.description || "无描述"}</span>
+                            <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                              {language === "zh" ? `执行周期: 每 ${skill.intervalMinutes} 分钟` : `Interval: Every ${skill.intervalMinutes}m`}
+                              {skill.lastRunAt > 0 && ` | ${language === "zh" ? "上次运行: " : "Last Run: "}${new Date(skill.lastRunAt).toLocaleTimeString()}`}
+                            </span>
+                          </div>
+
+                          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                            <input
+                              type="checkbox"
+                              checked={skill.enabled}
+                              onChange={(e) => handleToggleSkill(skill.id, e.target.checked)}
+                              style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                            />
+                            <button
+                              onClick={() => setEditingSkill(skill)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: "var(--text-secondary)",
+                                cursor: "pointer",
+                                fontSize: "11px",
+                                padding: "4px 8px",
+                                borderRadius: "4px"
+                              }}
+                            >
+                              {language === "zh" ? "编辑" : "Edit"}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSkill(skill.id)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: "#ef4444",
+                                cursor: "pointer",
+                                fontSize: "11px",
+                                padding: "4px 8px",
+                                borderRadius: "4px"
+                              }}
+                            >
+                              {language === "zh" ? "删除" : "Delete"}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </section>
             )}
