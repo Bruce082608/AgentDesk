@@ -102,6 +102,12 @@ export function startWebServer() {
     console.log(`[Web Server] Running at http://localhost:${PORT}`);
     console.log(`[Web Server] Token: ${authToken}`);
     console.log(`[Web Server] LAN URL: http://${getLocalIp()}:${PORT}?token=${authToken}`);
+    
+    // Save web server port and token for local integration scripts
+    if (app && typeof app.getPath === "function") {
+      const infoPath = path.join(app.getPath("userData"), "web-server-info.json");
+      fs.writeFile(infoPath, JSON.stringify({ port: PORT, token: authToken }, null, 2), "utf8").catch(() => {});
+    }
   });
 
   return { port: PORT, token: authToken };
@@ -112,6 +118,11 @@ export function stopWebServer() {
     server.close();
     server = null;
     console.log("[Web Server] Stopped.");
+    
+    if (app && typeof app.getPath === "function") {
+      const infoPath = path.join(app.getPath("userData"), "web-server-info.json");
+      fs.unlink(infoPath).catch(() => {});
+    }
   }
 }
 
