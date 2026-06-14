@@ -861,3 +861,93 @@ button.scroll-to-bottom:hover:not(:disabled) {
   bottom: 14px;
   left: 50%;
 }
+
+/* ===== Topbar Balance Display & Recharge Button ===== */
+.topbar-balance-container {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  height: 32px;
+  background: var(--surface-glass-clear, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  padding: 2px;
+  padding-left: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.topbar-balance-container:hover {
+  border-color: var(--primary-border);
+  box-shadow: 0 2px 8px var(--primary-shadow, rgba(0, 0, 0, 0.05));
+}
+
+.balance-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 999px;
+  user-select: none;
+}
+
+.balance-icon {
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  transition: transform 0.3s ease;
+}
+
+.balance-pill:hover .balance-icon {
+  transform: scale(1.15) rotate(15deg);
+}
+
+.balance-label {
+  font-size: 11px !important;
+  color: var(--text-muted) !important;
+  font-weight: 500;
+}
+
+.balance-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-heading);
+  font-family: var(--font-code, monospace);
+  display: inline-flex;
+  align-items: center;
+}
+
+.balance-recharge-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--primary, #3b82f6), #1d4ed8);
+  color: #ffffff !important;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(29, 78, 216, 0.25);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.balance-recharge-btn:hover {
+  background: linear-gradient(135deg, #3b82f6, #1e40af);
+  box-shadow: 0 4px 10px rgba(29, 78, 216, 0.35);
+  transform: translateY(-0.5px);
+}
+
+.balance-recharge-btn:active {
+  transform: translateY(0.5px);
+  box-shadow: 0 1px 3px rgba(29, 78, 216, 0.2);
+}
+
+.balance-recharge-btn span {
+  color: #ffffff !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+}

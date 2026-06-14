@@ -299,6 +299,10 @@ ipcMain.handle("system:open-paths", async (_event, payload) => {
 ipcMain.handle("system:shell-open", async (_event, filePath) => {
   try {
     if (typeof filePath === "string") {
+      if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
+        await shell.openExternal(filePath);
+        return { ok: true };
+      }
       const cleanPath = filePath.startsWith("media://")
         ? decodeURIComponent(filePath.replace(/^media:\/+/i, ""))
         : filePath;

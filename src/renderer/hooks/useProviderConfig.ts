@@ -108,28 +108,52 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
     }
   }, [appendEvent, busy, config, setIsOnline, t, testingApi]);
 
-  const queryBalance = useCallback(async () => {
-    if (checkingBalance || busy) return;
+  const queryBalance = useCallback(async (silent = false) => {
+    if (checkingBalance || (!silent && busy)) return;
     if (!navigator.onLine) {
-      setIsOnline(false);
-      appendEvent("error", t.offlineTitle, t.offlineBody);
+      if (!silent) {
+        setIsOnline(false);
+        appendEvent("error", t.offlineTitle, t.offlineBody);
+      }
       return;
     }
     setCheckingBalance(true);
-    setBalanceResult(null);
-    appendEvent("status", "API 余额查询", "正在请求 DeepSeek 官方余额接口...");
+    if (!silent) {
+      setBalanceResult(null);
+      appendEvent("status", "API 余额查询", "正在请求 DeepSeek 官方余额接口...");
+    }
     try {
       const result = await window.agentWindow.getBalance(config);
       if (result.ok) {
         setBalanceResult(result.result);
-        appendEvent("status", "API 余额查询成功", JSON.stringify(result.result, null, 2));
+        if (!silent) {
+          appendEvent("status", "API 余额查询成功", JSON.stringify(result.result, null, 2));
+        }
       } else {
-        appendEvent("error", "API 余额查询失败", result.error);
+        if (!silent) {
+          appendEvent("error", "API 余额查询失败", result.error);
+        }
       }
     } finally {
       setCheckingBalance(false);
     }
   }, [appendEvent, busy, checkingBalance, config, setIsOnline, t]);
+
+  const lastQueryKeyRef = useRef("");
+  const queryBalanceRef = useRef(queryBalance);
+  queryBalanceRef.current = queryBalance;
+
+  useEffect(() => {
+    if (configLoaded && config.provider === "deepseek" && config.apiKey) {
+      const key = `${config.provider}:${config.apiKey}`;
+      if (lastQueryKeyRef.current !== key) {
+        lastQueryKeyRef.current = key;
+        queryBalanceRef.current(true);
+      }
+    } else {
+      lastQueryKeyRef.current = "";
+    }
+  }, [configLoaded, config.provider, config.apiKey]);
 
   return {
     balanceResult,

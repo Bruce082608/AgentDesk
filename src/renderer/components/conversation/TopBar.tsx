@@ -8,9 +8,12 @@ import {
   ArrowUpCircle,
   Square,
   PanelRightOpen,
-  PanelRightClose
+  PanelRightClose,
+  Coins
 } from "lucide-react";
 import type { Language, translations } from "../../i18n";
+import type { ProviderBalanceResult, ProviderConfig } from "../../types";
+import { formatBalanceAmount } from "../../utils";
 
 type Translation = typeof translations[keyof typeof translations];
 
@@ -30,6 +33,10 @@ type TopBarProps = {
   };
   handleApplyUpdate: () => void;
   cancelActiveRequest: () => void;
+  balanceResult: ProviderBalanceResult | null;
+  checkingBalance: boolean;
+  providerConfig: ProviderConfig;
+  queryBalance: (silent?: boolean) => void;
 };
 
 export function TopBar({
@@ -43,8 +50,31 @@ export function TopBar({
   toggleRightSidebar,
   gitUpdateState,
   handleApplyUpdate,
-  cancelActiveRequest
+  cancelActiveRequest,
+  balanceResult,
+  checkingBalance,
+  providerConfig,
+  queryBalance
 }: TopBarProps) {
+  const getDisplayBalanceString = () => {
+    if (!balanceResult || !balanceResult.balance_infos || balanceResult.balance_infos.length === 0) {
+      return "—";
+    }
+    const nonZeroBalances = balanceResult.balance_infos.filter(
+      (info) => Number(info.total_balance) > 0
+    );
+    const targets = nonZeroBalances.length > 0 ? nonZeroBalances : [balanceResult.balance_infos[0]];
+    return targets
+      .map((info) =>
+        formatBalanceAmount(
+          info.total_balance || "0",
+          info.currency || "CNY",
+          language
+        ).replace("CNY", "¥").replace("USD", "$")
+      )
+      .join(" / ");
+  };
+
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -58,6 +88,34 @@ export function TopBar({
           {leftSidebarCollapsed ? <PanelLeftOpen size={16} strokeWidth={2.2} /> : <PanelLeftClose size={16} strokeWidth={2.2} />}
         </button>
       </div>
+
+      {providerConfig.provider === "deepseek" && providerConfig.apiKey && (
+        <div className="topbar-balance-container">
+          <div
+            className="balance-pill"
+            onClick={() => queryBalance(false)}
+            title={language === "zh" ? "点击手动刷新余额" : "Click to refresh balance"}
+          >
+            <Coins size={13} className="balance-icon" />
+            <span className="balance-label">{language === "zh" ? "余额:" : "Balance:"}</span>
+            <strong className="balance-value">
+              {checkingBalance ? (
+                <LoaderCircle className="spin-icon spin" size={11} style={{ verticalAlign: "middle" }} />
+              ) : (
+                getDisplayBalanceString()
+              )}
+            </strong>
+          </div>
+          <button
+            type="button"
+            className="balance-recharge-btn"
+            onClick={() => window.agentWindow.shellOpen("https://platform.deepseek.com/usage")}
+            title={language === "zh" ? "前往一键充值" : "Go to Recharge"}
+          >
+            <span>{language === "zh" ? "充值" : "Recharge"}</span>
+          </button>
+        </div>
+      )}
       <div className="topbar-actions">
         {gitUpdateState.available && (
           <button

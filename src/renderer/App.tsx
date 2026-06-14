@@ -107,6 +107,17 @@ function App() {
     t
   });
 
+  // Listen for agent completion to update balance in real-time
+  const lastBusyRef = useRef(false);
+  useEffect(() => {
+    if (lastBusyRef.current && !agentState.busy) {
+      if (providerState.config.provider === "deepseek" && providerState.config.apiKey) {
+        providerState.queryBalance(true);
+      }
+    }
+    lastBusyRef.current = agentState.busy;
+  }, [agentState.busy, providerState.config.provider, providerState.config.apiKey, providerState.queryBalance]);
+
   // Hook 6: Columns Resizer
   const {
     leftSidebarWidth,
@@ -508,6 +519,10 @@ function App() {
           toggleLeftSidebar={toggleLeftSidebar}
           rightSidebarCollapsed={rightSidebarCollapsed}
           toggleRightSidebar={toggleRightSidebar}
+          balanceResult={providerState.balanceResult}
+          checkingBalance={providerState.checkingBalance}
+          providerConfig={providerState.config}
+          queryBalance={providerState.queryBalance}
         />
       )}
 

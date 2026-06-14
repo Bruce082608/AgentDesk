@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent, type RefObject } from "react";
 import { Paperclip, UploadCloud } from "lucide-react";
 import type { Language, translations } from "../i18n";
-import type { AttachedFile, ChatMessage, ContextCompressionState, ReasoningView, StreamRecoveryStatus, TaskStatus, ToolDraft, ToolRun } from "../types";
+import type { AttachedFile, ChatMessage, ContextCompressionState, ProviderBalanceResult, ProviderConfig, ReasoningView, StreamRecoveryStatus, TaskStatus, ToolDraft, ToolRun } from "../types";
 import type { CommandItem, PatchItem, UserQuestionItem } from "../types";
 
 // Extracted Subcomponents
@@ -74,6 +74,10 @@ type ConversationProps = {
   toggleLeftSidebar: () => void;
   rightSidebarCollapsed: boolean;
   toggleRightSidebar: () => void;
+  balanceResult: ProviderBalanceResult | null;
+  checkingBalance: boolean;
+  providerConfig: ProviderConfig;
+  queryBalance: (silent?: boolean) => void;
 };
 
 export function Conversation({
@@ -134,7 +138,11 @@ export function Conversation({
   leftSidebarCollapsed,
   toggleLeftSidebar,
   rightSidebarCollapsed,
-  toggleRightSidebar
+  toggleRightSidebar,
+  balanceResult,
+  checkingBalance,
+  providerConfig,
+  queryBalance
 }: ConversationProps) {
   const hasAutoPermissions = commandAutoApproval || patchAutoApproval;
   const fullAccessEnabled = commandAutoApproval && patchAutoApproval;
@@ -364,6 +372,10 @@ export function Conversation({
         gitUpdateState={gitUpdateState}
         handleApplyUpdate={() => void handleApplyUpdate()}
         cancelActiveRequest={cancelActiveRequest}
+        balanceResult={balanceResult}
+        checkingBalance={checkingBalance}
+        providerConfig={providerConfig}
+        queryBalance={queryBalance}
       />
 
       {previewFile && (
