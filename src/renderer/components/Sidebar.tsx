@@ -189,6 +189,7 @@ export const Sidebar = memo(function Sidebar({
           </div>
           <div className="path-box">{workspace || t.notSelected}</div>
           <div className="file-search">
+            <Search className="search-icon" size={14} strokeWidth={2.5} aria-hidden="true" />
             <input
               value={fileSearch}
               placeholder={t.searchPlaceholder}
@@ -199,7 +200,7 @@ export const Sidebar = memo(function Sidebar({
               }}
             />
             <button
-              className="secondary icon-only-button"
+              className="search-action-btn"
               disabled={!workspace || (!fileSearch.trim() && !searchingFiles)}
               onClick={searchingFiles ? cancelSearchWorkspace : searchWorkspace}
               title={searchingFiles ? t.cancel : t.search}

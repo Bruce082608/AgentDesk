@@ -21,10 +21,19 @@ export async function handleCallbackQuery(query) {
   // Handle immediate task cancel button click
   if (data === "tg:cancel" || data.startsWith("tg:cancel:")) {
     await answerCallbackQuery(queryId, "正在中止任务...");
-    for (const [requestId, req] of telegramState.activeRequests.entries()) {
-      if (req.chatId === chatId) {
-        req.controller.abort();
-        telegramState.activeRequests.delete(requestId);
+    const parts = data.split(":");
+    const targetRequestId = parts[2];
+
+    if (targetRequestId && telegramState.activeRequests.has(targetRequestId)) {
+      const req = telegramState.activeRequests.get(targetRequestId);
+      req.controller.abort();
+      telegramState.activeRequests.delete(targetRequestId);
+    } else {
+      for (const [requestId, req] of telegramState.activeRequests.entries()) {
+        if (String(req.chatId) === String(chatId)) {
+          req.controller.abort();
+          telegramState.activeRequests.delete(requestId);
+        }
       }
     }
     return;

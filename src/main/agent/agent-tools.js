@@ -108,7 +108,8 @@ export async function executeRuntimeToolCall(toolCall, runtime, language, emit) 
       language,
       fullAccessAutoApproval: isRuntimeFullAccess(runtime),
       attachments: runtime.attachments,
-      emit
+      emit,
+      signal: runtime.signal
     });
     parsed = parseToolResult(result);
   } catch (error) {
@@ -416,7 +417,7 @@ export async function resolveContinuationDecision(continuation, payload, languag
     };
     try {
       discardPendingCommand(approval.id);
-      const commandResult = await executeCommandRecord(commandRecord, { allowFuture: Boolean(payload.allowFuture), language });
+      const commandResult = await executeCommandRecord(commandRecord, { allowFuture: Boolean(payload.allowFuture), language, signal: payload.signal });
       const output = parseToolResult(commandResult.result);
       return {
         result: JSON.stringify({ ok: true, tool: commandRecord.toolName || "run_command", ...output }, null, 2),

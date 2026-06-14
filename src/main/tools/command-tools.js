@@ -56,7 +56,7 @@ export async function runCommand(context, command, timeoutMs) {
     });
   }
 
-  return executeCommand(workspace, commandText, timeout);
+  return executeCommand(workspace, commandText, timeout, context.signal);
 }
 
 export async function startCommand(context, command, cwdInput = "") {
@@ -105,7 +105,7 @@ export async function startCommand(context, command, cwdInput = "") {
   });
 }
 
-export async function executeCommand(workspace, commandText, timeoutMs) {
+export async function executeCommand(workspace, commandText, timeoutMs, signal) {
   const timeout = normalizeCommandTimeout(timeoutMs);
   const { file, args } = getShellInvocation(commandText);
   const cwd = path.resolve(workspace);
@@ -113,7 +113,8 @@ export async function executeCommand(workspace, commandText, timeoutMs) {
     cwd,
     timeout,
     windowsHide: true,
-    maxBuffer: 1_000_000
+    maxBuffer: 1_000_000,
+    signal
   });
 
   return JSON.stringify({ stdout, stderr, cwd, timeoutMs: timeout, shell: formatShellLabel(file), inheritedEnv: true }, null, 2);
@@ -168,7 +169,7 @@ export async function executeCommandRecord(pending, options = {}) {
       cwd: pending.cwd || pending.workspace,
       shellLabel: pending.shell
     })
-    : await executeCommand(pending.workspace, pending.command, pending.timeoutMs);
+    : await executeCommand(pending.workspace, pending.command, pending.timeoutMs, options.signal);
   return {
     ok: true,
     commandId: pending.id || pending.commandId,

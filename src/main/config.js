@@ -27,6 +27,7 @@ export async function loadAppConfig() {
   const secretsState = await loadSecrets();
   const apiKey = secretsState.apiKey;
   const telegramBotToken = secretsState.telegramBotToken;
+  const jimengToken = secretsState.jimengToken || "";
   const configPath = getConfigPath();
 
   try {
@@ -34,7 +35,7 @@ export async function loadAppConfig() {
     const trimmed = raw.trim();
     if (!trimmed) {
       await saveAppConfig(DEFAULT_CONFIG);
-      return { ...DEFAULT_CONFIG, apiKey, telegramBotToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
+      return { ...DEFAULT_CONFIG, apiKey, telegramBotToken, jimengToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
     }
     const parsed = normalizeConfig(JSON.parse(trimmed));
 
@@ -49,11 +50,11 @@ export async function loadAppConfig() {
     if (configPath !== LEGACY_CONFIG_PATH) {
       await writeConfigFile(toPersistedConfig(parsed));
     }
-    return { ...DEFAULT_CONFIG, ...parsed, apiKey, telegramBotToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
+    return { ...DEFAULT_CONFIG, ...parsed, apiKey, telegramBotToken, jimengToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
   } catch (error) {
     if (error?.code === "ENOENT") {
       await saveAppConfig(DEFAULT_CONFIG);
-      return { ...DEFAULT_CONFIG, apiKey, telegramBotToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
+      return { ...DEFAULT_CONFIG, apiKey, telegramBotToken, jimengToken, ...getSafeStorageStatus(), apiKeyStorage: secretsState.storage };
     }
 
     await saveAppConfig(DEFAULT_CONFIG);
@@ -61,6 +62,7 @@ export async function loadAppConfig() {
       ...DEFAULT_CONFIG,
       apiKey,
       telegramBotToken,
+      jimengToken,
       ...getSafeStorageStatus(),
       apiKeyStorage: secretsState.storage,
       recoveredFromError: error instanceof Error ? error.message : String(error)
@@ -78,6 +80,10 @@ export async function saveAppConfig(config) {
   }
   if (Object.prototype.hasOwnProperty.call(config, "telegramBotToken")) {
     secretsToSave.telegramBotToken = config.telegramBotToken;
+    saveNeeded = true;
+  }
+  if (Object.prototype.hasOwnProperty.call(config, "jimengToken")) {
+    secretsToSave.jimengToken = config.jimengToken;
     saveNeeded = true;
   }
 
@@ -137,11 +143,11 @@ async function loadSecrets() {
   try {
     const raw = await fs.readFile(getSecretsPath(), "utf8");
     const data = JSON.parse(raw);
-    const result = { apiKey: "", telegramBotToken: "", storage: "empty" };
-    if (!data.apiKey && !data.telegramBotToken) return result;
+    const result = { apiKey: "", telegramBotToken: "", jimengToken: "", storage: "empty" };
+    if (!data.apiKey && !data.telegramBotToken && !data.jimengToken) return result;
     if (data.storage === "safeStorage") {
       if (!safeStorage.isEncryptionAvailable()) {
-        return { apiKey: "", telegramBotToken: "", storage: "safeStorage-unavailable" };
+        return { apiKey: "", telegramBotToken: "", jimengToken: "", storage: "safeStorage-unavailable" };
       }
       result.storage = "safeStorage";
       if (data.apiKey) {
@@ -150,12 +156,15 @@ async function loadSecrets() {
       if (data.telegramBotToken) {
         result.telegramBotToken = safeStorage.decryptString(Buffer.from(data.telegramBotToken, "base64"));
       }
+      if (data.jimengToken) {
+        result.jimengToken = safeStorage.decryptString(Buffer.from(data.jimengToken, "base64"));
+      }
       return result;
     }
-    return { apiKey: "", telegramBotToken: "", storage: "unknown" };
+    return { apiKey: "", telegramBotToken: "", jimengToken: "", storage: "unknown" };
   } catch (error) {
-    if (error?.code === "ENOENT") return { apiKey: "", telegramBotToken: "", storage: "empty" };
-    return { apiKey: "", telegramBotToken: "", storage: "unreadable" };
+    if (error?.code === "ENOENT") return { apiKey: "", telegramBotToken: "", jimengToken: "", storage: "empty" };
+    return { apiKey: "", telegramBotToken: "", jimengToken: "", storage: "unreadable" };
   }
 }
 
@@ -179,7 +188,8 @@ async function saveSecrets(secrets) {
   const nextSecrets = {
     storage: "safeStorage",
     apiKey: currentSecrets.apiKey || "",
-    telegramBotToken: currentSecrets.telegramBotToken || ""
+    telegramBotToken: currentSecrets.telegramBotToken || "",
+    jimengToken: currentSecrets.jimengToken || ""
   };
 
   let hasChanges = false;
@@ -193,10 +203,15 @@ async function saveSecrets(secrets) {
     nextSecrets.telegramBotToken = value ? safeStorage.encryptString(value).toString("base64") : "";
     hasChanges = true;
   }
+  if (Object.prototype.hasOwnProperty.call(secrets, "jimengToken")) {
+    const value = String(secrets.jimengToken ?? "");
+    nextSecrets.jimengToken = value ? safeStorage.encryptString(value).toString("base64") : "";
+    hasChanges = true;
+  }
 
   if (!hasChanges) return "unchanged";
 
-  if (!nextSecrets.apiKey && !nextSecrets.telegramBotToken) {
+  if (!nextSecrets.apiKey && !nextSecrets.telegramBotToken && !nextSecrets.jimengToken) {
     await fs.rm(secretsPath, { force: true }).catch(() => {});
     return "empty";
   }

@@ -163,13 +163,14 @@
 /* ===== Activity controls ===== */
 .activity-controls {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   padding: 12px;
   border-bottom: 1px solid var(--border-light);
   position: sticky;
   top: 0;
   z-index: 1;
   background: var(--surface-glass-activity);
+  backdrop-filter: blur(12px);
 }
 
 .activity-filter-tabs {
@@ -184,8 +185,70 @@
   padding: 0 8px;
 }
 
-.activity-controls input {
+.activity-search-container {
+  position: relative;
+  width: 100%;
+}
+
+.activity-search-container input {
+  width: 100%;
   margin: 0;
+  padding: 8px 32px 8px 32px;
+  height: 36px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--surface-dim);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.02);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.activity-search-container input:focus {
+  border-color: var(--primary);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--primary-focus-ring);
+  outline: none;
+}
+
+.activity-search-container .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+  transition: color 0.2s ease;
+}
+
+.activity-search-container input:focus ~ .search-icon {
+  color: var(--primary);
+}
+
+.activity-search-container .clear-button {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 50%;
+  padding: 0;
+  box-shadow: none;
+  transition: all 0.2s ease;
+}
+
+.activity-search-container .clear-button:hover {
+  background: var(--primary-light);
+  color: var(--primary);
 }
 
 /* ===== Forms, Inputs & Buttons base overrides for sidebar ===== */
@@ -497,20 +560,74 @@
 }
 
 .file-search {
-  display: grid;
-  grid-template-columns: 1fr 36px;
-  gap: 8px;
-  margin-bottom: 8px;
+  position: relative;
+  width: 100%;
+  margin-bottom: 12px;
 }
 
 .file-search input {
-  margin-top: 0;
+  width: 100%;
+  margin: 0;
+  padding: 8px 36px 8px 32px;
+  height: 36px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--surface-dim);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.02);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.file-search .secondary {
-  width: 36px;
-  height: 36px;
+.file-search input:focus {
+  border-color: var(--primary);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--primary-focus-ring);
+  outline: none;
+}
+
+.file-search .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+  transition: color 0.2s ease;
+}
+
+.file-search input:focus ~ .search-icon {
+  color: var(--primary);
+}
+
+.file-search .search-action-btn {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   padding: 0;
+  box-shadow: none;
+  transition: all 0.2s ease;
+}
+
+.file-search .search-action-btn:hover:not(:disabled) {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.file-search .search-action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .search-results {
@@ -520,7 +637,28 @@
   overflow: auto;
   margin-bottom: 10px;
   padding-bottom: 10px;
+  scrollbar-width: thin;
   border-bottom: 1px solid var(--border-light);
+}
+
+/* Sleek Scrollbar for Search Results & Events */
+.search-results::-webkit-scrollbar,
+.event-list::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.search-results::-webkit-scrollbar-track,
+.event-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.search-results::-webkit-scrollbar-thumb,
+.event-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.search-results::-webkit-scrollbar-thumb:hover,
+.event-list::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-border);
 }
 
 .search-results button {

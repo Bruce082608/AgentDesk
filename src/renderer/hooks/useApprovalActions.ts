@@ -241,6 +241,10 @@ export function useApprovalActions({
     const requestId = startApprovalContinuation();
     const answer = formatQuestionAnswer(question.question, option);
     setMessages((current) => [...current, { role: "user", content: answer, createdAt: Date.now() }]);
+    
+    // Clear instantly from UI state so the box disappears immediately
+    clearApprovalItem("question", questionId);
+
     const result = await window.agentWindow.resumeApproval({
       requestId,
       continuationId: questionId,
@@ -259,7 +263,6 @@ export function useApprovalActions({
       appendEvent("error", getAgentEventLabels(language).agentError, result.error || "Unknown error");
       return;
     }
-    clearApprovalItem("question", questionId);
   }, [activeRequest, appendEvent, busy, clearActiveToolRuns, clearApprovalItem, language, markApprovalFailed, questions, setBusy, setMessages, startApprovalContinuation, setTaskPhase]);
 
   const dismissQuestion = useCallback(async (questionId: string) => {
@@ -269,6 +272,11 @@ export function useApprovalActions({
       } catch (err) {
         console.error("Failed to cancel message on dismiss:", err);
       }
+    }
+    try {
+      await (window as any).agentWindow.deleteContinuation(questionId);
+    } catch (err) {
+      console.error("Failed to delete continuation on dismiss:", err);
     }
     clearApprovalItem("question", questionId);
   }, [activeRequest, clearApprovalItem]);

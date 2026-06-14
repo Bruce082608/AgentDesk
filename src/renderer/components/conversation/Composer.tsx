@@ -64,8 +64,8 @@ export function Composer({
       const result = await window.agentWindow.startDictation();
       if (result && !result.ok) {
         alert(language === "zh"
-          ? "当前系统不支持语音听写功能。仅 macOS 桌面客户端支持。"
-          : "System dictation is not supported on this platform. Only macOS desktop client is supported.");
+          ? `语音输入启动失败: ${result.error || "未知错误"}`
+          : `Voice input failed: ${result.error || "Unknown error"}`);
       }
     } catch (err) {
       console.error("Failed to trigger dictation:", err);

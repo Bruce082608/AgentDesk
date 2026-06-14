@@ -386,3 +386,20 @@ body[data-theme="dark"] .composer-attachments {
   50% { transform: scale(1.1); opacity: 0.8; }
   100% { transform: scale(1); opacity: 1; }
 }
+
+/* Speech recognition error pill */
+.speech-error-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--danger-light-bg, rgba(239, 68, 68, 0.12));
+  color: var(--danger, #ef4444);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
+  animation: fadeIn 0.2s ease;
+}

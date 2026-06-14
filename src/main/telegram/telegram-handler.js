@@ -85,10 +85,21 @@ export async function handleMessage(message) {
 
   if (!text) return;
 
-  if (text.startsWith("/")) {
-    const parts = text.split(/\s+/);
-    const cmd = parts[0].toLowerCase();
-    
+  const lowerText = text.toLowerCase();
+  const isCommand = text.startsWith("/") || ["cancel", "clear", "stop", "终止", "取消", "清空", "清除", "status", "help", "workspace", "sessions", "webapp_url", "screenshot"].includes(lowerText);
+
+  if (isCommand) {
+    const cleanText = text.startsWith("/") ? text : "/" + text;
+    const parts = cleanText.split(/\s+/);
+    let cmd = parts[0].toLowerCase();
+
+    // Normalize command aliases
+    if (cmd === "/stop" || cmd === "/终止" || cmd === "/取消") {
+      cmd = "/cancel";
+    } else if (cmd === "/清空" || cmd === "/清除") {
+      cmd = "/clear";
+    }
+
     if (cmd === "/start" || cmd === "/help") {
       await handleStartHelpCommand(chatId);
       return;
@@ -139,7 +150,7 @@ export async function handleMessage(message) {
 export async function runRemoteAgentTurn(chatId, userInput, attachments = []) {
   // Check if there is already an active request running for this chat
   for (const req of telegramState.activeRequests.values()) {
-    if (req.chatId === chatId) {
+    if (String(req.chatId) === String(chatId)) {
       await sendTelegramMessage(chatId, "⚠️ 当前已有正在执行的任务，请先通过 `/cancel` 中止它。");
       return;
     }

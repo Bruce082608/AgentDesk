@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { RefObject } from "react";
-import { Activity, ArrowDown, CheckCircle2, Clock3, ListTodo, LoaderCircle, MessageSquareMore, ShieldCheck, TriangleAlert, Workflow } from "lucide-react";
+import { Activity, ArrowDown, CheckCircle2, Clock3, ListTodo, LoaderCircle, MessageSquareMore, ShieldCheck, TriangleAlert, Workflow, Search, X } from "lucide-react";
 import type { Language, translations } from "../i18n";
 import type { ActivityFilter, EventLogItem, PlanItem, RightSidebarSection, ToolRun } from "../types";
 
@@ -102,11 +102,25 @@ export const ActivityPanel = memo(function ActivityPanel({
                 </button>
               ))}
             </div>
-            <input
-              value={activitySearch}
-              onChange={(event) => setActivitySearch(event.target.value)}
-              placeholder={t.activitySearchPlaceholder}
-            />
+            <div className="activity-search-container">
+              <Search className="search-icon" size={14} strokeWidth={2.5} aria-hidden="true" />
+              <input
+                value={activitySearch}
+                onChange={(event) => setActivitySearch(event.target.value)}
+                placeholder={t.activitySearchPlaceholder}
+              />
+              {activitySearch && (
+                <button
+                  className="clear-button"
+                  type="button"
+                  onClick={() => setActivitySearch("")}
+                  title={language === "zh" ? "清空搜索" : "Clear search"}
+                  aria-label={language === "zh" ? "清空搜索" : "Clear search"}
+                >
+                  <X size={14} strokeWidth={2.5} aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
           <div className="event-list" ref={activityListRef}>
             {filteredEvents.length === 0 && <div className="muted">{events.length === 0 ? t.activityEmpty : t.activitySearchPlaceholder}</div>}

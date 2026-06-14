@@ -48,6 +48,33 @@ export function stopTelegramBot() {
   console.log("[Telegram Bot] Service stopped.");
 }
 
+const chatQueues = new Map();
+
+function isCancelUpdate(update) {
+  if (update.callback_query) {
+    const data = String(update.callback_query.data || "");
+    return data.startsWith("tg:cancel:");
+  }
+  if (update.message) {
+    const text = String(update.message.text || "").trim().toLowerCase();
+    return (
+      text === "/cancel" ||
+      text === "/stop" ||
+      text === "/终止" ||
+      text === "/取消" ||
+      text === "cancel" ||
+      text === "stop" ||
+      text === "终止" ||
+      text === "取消"
+    );
+  }
+  return false;
+}
+
+function getChatId(update) {
+  return update.message?.chat?.id || update.callback_query?.message?.chat?.id;
+}
+
 async function pollUpdates() {
   while (telegramState.isPolling) {
     try {
@@ -74,14 +101,36 @@ async function pollUpdates() {
         // 1. Process all callback queries
         const callbackUpdates = updates.filter((u) => u.callback_query);
         for (const cb of callbackUpdates) {
-          await handleUpdate(cb);
+          if (isCancelUpdate(cb)) {
+            void handleUpdate(cb);
+          } else {
+            const chatId = getChatId(cb);
+            if (chatId) {
+              const prev = chatQueues.get(chatId) || Promise.resolve();
+              const next = prev.then(() => handleUpdate(cb)).catch((err) => console.error("[Telegram Bot] Queue error:", err));
+              chatQueues.set(chatId, next);
+            } else {
+              void handleUpdate(cb);
+            }
+          }
         }
 
         // 2. Process only the latest message update (skip older ones)
         const messageUpdates = updates.filter((u) => u.message);
         if (messageUpdates.length > 0) {
           const latestMessageUpdate = messageUpdates[messageUpdates.length - 1];
-          await handleUpdate(latestMessageUpdate);
+          if (isCancelUpdate(latestMessageUpdate)) {
+            void handleUpdate(latestMessageUpdate);
+          } else {
+            const chatId = getChatId(latestMessageUpdate);
+            if (chatId) {
+              const prev = chatQueues.get(chatId) || Promise.resolve();
+              const next = prev.then(() => handleUpdate(latestMessageUpdate)).catch((err) => console.error("[Telegram Bot] Queue error:", err));
+              chatQueues.set(chatId, next);
+            } else {
+              void handleUpdate(latestMessageUpdate);
+            }
+          }
         }
       }
     } catch (error) {

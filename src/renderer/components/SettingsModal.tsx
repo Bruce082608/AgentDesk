@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, Palette, Cpu, Coins, Send, Zap } from "lucide-react";
+import { X, Palette, Cpu, Coins, Send, Zap, Sparkles } from "lucide-react";
 import type { Language, translations } from "../i18n";
 import type { ThemeMode, ProviderConfig, ProviderBalanceResult, TokenUsageStats } from "../types";
 
@@ -9,6 +9,7 @@ import { ApiTab } from "./settings/ApiTab";
 import { TelegramTab } from "./settings/TelegramTab";
 import { UsageTab } from "./settings/UsageTab";
 import { SkillsTab } from "./settings/SkillsTab";
+import { JimengTab } from "./settings/JimengTab";
 
 type Translation = typeof translations[keyof typeof translations];
 
@@ -34,7 +35,7 @@ type SettingsModalProps = {
   t: Translation;
 };
 
-type TabId = "general" | "api" | "telegram" | "usage" | "skills";
+type TabId = "general" | "api" | "telegram" | "usage" | "skills" | "jimeng";
 
 export function SettingsModal({
   isOpen,
@@ -135,7 +136,8 @@ export function SettingsModal({
     { id: "api" as TabId, label: language === "zh" ? "API 与模型" : "API & Models", icon: Cpu },
     { id: "telegram" as TabId, label: language === "zh" ? "Telegram 远控" : "Telegram Remote", icon: Send },
     { id: "usage" as TabId, label: language === "zh" ? "用量与余额" : "Usage & Balance", icon: Coins },
-    { id: "skills" as TabId, label: language === "zh" ? "技能管理" : "Skills Management", icon: Zap }
+    { id: "skills" as TabId, label: language === "zh" ? "技能管理" : "Skills Management", icon: Zap },
+    { id: "jimeng" as TabId, label: language === "zh" ? "即梦 CLI 绑定" : "Jimeng CLI Binding", icon: Sparkles }
   ];
 
   return (
@@ -231,6 +233,16 @@ export function SettingsModal({
                 handleToggleSkill={handleToggleSkill}
                 handleDeleteSkill={handleDeleteSkill}
                 handleSaveSkill={handleSaveSkill}
+              />
+            )}
+
+            {activeTab === "jimeng" && (
+              <JimengTab
+                language={language}
+                config={config}
+                setConfig={setConfig}
+                showApiKeys={showApiKeys}
+                setShowApiKeys={setShowApiKeys}
               />
             )}
           </main>

@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell, protocol, net, Menu, system
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import process from "node:process";
+import { exec } from "node:child_process";
 
 // Prevent application crash on EPIPE error (occurs when parent terminal process closes stdout/stderr pipes)
 process.stdout.on("error", (err) => {
@@ -47,7 +48,7 @@ import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setFullAccessAutoApproval, setPatchAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
-import { listPendingApprovals, loadPersistedActivityEvents, loadPersistedSessions, savePersistedActivityEvents, savePersistedSessions, loadPersistedSkills, savePersistedSkills } from "./persistence.js";
+import { listPendingApprovals, loadPersistedActivityEvents, loadPersistedSessions, savePersistedActivityEvents, savePersistedSessions, loadPersistedSkills, savePersistedSkills, deleteAgentContinuation } from "./persistence.js";
 import { initSkillsScheduler, syncSkillsScheduler } from "./skills-scheduler.js";
 import { classifyLaunchPaths, extractLaunchPaths } from "./launch-paths.js";
 import { normalizeLanguage, t } from "./i18n.js";
@@ -252,6 +253,42 @@ ipcMain.handle("system:start-dictation", async () => {
     Menu.sendActionToFirstResponder("startDictation:");
     return { ok: true };
   }
+
+  if (process.platform === "win32") {
+    // Simulate Win+H to open Windows built-in Voice Typing panel.
+    // Uses PowerShell with -EncodedCommand to avoid escaping issues.
+    const psScript = [
+      "Add-Type -TypeDefinition @'",
+      "using System; using System.Runtime.InteropServices;",
+      "public class DictationKey {",
+      '  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);',
+      "}",
+      "'@",
+      "[DictationKey]::keybd_event(0x5B, 0, 0, 0)",   // Win key down
+      "[DictationKey]::keybd_event(0x48, 0, 0, 0)",   // H key down
+      "Start-Sleep -Milliseconds 80",
+      "[DictationKey]::keybd_event(0x48, 0, 2, 0)",   // H key up
+      "[DictationKey]::keybd_event(0x5B, 0, 2, 0)",   // Win key up
+    ].join("\n");
+
+    const encoded = Buffer.from(psScript, "utf16le").toString("base64");
+
+    return new Promise((resolve) => {
+      exec(
+        `powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`,
+        { timeout: 5000 },
+        (err) => {
+          if (err) {
+            console.warn("Failed to trigger Win+H dictation:", err.message);
+            resolve({ ok: false, error: "Failed to open voice typing panel" });
+          } else {
+            resolve({ ok: true });
+          }
+        },
+      );
+    });
+  }
+
   return { ok: false, error: "Unsupported platform" };
 });
 
@@ -474,6 +511,15 @@ ipcMain.handle("agent:cancel", async (_event, requestId) => {
   if (!controller) return { ok: false };
   controller.abort();
   return { ok: true };
+});
+
+ipcMain.handle("continuation:delete", async (_event, continuationId) => {
+  try {
+    const result = await deleteAgentContinuation(validateRequestId(continuationId));
+    return result;
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
 });
 
 ipcMain.handle("provider:test", async (_event, config) => {

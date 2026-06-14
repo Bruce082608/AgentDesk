@@ -106,6 +106,7 @@ export type ProviderConfig = {
   telegramEnabled?: boolean;
   telegramAllowedUserId?: string;
   telegramBotToken?: string;
+  jimengToken?: string;
 };
 
 export type Skill = {

@@ -65,6 +65,10 @@ export async function runAgentTurn(payload, emit) {
   if (!userInput) throw new Error(t(language, "agent.emptyInput"));
   if (!workspace) throw new Error(t(language, "agent.missingWorkspace"));
 
+  const jimengInstruction = providerConfig.jimengToken
+    ? `You have the Jimeng CLI bound to this environment. The user's Jimeng Cookie / API Token is: "${providerConfig.jimengToken}". When running CLI tools or scripts for image generation, you can use this token/cookie for authentication.`
+    : "";
+
   const systemMessage = {
     role: "system",
     content: [
@@ -74,6 +78,7 @@ export async function runAgentTurn(payload, emit) {
       "When the user requests a screenshot or requests to send an image, you MUST call the take_screenshot or send_image tool to capture/deliver the image. Do NOT claim you have captured or sent it without actually calling the corresponding tool.",
       "When you generate, edit, or save any image or video file, you MUST include a standard Markdown image link in your message using its absolute file path, e.g. `![alt text](C:/absolute/path/to/media.png)` or `![alt text](/absolute/path/to/media.mp4)`. This allows the user to preview and interact with the image or video directly in the chat dialog.",
       "Before doing substantive work, call update_plan with 2-5 concrete steps. Keep it updated. Keep changes small and explain them.",
+      jimengInstruction,
       fullAccess
         ? "Permission mode: FULL ACCESS. Shell commands, file writes/deletes, and patches are approved automatically. File tools can use absolute paths, home paths (~), and paths outside the workspace. Do not ask for user approval."
         : "Permission mode: DEFAULT. Side-effecting commands, file writes/deletes, and patches require user approval. read_file only accepts workspace-relative paths and exact attached absolute paths.",
