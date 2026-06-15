@@ -70,14 +70,7 @@ export function ApiTab({
 
         <div className="settings-field">
           <label htmlFor="setting-model">{t.model}</label>
-          {config.provider === "openai-compatible" ? (
-            <input
-              id="setting-model"
-              type="text"
-              value={config.model}
-              onChange={(e) => setConfig({ ...config, model: e.target.value })}
-            />
-          ) : (
+          {config.provider === "deepseek" ? (
             <div className="select-wrapper">
               <select
                 id="setting-model"
@@ -89,6 +82,14 @@ export function ApiTab({
                 ))}
               </select>
             </div>
+          ) : (
+            <input
+              id="setting-model"
+              type="text"
+              value={config.model}
+              onChange={(e) => setConfig({ ...config, model: e.target.value })}
+              placeholder={config.provider === "openai" ? "e.g. gpt-4.1-mini, o4-mini, gpt-5.5" : "e.g. gpt-4.1-mini"}
+            />
           )}
         </div>
 

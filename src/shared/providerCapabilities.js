@@ -58,34 +58,8 @@ export const PROVIDER_CAPABILITIES = {
     apiKeyEnv: "OPENAI_API_KEY",
     balancePath: "",
     defaultModel: "gpt-4.1-mini",
-    defaultSummaryModel: "gpt-4.1-mini",
+    defaultSummaryModel: "",
     models: {
-      "gpt-4.1": {
-        label: "GPT-4.1",
-        contextTokens: 1_047_576,
-        maxOutputTokens: 32_768,
-        defaultMaxTokens: 16_384,
-        supportsThinking: false,
-        supportsToolCalls: true,
-        supportsTemperature: true,
-        supportsVision: true,
-        defaultThinkingMode: "disabled",
-        reasoningEfforts: ["medium"],
-        defaultReasoningEffort: "medium"
-      },
-      "gpt-4.1-mini": {
-        label: "GPT-4.1 Mini",
-        contextTokens: 1_047_576,
-        maxOutputTokens: 32_768,
-        defaultMaxTokens: 8_192,
-        supportsThinking: false,
-        supportsToolCalls: true,
-        supportsTemperature: true,
-        supportsVision: true,
-        defaultThinkingMode: "disabled",
-        reasoningEfforts: ["medium"],
-        defaultReasoningEffort: "medium"
-      },
       "o4-mini": {
         label: "o4-mini",
         contextTokens: 200_000,
@@ -98,7 +72,33 @@ export const PROVIDER_CAPABILITIES = {
         defaultThinkingMode: "enabled",
         reasoningEfforts: ["low", "medium", "high"],
         defaultReasoningEffort: "medium"
+      },
+      "o3": {
+        label: "o3",
+        contextTokens: 200_000,
+        maxOutputTokens: 100_000,
+        defaultMaxTokens: 32_768,
+        supportsThinking: true,
+        supportsToolCalls: true,
+        supportsTemperature: false,
+        supportsVision: true,
+        defaultThinkingMode: "enabled",
+        reasoningEfforts: ["low", "medium", "high"],
+        defaultReasoningEffort: "medium"
       }
+    },
+    fallbackModel: {
+      label: "OpenAI Model",
+      contextTokens: DEFAULT_OPENAI_COMPATIBLE_CONTEXT_TOKENS,
+      maxOutputTokens: 32_768,
+      defaultMaxTokens: 8_192,
+      supportsThinking: false,
+      supportsToolCalls: true,
+      supportsTemperature: true,
+      supportsVision: true,
+      defaultThinkingMode: "disabled",
+      reasoningEfforts: ["medium"],
+      defaultReasoningEffort: "medium"
     }
   },
   "openai-compatible": {
@@ -149,10 +149,22 @@ export function getModelCapability(config = {}) {
   const rawModel = String(config.model || "").trim();
   const model = provider.models[rawModel]
     ? rawModel
-    : provider.provider === "openai-compatible" && rawModel
+    : (provider.provider === "openai-compatible" || provider.provider === "openai") && rawModel
       ? rawModel
       : provider.defaultModel;
-  const rawCapability = provider.models[model] || provider.fallbackModel || provider.models[provider.defaultModel];
+  let rawCapability = provider.models[model] || provider.fallbackModel || provider.models[provider.defaultModel];
+
+  // Auto-detect OpenAI o-series reasoning models by name pattern
+  if (provider.provider === "openai" && !provider.models[model] && /^o[1-9]/.test(model)) {
+    rawCapability = {
+      ...rawCapability,
+      supportsThinking: true,
+      supportsTemperature: false,
+      defaultThinkingMode: "enabled",
+      reasoningEfforts: ["low", "medium", "high"],
+      defaultReasoningEffort: "medium"
+    };
+  }
   
   const modelName = String(model).toLowerCase();
   const isCommonVisionModel = /gpt-4o|claude-3|gemini|vl|vision|qwen-vl|internvl/i.test(modelName);

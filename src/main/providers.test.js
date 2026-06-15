@@ -61,11 +61,11 @@ describe("provider request body", () => {
     expect(body.thinking).toBeUndefined();
   });
 
-  it("builds standard request body for OpenAI GPT-4.1 models", () => {
+  it("builds standard request body for OpenAI free-text models", () => {
     const provider = __test__.normalizeProviderConfig({
       provider: "openai",
       apiKey: "key",
-      model: "gpt-4.1",
+      model: "gpt-5.5",
       temperature: 0.3,
       maxTokens: 8192
     });
@@ -73,7 +73,7 @@ describe("provider request body", () => {
       messages: [],
       tool_choice: "auto"
     });
-    expect(body.model).toBe("gpt-4.1");
+    expect(body.model).toBe("gpt-5.5");
     expect(body.temperature).toBe(0.3);
     expect(body.max_tokens).toBe(8192);
     expect(body.tool_choice).toBe("auto");
@@ -99,5 +99,24 @@ describe("provider request body", () => {
     expect(body.max_tokens).toBeUndefined();
     expect(body.temperature).toBeUndefined();
     expect(body.thinking).toBeUndefined();
+  });
+
+  it("auto-detects o-series reasoning for unknown OpenAI models", () => {
+    const provider = __test__.normalizeProviderConfig({
+      provider: "openai",
+      apiKey: "key",
+      model: "o3-pro",
+      reasoningEffort: "low",
+      maxTokens: 4096
+    });
+    const body = __test__.buildRequestBody(provider, {
+      messages: [],
+      tool_choice: "auto"
+    });
+    expect(body.model).toBe("o3-pro");
+    expect(body.reasoning_effort).toBe("low");
+    expect(body.max_completion_tokens).toBe(4096);
+    expect(body.max_tokens).toBeUndefined();
+    expect(body.temperature).toBeUndefined();
   });
 });

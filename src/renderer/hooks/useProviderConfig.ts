@@ -70,7 +70,7 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
       provider === "deepseek"
         ? { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro", summaryModel: "deepseek-v4-flash", thinkingMode: "enabled" as const, reasoningEffort: "max" as const, contextTokens: 1000000, maxTokens: 32768 }
         : provider === "openai"
-          ? { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", summaryModel: "gpt-4.1-mini", thinkingMode: "disabled" as const, reasoningEffort: "medium" as const, contextTokens: 1047576, maxTokens: 8192 }
+          ? { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", summaryModel: "", thinkingMode: "disabled" as const, reasoningEffort: "medium" as const, contextTokens: 128000, maxTokens: 8192 }
           : { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", summaryModel: "", thinkingMode: "disabled" as const, reasoningEffort: "medium" as const, contextTokens: 128000, maxTokens: 4096 };
     setConfigState((current) => normalizeProviderConfig({ ...current, provider, ...nextDefaults }));
   }, []);
