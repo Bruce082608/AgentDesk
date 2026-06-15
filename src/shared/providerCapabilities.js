@@ -154,8 +154,8 @@ export function getModelCapability(config = {}) {
       : provider.defaultModel;
   let rawCapability = provider.models[model] || provider.fallbackModel || provider.models[provider.defaultModel];
 
-  // Auto-detect OpenAI o-series reasoning models by name pattern
-  if ((provider.provider === "openai" || provider.provider === "openai-compatible") && !provider.models[model] && /^o[1-9]/.test(model)) {
+  // Auto-detect OpenAI o-series and gpt-5 reasoning models by name pattern
+  if ((provider.provider === "openai" || provider.provider === "openai-compatible") && !provider.models[model] && /^(o[1-9]|gpt-5)/i.test(model)) {
     rawCapability = {
       ...rawCapability,
       supportsThinking: true,

@@ -467,9 +467,7 @@ function buildRequestBody(provider, bodyOverrides) {
 
   const isOpenAiReasoning = (provider.provider === "openai" || provider.provider === "openai-compatible") &&
     provider.capability?.supportsThinking && (
-      (provider.model && /^o[1-9]/.test(provider.model)) ||
-      provider.model === "o3" ||
-      provider.model === "o4-mini" ||
+      (provider.model && /^(o[1-9]|gpt-5)/i.test(provider.model)) ||
       provider.thinkingMode === "enabled"
     );
 
