@@ -300,8 +300,28 @@ ipcMain.handle("system:shell-open", async (_event, filePath) => {
   try {
     if (typeof filePath === "string") {
       if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
-        await shell.openExternal(filePath);
-        return { ok: true };
+        try {
+          new URL(filePath);
+          await shell.openExternal(filePath);
+          return { ok: true };
+        } catch (err) {
+          console.error("[main] system:shell-open shell.openExternal failed, trying fallback:", err);
+          try {
+            if (/^[a-zA-Z0-9:\/\.\-\_\?\&\=\#\%\+]+$/.test(filePath)) {
+              if (process.platform === "darwin") {
+                exec(`open "${filePath}"`);
+              } else if (process.platform === "win32") {
+                exec(`start "" "${filePath}"`);
+              } else {
+                exec(`xdg-open "${filePath}"`);
+              }
+              return { ok: true };
+            }
+          } catch (fallbackError) {
+            console.error("[main] system:shell-open fallback failed:", fallbackError);
+          }
+          return { ok: false, error: String(err) };
+        }
       }
       const cleanPath = filePath.startsWith("media://")
         ? decodeURIComponent(filePath.replace(/^media:\/+/i, ""))

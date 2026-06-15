@@ -236,6 +236,10 @@ if (typeof window.agentWindow === "undefined") {
       return fetchApi("/api/agent/cancel", "POST", { requestId });
     },
     shellOpen: async (filePath) => {
+      if (filePath.startsWith("http://") || filePath.startsWith("https://")) {
+        window.open(filePath, "_blank");
+        return { ok: true };
+      }
       const token = sessionStorage.getItem("api_token") || "";
       const url = `/api/media?path=${encodeURIComponent(filePath)}&token=${encodeURIComponent(token)}`;
       window.open(url, "_blank");

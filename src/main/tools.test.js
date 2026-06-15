@@ -100,6 +100,11 @@ describe("tools patch path validation", () => {
 
 describe("tools scoped auto approval", () => {
   it("scopes command and patch approvals independently by workspace and session", () => {
+    // Reset scoped auto approval for s1 and s2 to prevent parallel test contamination
+    __test__.setScopedAutoApproval({ workspace, sessionId: "s1", kind: "command", enabled: false });
+    __test__.setScopedAutoApproval({ workspace, sessionId: "s1", kind: "patch", enabled: false });
+    __test__.setScopedAutoApproval({ workspace, sessionId: "s2", kind: "command", enabled: false });
+
     const context = { workspace, sessionId: "s1", kind: "command", enabled: true };
     const commandState = __test__.setScopedAutoApproval(context);
     expect(commandState.commandAutoApproval).toBe(true);
@@ -659,6 +664,45 @@ describe("tool execution permissions", () => {
     expect(result.result).toContain("External PDF content");
 
     await fs.rm(externalPdf, { force: true });
+  });
+
+  it("executes the wait tool and respects timeout/abort signal", async () => {
+    const start = Date.now();
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "wait",
+        arguments: JSON.stringify({ seconds: 1 })
+      }
+    }, {
+      workspace,
+      language: "zh"
+    }));
+    const duration = Date.now() - start;
+    expect(result.ok).toBe(true);
+    expect(result.message).toContain("Successfully paused for 1 seconds.");
+    expect(duration).toBeGreaterThanOrEqual(950);
+
+    // Test abort signal
+    const controller = new AbortController();
+    const waitPromise = executeToolCall({
+      function: {
+        name: "wait",
+        arguments: JSON.stringify({ seconds: 5 })
+      }
+    }, {
+      workspace,
+      language: "zh",
+      signal: controller.signal
+    });
+    
+    setTimeout(() => {
+      controller.abort();
+    }, 50);
+
+    const abortResult = JSON.parse(await waitPromise);
+    expect(abortResult.ok).toBe(false);
+    expect(abortResult.errorType).toBe("unknown");
+    expect(abortResult.detail).toContain("Wait aborted by user signal.");
   });
 });
 

@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState, type DragEvent, type RefObject } from "react";
-import { Paperclip, UploadCloud } from "lucide-react";
+import { Paperclip, UploadCloud, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Language, translations } from "../i18n";
-import type { AttachedFile, ChatMessage, ContextCompressionState, ProviderBalanceResult, ProviderConfig, ReasoningView, StreamRecoveryStatus, TaskStatus, ToolDraft, ToolRun } from "../types";
+import type { AttachedFile, ChatMessage, ContextCompressionState, ReasoningView, StreamRecoveryStatus, TaskStatus, ToolDraft, ToolRun, PlanItem } from "../types";
 import type { CommandItem, PatchItem, UserQuestionItem } from "../types";
 
 // Extracted Subcomponents
-import { TopBar } from "./conversation/TopBar";
 import { Composer } from "./conversation/Composer";
 import { MessageList } from "./conversation/MessageList";
-import { GitUpdateModal } from "./conversation/GitUpdateModal";
 
 // Helper utilities
 import { getStreamingAssistantIndex } from "./conversation/conversation-utils";
@@ -72,12 +70,7 @@ type ConversationProps = {
   copyMessage: (message: ChatMessage) => void;
   leftSidebarCollapsed: boolean;
   toggleLeftSidebar: () => void;
-  rightSidebarCollapsed: boolean;
-  toggleRightSidebar: () => void;
-  balanceResult: ProviderBalanceResult | null;
-  checkingBalance: boolean;
-  providerConfig: ProviderConfig;
-  queryBalance: (silent?: boolean) => void;
+  planItems: PlanItem[];
 };
 
 export function Conversation({
@@ -137,12 +130,7 @@ export function Conversation({
   workspace,
   leftSidebarCollapsed,
   toggleLeftSidebar,
-  rightSidebarCollapsed,
-  toggleRightSidebar,
-  balanceResult,
-  checkingBalance,
-  providerConfig,
-  queryBalance
+  planItems
 }: ConversationProps) {
   const hasAutoPermissions = commandAutoApproval || patchAutoApproval;
   const fullAccessEnabled = commandAutoApproval && patchAutoApproval;
@@ -158,121 +146,7 @@ export function Conversation({
   const [toolDetailsMode, setToolDetailsMode] = useState<"default" | "expanded" | "collapsed">("default");
   const [textareaHeight, setTextareaHeight] = useState<number>(36);
 
-  const [gitUpdateState, setGitUpdateState] = useState<{
-    available: boolean;
-    status: "idle" | "checking" | "updating" | "completed" | "error";
-    detail: string;
-  }>({
-    available: false,
-    status: "idle",
-    detail: ""
-  });
 
-  const [updateError, setUpdateError] = useState<{
-    show: boolean;
-    message: string;
-  }>({
-    show: false,
-    message: ""
-  });
-
-  useEffect(() => {
-    let timer: any;
-    const check = async () => {
-      if (!isOnline) return;
-      try {
-        const result = await window.agentWindow.checkGitUpdate();
-        if (result.updateAvailable) {
-          setGitUpdateState(prev => ({
-            ...prev,
-            available: true
-          }));
-        } else {
-          setGitUpdateState(prev => {
-            if (prev.status === "idle" || prev.status === "checking") {
-              return { available: false, status: "idle", detail: "" };
-            }
-            return prev;
-          });
-        }
-      } catch (err) {
-        console.error("Git update check failed:", err);
-      }
-    };
-
-    void check();
-    timer = setInterval(check, 15 * 60 * 1000);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, [isOnline]);
-
-  const handleApplyUpdate = async (options?: { forceReset?: boolean }) => {
-    if (gitUpdateState.status === "updating") return;
-    setGitUpdateState(prev => ({
-      ...prev,
-      status: "updating",
-      detail: language === "zh" ? "正在检查并更新代码..." : "Checking and updating code..."
-    }));
-
-    const unsubscribe = window.agentWindow.onGitUpdateProgress((data) => {
-      setGitUpdateState(prev => ({
-        ...prev,
-        detail: data.detail
-      }));
-    });
-
-    const startTime = Date.now();
-
-    try {
-      const result = await window.agentWindow.applyGitUpdate(options);
-      
-      const elapsedTime = Date.now() - startTime;
-      if (elapsedTime < 800) {
-        await new Promise(resolve => setTimeout(resolve, 800 - elapsedTime));
-      }
-
-      if (result.success) {
-        setGitUpdateState(prev => ({
-          ...prev,
-          status: "completed",
-          detail: language === "zh" ? "更新成功！请重新启动本软件。" : "Update completed! Please restart the app."
-        }));
-        setUpdateError({ show: false, message: "" });
-      } else {
-        const errorDetail = result.error || "";
-        setGitUpdateState(prev => ({
-          ...prev,
-          status: "error",
-          detail: (language === "zh" ? "更新失败: " : "Update failed: ") + errorDetail
-        }));
-        setUpdateError({
-          show: true,
-          message: errorDetail
-        });
-      }
-    } catch (err: any) {
-      const errorDetail = err.message || String(err);
-      
-      const elapsedTime = Date.now() - startTime;
-      if (elapsedTime < 800) {
-        await new Promise(resolve => setTimeout(resolve, 800 - elapsedTime));
-      }
-
-      setGitUpdateState(prev => ({
-        ...prev,
-        status: "error",
-        detail: (language === "zh" ? "更新出错: " : "Update error: ") + errorDetail
-      }));
-      setUpdateError({
-        show: true,
-        message: errorDetail
-      });
-    } finally {
-      unsubscribe();
-    }
-  };
 
   useEffect(() => {
     const textarea = composerInputRef.current;
@@ -360,23 +234,19 @@ export function Conversation({
         </div>
       )}
 
-      <TopBar
-        language={language}
-        t={t}
-        workspace={workspace}
-        busy={busy}
-        leftSidebarCollapsed={leftSidebarCollapsed}
-        toggleLeftSidebar={toggleLeftSidebar}
-        rightSidebarCollapsed={rightSidebarCollapsed}
-        toggleRightSidebar={toggleRightSidebar}
-        gitUpdateState={gitUpdateState}
-        handleApplyUpdate={() => void handleApplyUpdate()}
-        cancelActiveRequest={cancelActiveRequest}
-        balanceResult={balanceResult}
-        checkingBalance={checkingBalance}
-        providerConfig={providerConfig}
-        queryBalance={queryBalance}
-      />
+      <button
+        type="button"
+        className="floating-sidebar-toggle-btn"
+        onClick={toggleLeftSidebar}
+        title={leftSidebarCollapsed ? t.expandLeftSidebar : t.collapseLeftSidebar}
+        aria-label="Toggle left sidebar"
+      >
+        {leftSidebarCollapsed ? (
+          <ChevronRight size={14} strokeWidth={2.5} />
+        ) : (
+          <ChevronLeft size={14} strokeWidth={2.5} />
+        )}
+      </button>
 
       {previewFile && (
         <section className="context-strip">
@@ -459,22 +329,10 @@ export function Conversation({
         contextUsageLabel={contextUsageLabel}
         uploadAttachmentFiles={uploadAttachmentFiles}
         cancelActiveRequest={cancelActiveRequest}
+        planItems={planItems}
+        activeToolRuns={activeToolRuns}
       />
 
-      <GitUpdateModal
-        language={language}
-        show={updateError.show}
-        message={updateError.message}
-        onClose={() => setUpdateError({ show: false, message: "" })}
-        onRetry={() => {
-          setUpdateError({ show: false, message: "" });
-          void handleApplyUpdate();
-        }}
-        onForceUpdate={() => {
-          setUpdateError({ show: false, message: "" });
-          void handleApplyUpdate({ forceReset: true });
-        }}
-      />
     </main>
   );
 }

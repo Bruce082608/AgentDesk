@@ -159,7 +159,8 @@ export const defaultConfig: ProviderConfig = {
   reasoningEffort: "max",
   telegramEnabled: true,
   telegramAllowedUserId: "7043147111",
-  telegramBotToken: ""
+  telegramBotToken: "",
+  jimengToken: ""
 };
 
 export interface Skill {

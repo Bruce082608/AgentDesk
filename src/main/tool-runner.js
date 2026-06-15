@@ -118,6 +118,8 @@ async function executeToolImplementation(name, args, context) {
       return sendImage(context, args.path, args.caption);
     case "manage_skills":
       return manageSkills(context, args);
+    case "wait":
+      return waitTool(args.seconds, context.signal);
     default:
       throw localizedError(context.language, "tools.unknownTool", { name });
   }
@@ -584,6 +586,34 @@ async function manageSkills(context, args) {
   }
 
   throw new Error(`Unknown action: ${action}`);
+}
+
+async function waitTool(seconds, signal) {
+  const secs = Math.min(Math.max(Number(seconds) || 1, 1), 600);
+  const ms = secs * 1000;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      resolve(JSON.stringify({ ok: true, message: `Successfully paused for ${secs} seconds.` }));
+    }, ms);
+    if (signal) {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new Error("Wait aborted by user signal."));
+      };
+      signal.addEventListener("abort", onAbort);
+      
+      const originalResolve = resolve;
+      resolve = (val) => {
+        signal.removeEventListener("abort", onAbort);
+        originalResolve(val);
+      };
+      const originalReject = reject;
+      reject = (err) => {
+        signal.removeEventListener("abort", onAbort);
+        originalReject(err);
+      };
+    }
+  });
 }
 
 export const __test__ = {

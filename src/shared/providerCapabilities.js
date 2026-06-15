@@ -143,7 +143,8 @@ export function normalizeConfigForCapabilities(config = {}) {
     supportsVision: capability.supportsVision,
     telegramEnabled: typeof config.telegramEnabled === "boolean" ? config.telegramEnabled : undefined,
     telegramAllowedUserId: typeof config.telegramAllowedUserId === "string" ? config.telegramAllowedUserId : undefined,
-    telegramBotToken: typeof config.telegramBotToken === "string" ? config.telegramBotToken : undefined
+    telegramBotToken: typeof config.telegramBotToken === "string" ? config.telegramBotToken : undefined,
+    jimengToken: typeof config.jimengToken === "string" ? config.jimengToken : undefined
   };
 }
 

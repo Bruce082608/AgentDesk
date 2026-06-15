@@ -463,5 +463,22 @@ export const toolDefinitions = [
         required: ["action"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "wait",
+      description: "Pause execution (sleep) for a specified number of seconds. Use this when you are waiting for a long-running process (like compilation, video/image generation, queue positions) to advance, instead of polling rapidly in an active loop. Capped at 600 seconds (10 minutes) per call.",
+      parameters: {
+        type: "object",
+        properties: {
+          seconds: {
+            type: "number",
+            description: "Number of seconds to wait. Minimum 1, maximum 600."
+          }
+        },
+        required: ["seconds"]
+      }
+    }
   }
 ];

@@ -1,10 +1,10 @@
 import "./fallback-bridge";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ActivityPanel } from "./components/ActivityPanel";
 import { Conversation } from "./components/Conversation";
 import { Sidebar } from "./components/Sidebar";
 import { SettingsModal } from "./components/SettingsModal";
+import { GitUpdateModal } from "./components/conversation/GitUpdateModal";
 import type { AttachedFile, OpenPathsPayload } from "./global";
 import type { Language } from "./i18n";
 import { translations } from "./i18n";
@@ -25,10 +25,8 @@ import { useTokenCounter } from "./hooks/useTokenCounter";
 import { useScrollFollow } from "./hooks/useScrollFollow";
 
 import type {
-  ActivityFilter,
   ChatMessage,
   ReasoningView,
-  RightSidebarSection,
   SidebarSection,
   TokenUsageStats
 } from "./types";
@@ -39,15 +37,14 @@ import {
   emptyTokenUsage
 } from "./types";
 import {
-  copyText,
-  filterActivityEvents
+  copyText
 } from "./utils";
 import { getInputBudgetTokens } from "../shared/contextBudget";
 import "./styles.css";
 
 function App() {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
-  const [activeMobileTab, setActiveMobileTab] = useState<"chats" | "chat" | "activity">("chat");
+  const [activeMobileTab, setActiveMobileTab] = useState<"chats" | "chat">("chat");
 
   useEffect(() => {
     const handleResize = () => {
@@ -60,9 +57,6 @@ function App() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [reasoningViews, setReasoningViews] = useState<Record<string, ReasoningView>>({});
-  const [rightSidebarSection, setRightSidebarSection] = useState<RightSidebarSection>("plan");
-  const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all");
-  const [activitySearch, setActivitySearch] = useState("");
   const [sidebarSection, setSidebarSection] = useState<SidebarSection>("chats");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageStats>(() => emptyTokenUsage());
@@ -129,6 +123,123 @@ function App() {
     startColumnResize
   } = useColumnResize();
 
+  // Git update state
+  const [gitUpdateState, setGitUpdateState] = useState<{
+    available: boolean;
+    status: "idle" | "checking" | "updating" | "completed" | "error";
+    detail: string;
+  }>({
+    available: false,
+    status: "idle",
+    detail: ""
+  });
+
+  const [updateError, setUpdateError] = useState<{
+    show: boolean;
+    message: string;
+  }>({
+    show: false,
+    message: ""
+  });
+
+  useEffect(() => {
+    let timer: any;
+    const check = async () => {
+      if (!isOnline) return;
+      try {
+        const result = await window.agentWindow.checkGitUpdate();
+        if (result.updateAvailable) {
+          setGitUpdateState(prev => ({
+            ...prev,
+            available: true
+          }));
+        } else {
+          setGitUpdateState(prev => {
+            if (prev.status === "idle" || prev.status === "checking") {
+              return { available: false, status: "idle", detail: "" };
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        console.error("Git update check failed:", err);
+      }
+    };
+
+    void check();
+    timer = setInterval(check, 15 * 60 * 1000);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [isOnline]);
+
+  const handleApplyUpdate = useCallback(async (options?: { forceReset?: boolean }) => {
+    if (gitUpdateState.status === "updating") return;
+    setGitUpdateState(prev => ({
+      ...prev,
+      status: "updating",
+      detail: language === "zh" ? "正在检查并更新代码..." : "Checking and updating code..."
+    }));
+
+    const unsubscribe = window.agentWindow.onGitUpdateProgress((data) => {
+      setGitUpdateState(prev => ({
+        ...prev,
+        detail: data.detail
+      }));
+    });
+
+    const startTime = Date.now();
+
+    try {
+      const result = await window.agentWindow.applyGitUpdate(options);
+      
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime < 800) {
+        await new Promise(resolve => setTimeout(resolve, 800 - elapsedTime));
+      }
+
+      if (result.success) {
+        setGitUpdateState(prev => ({
+          ...prev,
+          status: "completed",
+          detail: language === "zh" ? "更新成功！请重新启动本软件。" : "Update completed! Please restart the app."
+        }));
+        setUpdateError({ show: false, message: "" });
+      } else {
+        const errorDetail = result.error || "";
+        setGitUpdateState(prev => ({
+          ...prev,
+          status: "error",
+          detail: (language === "zh" ? "更新失败: " : "Update failed: ") + errorDetail
+        }));
+        setUpdateError({
+          show: true,
+          message: errorDetail
+        });
+      }
+    } catch (err: any) {
+      const errorDetail = err.message || String(err);
+      
+      const elapsedTime = Date.now() - startTime;
+      if (elapsedTime < 800) {
+        await new Promise(resolve => setTimeout(resolve, 800 - elapsedTime));
+      }
+
+      setGitUpdateState(prev => ({
+        ...prev,
+        status: "error",
+        detail: (language === "zh" ? "更新出错: " : "Update error: ") + errorDetail
+      }));
+      setUpdateError({
+        show: true,
+        message: errorDetail
+      });
+    } finally {
+      unsubscribe();
+    }
+  }, [gitUpdateState.status, language]);
+
 
   // Hook 8: Theme Switcher
   const { theme, setTheme } = useTheme();
@@ -151,12 +262,9 @@ function App() {
   // Hook 12: Scroll following
   const {
     showScrollToBottom,
-    showActivityScrollToBottom,
     messageListRef,
-    activityListRef,
-    followOutputRef,
     scrollToBottom,
-    scrollActivityToBottom
+    followOutputRef
   } = useScrollFollow({
     messages,
     events,
@@ -165,9 +273,9 @@ function App() {
     questions: agentState.questions,
     activeToolRuns: agentState.activeToolRuns,
     busy: agentState.busy,
-    activityFilter,
-    activitySearch,
-    rightSidebarSection
+    activityFilter: "all",
+    activitySearch: "",
+    rightSidebarSection: "plan"
   });
 
   const resetSessionTokenUsage = useCallback(() => {
@@ -262,10 +370,7 @@ function App() {
     () => agentState.questions.filter((question) => question.status === "pending"),
     [agentState.questions]
   );
-  const filteredEvents = useMemo(
-    () => filterActivityEvents(events, activityFilter, activitySearch),
-    [activityFilter, activitySearch, events]
-  );
+
   const inputBudgetTokens = getInputBudgetTokens(providerState.config.contextTokens, providerState.config.maxTokens);
   const contextPercent = Math.min(100, Math.round((contextTokenCount / Math.max(inputBudgetTokens, 1)) * 100));
   const contextUsageLabel = `${contextPercent}%`;
@@ -409,7 +514,7 @@ function App() {
       style={{
         gridTemplateColumns: isMobile
           ? "1fr"
-          : `${leftSidebarCollapsed ? 0 : leftSidebarWidth}px ${leftSidebarCollapsed ? 0 : RESIZE_HANDLE_WIDTH}px minmax(${MIN_CONVERSATION_WIDTH}px, 1fr) ${rightSidebarCollapsed ? 0 : RESIZE_HANDLE_WIDTH}px ${rightSidebarCollapsed ? 0 : rightSidebarWidth}px`
+          : `${leftSidebarCollapsed ? 0 : 292}px minmax(${MIN_CONVERSATION_WIDTH}px, 1fr)`
       }}
     >
       {(!isMobile ? !leftSidebarCollapsed : activeMobileTab === "chats") && (
@@ -445,16 +550,12 @@ function App() {
           visibleTree={workspaceState.visibleTree}
           workspace={workspaceState.workspace}
           onOpenSettings={() => setIsSettingsOpen(true)}
-        />
-      )}
-
-      {!isMobile && !leftSidebarCollapsed && (
-        <div
-          className="column-resize-handle left"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={language === "zh" ? "调整左侧边栏宽度" : "Resize left sidebar"}
-          onPointerDown={(event) => startColumnResize("left", event)}
+          balanceResult={providerState.balanceResult}
+          checkingBalance={providerState.checkingBalance}
+          providerConfig={providerState.config}
+          queryBalance={providerState.queryBalance}
+          gitUpdateState={gitUpdateState}
+          handleApplyUpdate={handleApplyUpdate}
         />
       )}
 
@@ -517,42 +618,7 @@ function App() {
           workspace={workspaceState.workspace}
           leftSidebarCollapsed={leftSidebarCollapsed}
           toggleLeftSidebar={toggleLeftSidebar}
-          rightSidebarCollapsed={rightSidebarCollapsed}
-          toggleRightSidebar={toggleRightSidebar}
-          balanceResult={providerState.balanceResult}
-          checkingBalance={providerState.checkingBalance}
-          providerConfig={providerState.config}
-          queryBalance={providerState.queryBalance}
-        />
-      )}
-
-      {!isMobile && !rightSidebarCollapsed && (
-        <div
-          className="column-resize-handle right"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={language === "zh" ? "调整右侧边栏宽度" : "Resize right sidebar"}
-          onPointerDown={(event) => startColumnResize("right", event)}
-        />
-      )}
-
-      {(!isMobile ? !rightSidebarCollapsed : activeMobileTab === "activity") && (
-        <ActivityPanel
-          activityFilter={activityFilter}
-          activityListRef={activityListRef}
-          activitySearch={activitySearch}
-          events={events}
-          filteredEvents={filteredEvents}
-          language={language}
           planItems={agentState.planItems}
-          rightSidebarSection={rightSidebarSection}
-          setActivityFilter={setActivityFilter}
-          setActivitySearch={setActivitySearch}
-          setRightSidebarSection={setRightSidebarSection}
-          showActivityScrollToBottom={showActivityScrollToBottom}
-          scrollActivityToBottom={scrollActivityToBottom}
-          t={t}
-          activeToolRuns={agentState.activeToolRuns}
         />
       )}
 
@@ -571,13 +637,6 @@ function App() {
           >
             <span className="mobile-tab-btn-icon">🤖</span>
             <span>对话</span>
-          </button>
-          <button
-            className={`mobile-tab-btn ${activeMobileTab === "activity" ? "active" : ""}`}
-            onClick={() => setActiveMobileTab("activity")}
-          >
-            <span className="mobile-tab-btn-icon">📋</span>
-            <span>运行状态</span>
           </button>
         </div>
       )}
@@ -602,6 +661,21 @@ function App() {
         updateProvider={providerState.updateProvider}
         busy={agentState.busy}
         t={t}
+      />
+
+      <GitUpdateModal
+        language={language}
+        show={updateError.show}
+        message={updateError.message}
+        onClose={() => setUpdateError({ show: false, message: "" })}
+        onRetry={() => {
+          setUpdateError({ show: false, message: "" });
+          void handleApplyUpdate();
+        }}
+        onForceUpdate={() => {
+          setUpdateError({ show: false, message: "" });
+          void handleApplyUpdate({ forceReset: true });
+        }}
       />
     </div>
   );

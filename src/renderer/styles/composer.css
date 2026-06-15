@@ -403,3 +403,125 @@ body[data-theme="dark"] .composer-attachments {
   cursor: help;
   animation: fadeIn 0.2s ease;
 }
+
+/* ===== Composer Plan Checklist ===== */
+.composer-plan {
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto 8px;
+  padding: 8px 12px;
+  background: var(--surface-glass);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+body[data-theme="dark"] .composer-plan {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #181c25;
+}
+
+.composer-plan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+}
+
+.composer-plan-title {
+  font-weight: 750;
+  color: var(--text-heading);
+}
+
+.composer-plan-current {
+  color: var(--primary);
+  font-weight: 600;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-plan-active-tool code {
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: 4px;
+  padding: 1px 4px;
+  color: var(--primary);
+  font-family: var(--font-code, monospace);
+  font-size: 10px;
+}
+
+.composer-plan-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.composer-plan-step-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--surface-dim);
+  border: 1px solid var(--border-light);
+  color: var(--text-secondary);
+  max-width: 150px;
+}
+
+body[data-theme="dark"] .composer-plan-step-pill {
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.composer-plan-step-pill .step-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.composer-plan-step-pill.completed {
+  border-color: rgba(22, 163, 74, 0.15);
+  background: rgba(22, 163, 74, 0.04);
+  color: var(--success);
+}
+
+.composer-plan-step-pill.completed .step-pill-dot {
+  background: var(--success);
+}
+
+.composer-plan-step-pill.in_progress {
+  border-color: var(--primary-border);
+  background: rgba(37, 99, 235, 0.04);
+  color: var(--primary);
+  animation: pulse-border-plan 2s infinite ease-in-out;
+}
+
+.composer-plan-step-pill.in_progress .step-pill-dot {
+  background: var(--primary);
+}
+
+.composer-plan-step-pill.error {
+  border-color: rgba(220, 38, 38, 0.15);
+  background: rgba(220, 38, 38, 0.04);
+  color: var(--danger);
+}
+
+.composer-plan-step-pill.error .step-pill-dot {
+  background: var(--danger);
+}
+
+.step-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes pulse-border-plan {
+  0%, 100% { border-color: var(--primary-border); }
+  50% { border-color: transparent; }
+}

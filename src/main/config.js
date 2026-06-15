@@ -20,7 +20,8 @@ const DEFAULT_CONFIG = {
   reasoningEffort: "max",
   temperature: 0.2,
   telegramEnabled: true,
-  telegramAllowedUserId: "7043147111"
+  telegramAllowedUserId: "7043147111",
+  jimengToken: ""
 };
 
 export async function loadAppConfig() {

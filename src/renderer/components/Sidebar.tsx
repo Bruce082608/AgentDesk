@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Check, ChevronDown, ChevronRight, FileText, FolderOpen, LoaderCircle, MessageSquareMore, PencilLine, Plus, Search, Settings2, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, FileText, Folder, FolderOpen, LoaderCircle, MessageSquareMore, PencilLine, Plus, Search, Settings2, Trash2, X, Coins, ArrowUpCircle, CheckCircle2, TriangleAlert } from "lucide-react";
 import type { Language, translations } from "../i18n";
 import type {
   ChatSession,
@@ -38,7 +38,7 @@ type SidebarProps = {
   setRenamingTitle: (value: string) => void;
   setSidebarSection: (section: SidebarSection) => void;
   sidebarSection: SidebarSection;
-  startNewSession: () => void;
+  startNewSession: (workspace?: string) => void;
   startRenameSession: (sessionId: string) => void;
   t: Translation;
   toggleDirectory: (path: string) => void;
@@ -46,6 +46,16 @@ type SidebarProps = {
   visibleTree: WorkspaceTreeItem[];
   workspace: string;
   onOpenSettings: () => void;
+  balanceResult: ProviderBalanceResult | null;
+  checkingBalance: boolean;
+  providerConfig: ProviderConfig;
+  queryBalance: (silent?: boolean) => void;
+  gitUpdateState: {
+    available: boolean;
+    status: "idle" | "checking" | "updating" | "completed" | "error";
+    detail: string;
+  };
+  handleApplyUpdate: () => void;
 };
 
 type SessionGroup = {
@@ -54,8 +64,7 @@ type SessionGroup = {
   sessions: ChatSession[];
 };
 
-const appName = "AgentDesk";
-const brandIconUrl = new URL("../assets/bruce-secret-base.jpg", import.meta.url).href;
+
 
 export const Sidebar = memo(function Sidebar({
   activeSessionId,
@@ -88,43 +97,106 @@ export const Sidebar = memo(function Sidebar({
   tree,
   visibleTree,
   workspace,
-  onOpenSettings
+  onOpenSettings,
+  balanceResult,
+  checkingBalance,
+  providerConfig,
+  queryBalance,
+  gitUpdateState,
+  handleApplyUpdate
 }: SidebarProps) {
   const sessionGroups = groupSessionsByWorkspace(sessions, language);
 
+  const getDisplayBalanceString = () => {
+    if (!balanceResult || !balanceResult.balance_infos || balanceResult.balance_infos.length === 0) {
+      return "—";
+    }
+    const nonZeroBalances = balanceResult.balance_infos.filter(
+      (info) => Number(info.total_balance) > 0
+    );
+    const targets = nonZeroBalances.length > 0 ? nonZeroBalances : [balanceResult.balance_infos[0]];
+    return targets
+      .map((info) =>
+        formatBalanceAmount(
+          info.total_balance || "0",
+          info.currency || "CNY",
+          language
+        ).replace("CNY", "¥").replace("USD", "$")
+      )
+      .join(" / ");
+  };
+
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <div className="brand-mark">
-          <img src={brandIconUrl} alt="" />
-        </div>
-        <div>
-          <h1>{appName}</h1>
-          <p>{t.appSubtitle}</p>
-        </div>
-      </div>
 
-      <nav className="section-tabs sidebar-nav" aria-label={t.sidebarNav}>
-        <button className={sidebarSection === "chats" ? "active" : ""} onClick={() => setSidebarSection("chats")} title={t.chats} aria-label={t.chats}>
-          <MessageSquareMore size={18} strokeWidth={2.3} aria-hidden="true" />
-        </button>
-        <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")} title={t.files} aria-label={t.files}>
-          <FolderOpen size={18} strokeWidth={2.3} aria-hidden="true" />
-        </button>
-      </nav>
+      <div className="sidebar-header">
+        <nav className="section-tabs sidebar-nav" aria-label={t.sidebarNav}>
+          <button className={sidebarSection === "chats" ? "active" : ""} onClick={() => setSidebarSection("chats")} title={t.chats} aria-label={t.chats}>
+            <MessageSquareMore size={18} strokeWidth={2.3} aria-hidden="true" />
+          </button>
+          <button className={sidebarSection === "files" ? "active" : ""} onClick={() => setSidebarSection("files")} title={t.files} aria-label={t.files}>
+            <FolderOpen size={18} strokeWidth={2.3} aria-hidden="true" />
+          </button>
+        </nav>
+
+        {providerConfig.provider === "deepseek" && providerConfig.apiKey && (
+          <div className="sidebar-balance-container">
+            <div
+              className="sidebar-balance-pill"
+              onClick={() => queryBalance(false)}
+              title={language === "zh" ? "点击手动刷新余额" : "Click to refresh balance"}
+            >
+              <Coins size={12} className="balance-icon" />
+              <strong className="balance-value">
+                {checkingBalance ? (
+                  <LoaderCircle className="spin-icon spin" size={10} style={{ verticalAlign: "middle" }} />
+                ) : (
+                  getDisplayBalanceString()
+                )}
+              </strong>
+            </div>
+            <button
+              type="button"
+              className="sidebar-recharge-btn"
+              onClick={() => window.agentWindow.shellOpen("https://platform.deepseek.com/usage")}
+              title={language === "zh" ? "前往一键充值" : "Go to Recharge"}
+            >
+              <span>{language === "zh" ? "充值" : "Recharge"}</span>
+            </button>
+          </div>
+        )}
+      </div>
 
       {sidebarSection === "chats" && (
         <section className="panel chats-panel">
           <div className="panel-title row-title">
             <span>{t.chats}</span>
-            <button className="icon-button new-chat-button" onClick={startNewSession} disabled={busy} title={t.newChat} aria-label={t.newChat}>
+            <button className="icon-button new-chat-button" onClick={() => startNewSession()} disabled={busy} title={t.newChat} aria-label={t.newChat}>
               <Plus size={16} strokeWidth={2.6} aria-hidden="true" />
             </button>
           </div>
           <div className="session-list grouped">
             {sessionGroups.map((group) => (
               <section className="session-group" key={group.key}>
-                <div className="session-group-title" title={group.key === "__no_workspace__" ? "" : group.key}>{group.label}</div>
+                <div className="session-group-title" title={group.key === "__no_workspace__" ? "" : group.key}>
+                  <div className="session-group-header-left">
+                    {group.key !== "__no_workspace__" && (
+                      <Folder size={12} className="group-folder-icon" aria-hidden="true" />
+                    )}
+                    <span className="session-group-name">{group.label}</span>
+                  </div>
+                  {group.key !== "__no_workspace__" && (
+                    <button
+                      className="group-new-chat-button"
+                      onClick={() => startNewSession(group.key)}
+                      disabled={busy}
+                      title={t.newChat}
+                      aria-label={t.newChat}
+                    >
+                      <Plus size={12} strokeWidth={2.6} aria-hidden="true" />
+                    </button>
+                  )}
+                </div>
                 {group.sessions.map((session) => (
                   <div className={`session-row ${session.id === activeSessionId ? "active" : ""}`} key={session.id}>
                     {renamingSessionId === session.id ? (
@@ -146,7 +218,6 @@ export const Sidebar = memo(function Sidebar({
                         disabled={busy}
                       >
                         <strong>{session.title}</strong>
-                        <span>{session.messages.length} {t.messagesUnit} · {formatSessionTime(session.updatedAt, language)}</span>
                       </button>
                     )}
                     <div className="session-actions">
@@ -246,6 +317,34 @@ export const Sidebar = memo(function Sidebar({
       )}
 
       <div className="sidebar-footer">
+        {gitUpdateState?.available && (
+          <button
+            type="button"
+            className={`sidebar-footer-btn update-btn ${gitUpdateState.status}`}
+            onClick={handleApplyUpdate}
+            disabled={gitUpdateState.status === "updating" || gitUpdateState.status === "completed"}
+            title={gitUpdateState.detail || (language === "zh" ? "检测到新版本，点击自动更新" : "New version detected, click to auto update")}
+          >
+            {gitUpdateState.status === "updating" && (
+              <LoaderCircle className="spin" size={16} strokeWidth={2.2} />
+            )}
+            {gitUpdateState.status === "completed" && (
+              <CheckCircle2 size={16} strokeWidth={2.2} />
+            )}
+            {gitUpdateState.status === "error" && (
+              <TriangleAlert size={16} strokeWidth={2.2} />
+            )}
+            {gitUpdateState.status === "idle" && (
+              <ArrowUpCircle size={16} strokeWidth={2.2} />
+            )}
+            <span>
+              {gitUpdateState.status === "idle" && (language === "zh" ? "更新新版本" : "Update New Version")}
+              {gitUpdateState.status === "updating" && (language === "zh" ? "更新中..." : "Updating...")}
+              {gitUpdateState.status === "completed" && (language === "zh" ? "重启应用" : "Restart App")}
+              {gitUpdateState.status === "error" && (language === "zh" ? "重试更新" : "Retry Update")}
+            </span>
+          </button>
+        )}
         <button
           className="sidebar-footer-btn"
           onClick={onOpenSettings}

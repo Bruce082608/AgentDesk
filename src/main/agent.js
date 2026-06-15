@@ -1,3 +1,6 @@
+import os from "node:os";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { completeChat, normalizeProviderConfig, streamWithTools } from "./providers.js";
 import { toolDefinitions } from "./tools.js";
 import { getAutoApprovalState } from "./patch-approval.js";
@@ -65,8 +68,30 @@ export async function runAgentTurn(payload, emit) {
   if (!userInput) throw new Error(t(language, "agent.emptyInput"));
   if (!workspace) throw new Error(t(language, "agent.missingWorkspace"));
 
-  const jimengInstruction = providerConfig.jimengToken
-    ? `You have the Jimeng CLI bound to this environment. The user's Jimeng Cookie / API Token is: "${providerConfig.jimengToken}". When running CLI tools or scripts for image generation, you can use this token/cookie for authentication.`
+  let hasDreaminaCli = false;
+  let dreaminaPath = "dreamina";
+  try {
+    const localBinPath = path.join(os.homedir(), ".local", "bin", "dreamina");
+    await fs.access(localBinPath);
+    hasDreaminaCli = true;
+    dreaminaPath = localBinPath;
+  } catch {
+    if (providerConfig.jimengToken) {
+      hasDreaminaCli = true;
+    }
+  }
+
+  const jimengInstruction = hasDreaminaCli
+    ? `You have the Jimeng (即梦) CLI bound to this environment. Path to CLI: "${dreaminaPath}". 
+When the user asks for image or video generation, you can use this CLI tool.
+Authentication details:
+${providerConfig.jimengToken ? `- User's Cookie/API Token: "${providerConfig.jimengToken}". You can use it if running custom scripts.` : ""}
+- Official CLI Authentication: The CLI uses OAuth Device Flow ("dreamina login"). If the CLI reports "未检测到有效登录态", you should run "${dreaminaPath} login" (or "relogin" to force a fresh login) to print the OAuth scan code and link, then display them clearly to the user, wait/poll for completion, and confirm success to the user.
+Guidelines for running tasks:
+1. Always run "${dreaminaPath} <subcommand> -h" to see correct flags before submitting tasks.
+2. Check user credit first via "${dreaminaPath} user_credit" if appropriate.
+3. For text-to-image, use "${dreaminaPath} text2image --prompt=\"...\"".
+4. For async tasks, query status using "${dreaminaPath} query_result --submit_id=<id>".`
     : "";
 
   const systemMessage = {
@@ -83,6 +108,7 @@ export async function runAgentTurn(payload, emit) {
         ? "Permission mode: FULL ACCESS. Shell commands, file writes/deletes, and patches are approved automatically. File tools can use absolute paths, home paths (~), and paths outside the workspace. Do not ask for user approval."
         : "Permission mode: DEFAULT. Side-effecting commands, file writes/deletes, and patches require user approval. read_file only accepts workspace-relative paths and exact attached absolute paths.",
       "For frontend changes, prefer start_command for the dev server and browser_page to validate the UI.",
+      "When waiting for a long-running process (such as video/image generation, queue positions, compilation) to finish, you MUST call the wait tool to pause execution for a reasonable duration (e.g., 60-300 seconds) instead of polling rapidly in an active loop or trying to run sleep in shell commands.",
       "Error recovery: when a tool fails, reflect on the likely cause, choose a different recovery action, and avoid repeating the identical failing call.",
       normalizedProviderConfig.thinkingMode === "enabled"
         ? "Before calling any tools, explain your step-by-step reasoning in reasoning/thinking tokens to think through the problem thoroughly."

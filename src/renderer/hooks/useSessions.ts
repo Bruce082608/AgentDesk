@@ -215,9 +215,10 @@ export function useSessions({
     });
   }, [activeSessionId, messages, scheduleSessionSave, tokenUsage, workspace]);
 
-  const startNewSession = useCallback(() => {
+  const startNewSession = useCallback((initialWorkspace?: string) => {
     if (busy) return;
-    const session = createBlankSession("");
+    const ws = typeof initialWorkspace === "string" ? initialWorkspace : "";
+    const session = createBlankSession(ws);
     setSessions((current) => {
       const next = [session, ...current].slice(0, MAX_SAVED_SESSIONS);
       scheduleSessionSave(next, true);
@@ -225,11 +226,16 @@ export function useSessions({
     });
     setActiveSessionId(session.id);
     setMessages([]);
-    setWorkspace("");
-    clearWorkspaceData();
+    setWorkspace(ws);
+    if (ws) {
+      void refreshWorkspace(ws);
+      void refreshGit(ws);
+    } else {
+      clearWorkspaceData();
+    }
     resetSessionTokenUsage();
     resetTransientState();
-  }, [busy, clearWorkspaceData, resetSessionTokenUsage, resetTransientState, scheduleSessionSave, setMessages, setWorkspace]);
+  }, [busy, clearWorkspaceData, refreshWorkspace, refreshGit, resetSessionTokenUsage, resetTransientState, scheduleSessionSave, setMessages, setWorkspace]);
 
   const selectSession = useCallback(async (sessionId: string) => {
     if (busy || sessionId === activeSessionId) return;
