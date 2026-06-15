@@ -51,6 +51,56 @@ export const PROVIDER_CAPABILITIES = {
       }
     }
   },
+  openai: {
+    provider: "openai",
+    label: "OpenAI",
+    baseUrl: "https://api.openai.com/v1",
+    apiKeyEnv: "OPENAI_API_KEY",
+    balancePath: "",
+    defaultModel: "gpt-4.1-mini",
+    defaultSummaryModel: "gpt-4.1-mini",
+    models: {
+      "gpt-4.1": {
+        label: "GPT-4.1",
+        contextTokens: 1_047_576,
+        maxOutputTokens: 32_768,
+        defaultMaxTokens: 16_384,
+        supportsThinking: false,
+        supportsToolCalls: true,
+        supportsTemperature: true,
+        supportsVision: true,
+        defaultThinkingMode: "disabled",
+        reasoningEfforts: ["medium"],
+        defaultReasoningEffort: "medium"
+      },
+      "gpt-4.1-mini": {
+        label: "GPT-4.1 Mini",
+        contextTokens: 1_047_576,
+        maxOutputTokens: 32_768,
+        defaultMaxTokens: 8_192,
+        supportsThinking: false,
+        supportsToolCalls: true,
+        supportsTemperature: true,
+        supportsVision: true,
+        defaultThinkingMode: "disabled",
+        reasoningEfforts: ["medium"],
+        defaultReasoningEffort: "medium"
+      },
+      "o4-mini": {
+        label: "o4-mini",
+        contextTokens: 200_000,
+        maxOutputTokens: 100_000,
+        defaultMaxTokens: 32_768,
+        supportsThinking: true,
+        supportsToolCalls: true,
+        supportsTemperature: false,
+        supportsVision: true,
+        defaultThinkingMode: "enabled",
+        reasoningEfforts: ["low", "medium", "high"],
+        defaultReasoningEffort: "medium"
+      }
+    }
+  },
   "openai-compatible": {
     provider: "openai-compatible",
     label: "OpenAI-compatible",

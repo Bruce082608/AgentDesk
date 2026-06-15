@@ -91,7 +91,7 @@ export type ChatMessage = {
 };
 
 export type ProviderConfig = {
-  provider: "deepseek" | "openai-compatible";
+  provider: "deepseek" | "openai" | "openai-compatible";
   baseUrl: string;
   model: string;
   summaryModel: string;

@@ -142,7 +142,10 @@ export async function getProviderBalance(config = {}) {
     throw new Error(`缺少 API key。请在界面中填写，或设置 ${provider.apiKeyEnv || "AGENT_API_KEY"}。`);
   }
   if (provider.provider !== "deepseek") {
-    throw new Error("当前只支持查询 DeepSeek 官方 API 余额。OpenAI-compatible 供应商的余额接口不统一。");
+    const hint = provider.provider === "openai"
+      ? "OpenAI 不提供余额查询 API。请到 https://platform.openai.com/usage 查看用量和余额。"
+      : "当前只支持查询 DeepSeek 官方 API 余额。OpenAI-compatible 供应商的余额接口不统一。";
+    throw new Error(hint);
   }
 
   const { signal, cleanup, isExternallyAborted } = createRequestSignal(30000);
@@ -317,9 +320,10 @@ function consumeStreamLine(line, partial, onDelta) {
     partial.content += delta.content;
     onDelta?.({ type: "content", text: delta.content });
   }
-  if (delta.reasoning_content) {
-    partial.reasoningContent += delta.reasoning_content;
-    onDelta?.({ type: "reasoning", text: delta.reasoning_content });
+  const reasoningText = delta.reasoning_content || delta.reasoning || "";
+  if (reasoningText) {
+    partial.reasoningContent += reasoningText;
+    onDelta?.({ type: "reasoning", text: reasoningText });
   }
   if (delta.tool_calls) {
     for (const toolDelta of delta.tool_calls) {
@@ -459,6 +463,13 @@ function buildRequestBody(provider, bodyOverrides) {
     if (provider.thinkingMode === "enabled") {
       delete body.tool_choice;
     }
+  }
+
+  if (provider.provider === "openai" && provider.capability?.supportsThinking) {
+    body.reasoning_effort = provider.reasoningEffort;
+    body.max_completion_tokens = body.max_tokens;
+    delete body.max_tokens;
+    delete body.temperature;
   }
 
   return body;

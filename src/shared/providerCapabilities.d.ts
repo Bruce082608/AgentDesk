@@ -1,4 +1,4 @@
-export type ProviderName = "deepseek" | "openai-compatible";
+export type ProviderName = "deepseek" | "openai" | "openai-compatible";
 
 export type ModelCapability = {
   label: string;

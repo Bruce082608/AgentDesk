@@ -50,7 +50,15 @@ export function UsageTab({
               t.queryBalance
             )}
           </button>
-          {config.provider !== "deepseek" && (
+          {config.provider === "openai" && (
+            <span className="balance-notice">
+              <AlertCircle size={14} />
+              <span>{language === "zh"
+                ? "OpenAI 不提供余额查询 API，请到 platform.openai.com/usage 查看"
+                : "OpenAI does not provide a balance API. Visit platform.openai.com/usage to check usage."}</span>
+            </span>
+          )}
+          {config.provider === "openai-compatible" && (
             <span className="balance-notice">
               <AlertCircle size={14} />
               <span>{language === "zh" ? "仅 DeepSeek Provider 支持自动查询余额" : "Balance query is only supported for the DeepSeek provider"}</span>

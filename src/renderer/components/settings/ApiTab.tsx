@@ -2,6 +2,7 @@ import { LoaderCircle } from "lucide-react";
 import type { Language, translations } from "../../i18n";
 import type { ProviderConfig } from "../../types";
 import { formatInteger } from "../../utils";
+import { PROVIDER_CAPABILITIES } from "../../../shared/providerCapabilities";
 
 type Translation = typeof translations[keyof typeof translations];
 
@@ -51,6 +52,7 @@ export function ApiTab({
               onChange={(e) => updateProvider(e.target.value as ProviderConfig["provider"])}
             >
               <option value="deepseek">DeepSeek</option>
+              <option value="openai">OpenAI</option>
               <option value="openai-compatible">OpenAI-compatible</option>
             </select>
           </div>
@@ -68,13 +70,26 @@ export function ApiTab({
 
         <div className="settings-field">
           <label htmlFor="setting-model">{t.model}</label>
-          <input
-            id="setting-model"
-            type="text"
-            value={config.model}
-            readOnly={config.provider === "deepseek"}
-            onChange={(e) => setConfig({ ...config, model: e.target.value })}
-          />
+          {config.provider === "openai-compatible" ? (
+            <input
+              id="setting-model"
+              type="text"
+              value={config.model}
+              onChange={(e) => setConfig({ ...config, model: e.target.value })}
+            />
+          ) : (
+            <div className="select-wrapper">
+              <select
+                id="setting-model"
+                value={config.model}
+                onChange={(e) => setConfig({ ...config, model: e.target.value })}
+              >
+                {Object.entries(PROVIDER_CAPABILITIES[config.provider]?.models || {}).map(([key, m]) => (
+                  <option key={key} value={key}>{(m as any).label || key}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {config.capability && (

@@ -60,4 +60,44 @@ describe("provider request body", () => {
     });
     expect(body.thinking).toBeUndefined();
   });
+
+  it("builds standard request body for OpenAI GPT-4.1 models", () => {
+    const provider = __test__.normalizeProviderConfig({
+      provider: "openai",
+      apiKey: "key",
+      model: "gpt-4.1",
+      temperature: 0.3,
+      maxTokens: 8192
+    });
+    const body = __test__.buildRequestBody(provider, {
+      messages: [],
+      tool_choice: "auto"
+    });
+    expect(body.model).toBe("gpt-4.1");
+    expect(body.temperature).toBe(0.3);
+    expect(body.max_tokens).toBe(8192);
+    expect(body.tool_choice).toBe("auto");
+    expect(body.thinking).toBeUndefined();
+    expect(body.max_completion_tokens).toBeUndefined();
+  });
+
+  it("uses max_completion_tokens and reasoning_effort for OpenAI o4-mini", () => {
+    const provider = __test__.normalizeProviderConfig({
+      provider: "openai",
+      apiKey: "key",
+      model: "o4-mini",
+      reasoningEffort: "high",
+      maxTokens: 16384
+    });
+    const body = __test__.buildRequestBody(provider, {
+      messages: [],
+      tool_choice: "auto"
+    });
+    expect(body.model).toBe("o4-mini");
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.max_completion_tokens).toBe(16384);
+    expect(body.max_tokens).toBeUndefined();
+    expect(body.temperature).toBeUndefined();
+    expect(body.thinking).toBeUndefined();
+  });
 });
