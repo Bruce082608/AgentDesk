@@ -120,12 +120,11 @@ describe("provider request body", () => {
     expect(body.temperature).toBeUndefined();
   });
 
-  it("auto-detects gpt-5 reasoning for unknown OpenAI models", () => {
+  it("defaults to standard parameters for gpt-5 models unless thinking mode is enabled", () => {
     const provider = __test__.normalizeProviderConfig({
       provider: "openai",
       apiKey: "key",
       model: "gpt-5.5-pro",
-      reasoningEffort: "high",
       maxTokens: 4096
     });
     const body = __test__.buildRequestBody(provider, {
@@ -133,10 +132,9 @@ describe("provider request body", () => {
       tool_choice: "auto"
     });
     expect(body.model).toBe("gpt-5.5-pro");
-    expect(body.reasoning_effort).toBe("high");
-    expect(body.max_completion_tokens).toBe(4096);
-    expect(body.max_tokens).toBeUndefined();
-    expect(body.temperature).toBeUndefined();
+    expect(body.temperature).toBeDefined();
+    expect(body.max_tokens).toBe(4096);
+    expect(body.max_completion_tokens).toBeUndefined();
   });
 
   it("uses max_completion_tokens and reasoning_effort for custom OpenAI models when thinking mode is enabled", () => {
