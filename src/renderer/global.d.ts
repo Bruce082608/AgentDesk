@@ -22,6 +22,7 @@ declare global {
       getAutoApprovalState: (payload: AutoApprovalRequest) => Promise<AutoApprovalState>;
       loadConfig: () => Promise<{ config: ProviderConfig & { recoveredFromError?: string }; path: string }>;
       saveConfig: (config: ProviderConfig) => Promise<{ ok: boolean; path: string }>;
+      importCodexConfig: () => Promise<{ ok: true; config: Partial<ProviderConfig> } | { ok: false; error: string }>;
       getSystemState: () => Promise<SystemState>;
       showNotification: (payload: { title: string; body?: string; silent?: boolean }) => Promise<{ ok: boolean; reason?: string }>;
       startDictation: () => Promise<{ ok: boolean; error?: string }>;

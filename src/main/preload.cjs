@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("agentWindow", {
   getAutoApprovalState: (payload) => ipcRenderer.invoke("permissions:state", payload),
   loadConfig: () => ipcRenderer.invoke("config:load"),
   saveConfig: (config) => ipcRenderer.invoke("config:save", config),
+  importCodexConfig: () => ipcRenderer.invoke("config:import-codex"),
   getSystemState: () => ipcRenderer.invoke("system:state"),
   showNotification: (payload) => ipcRenderer.invoke("system:notify", payload),
   startDictation: () => ipcRenderer.invoke("system:start-dictation"),

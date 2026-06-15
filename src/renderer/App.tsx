@@ -654,6 +654,7 @@ function App() {
         providerHint={providerState.providerHint}
         testingApi={providerState.testingApi}
         testApi={providerState.testApi}
+        importCodexConfig={providerState.importCodexConfig}
         checkingBalance={providerState.checkingBalance}
         queryBalance={providerState.queryBalance}
         balanceResult={providerState.balanceResult}

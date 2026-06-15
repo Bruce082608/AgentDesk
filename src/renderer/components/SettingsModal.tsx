@@ -25,6 +25,7 @@ type SettingsModalProps = {
   providerHint: string;
   testingApi: boolean;
   testApi: () => void;
+  importCodexConfig: () => void;
   checkingBalance: boolean;
   queryBalance: () => void;
   balanceResult: ProviderBalanceResult | null;
@@ -49,6 +50,7 @@ export function SettingsModal({
   providerHint,
   testingApi,
   testApi,
+  importCodexConfig,
   checkingBalance,
   queryBalance,
   balanceResult,
@@ -190,6 +192,7 @@ export function SettingsModal({
                 showApiKeys={showApiKeys}
                 setShowApiKeys={setShowApiKeys}
                 testApi={testApi}
+                importCodexConfig={importCodexConfig}
                 busy={busy}
                 testingApi={testingApi}
                 providerHint={providerHint}

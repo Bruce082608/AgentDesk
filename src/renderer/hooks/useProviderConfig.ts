@@ -160,6 +160,30 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
     }
   }, [configLoaded, config.provider, config.apiKey]);
 
+  const importCodexConfig = useCallback(async () => {
+    if (busy) return;
+    appendEvent("status", "导入 Codex 配置", "正在读取 ~/.codex/ 配置文件...");
+    try {
+      const result = await window.agentWindow.importCodexConfig();
+      if (result.ok) {
+        setConfigState((current) => normalizeProviderConfig({ ...current, ...result.config }));
+        appendEvent(
+          "status",
+          "Codex 配置导入成功",
+          `已成功导入以下配置：\n` +
+          `- 提供商: ${result.config.provider ?? "未修改"}\n` +
+          `- 模型: ${result.config.model ?? "未修改"}\n` +
+          `- 接口地址: ${result.config.baseUrl ?? "未修改"}\n` +
+          `- API Key: 已填入`
+        );
+      } else {
+        appendEvent("error", "Codex 配置导入失败", result.error);
+      }
+    } catch (error) {
+      appendEvent("error", "Codex 配置导入出错", error instanceof Error ? error.message : String(error));
+    }
+  }, [appendEvent, busy]);
+
   return {
     balanceResult,
     checkingBalance,
@@ -171,7 +195,8 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
     setConfig,
     testingApi,
     testApi,
-    updateProvider
+    updateProvider,
+    importCodexConfig
   };
 }
 

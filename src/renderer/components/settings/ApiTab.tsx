@@ -14,6 +14,7 @@ type ApiTabProps = {
   showApiKeys: boolean;
   setShowApiKeys: (show: boolean) => void;
   testApi: () => void;
+  importCodexConfig: () => void;
   busy: boolean;
   testingApi: boolean;
   providerHint: string;
@@ -29,6 +30,7 @@ export function ApiTab({
   showApiKeys,
   setShowApiKeys,
   testApi,
+  importCodexConfig,
   busy,
   testingApi,
   providerHint,
@@ -222,6 +224,15 @@ export function ApiTab({
         </div>
 
         <div className="settings-actions-footer">
+          <button
+            type="button"
+            className="settings-action-btn secondary"
+            onClick={importCodexConfig}
+            disabled={busy}
+            style={{ marginRight: "auto" }}
+          >
+            {(t as any).importCodexConfig || "Import Codex Config"}
+          </button>
           <button
             type="button"
             className="settings-action-btn primary"

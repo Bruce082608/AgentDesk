@@ -45,7 +45,7 @@ import {
   showMainWindow
 } from "./desktop-integration.js";
 import { getProviderBalance, testProviderConnection } from "./providers.js";
-import { getConfigPath, loadAppConfig, saveAppConfig } from "./config.js";
+import { getConfigPath, loadAppConfig, saveAppConfig, importCodexConfig } from "./config.js";
 import { applyPendingPatch, approvePendingCommand, discardPendingCommand, discardPendingPatch, setCommandAutoApproval, setFullAccessAutoApproval, setPatchAutoApproval } from "./tools.js";
 import { getGitDiff, getGitSummary, getWorkspaceTree, readWorkspaceFile, searchWorkspaceFiles } from "./workspace.js";
 import { listPendingApprovals, loadPersistedActivityEvents, loadPersistedSessions, savePersistedActivityEvents, savePersistedSessions, loadPersistedSkills, savePersistedSkills, deleteAgentContinuation } from "./persistence.js";
@@ -225,6 +225,10 @@ ipcMain.handle("config:save", async (_event, config) => {
     startTelegramBot(updatedConfig);
   }).catch(() => {});
   return result;
+});
+
+ipcMain.handle("config:import-codex", async () => {
+  return importCodexConfig();
 });
 
 ipcMain.handle("system:state", async () => {

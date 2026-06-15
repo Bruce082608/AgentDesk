@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { app, safeStorage } from "electron";
 import { getModelCapability, normalizeConfigForCapabilities } from "../shared/providerCapabilities.js";
@@ -274,4 +275,102 @@ function clampInteger(value, fallback, min, max) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(Math.max(Math.floor(parsed), min), max);
+}
+
+export async function importCodexConfig() {
+  try {
+    const home = os.homedir();
+    const configTomlPath = path.join(home, ".codex", "config.toml");
+    const authJsonPath = path.join(home, ".codex", "auth.json");
+
+    let hasToml = false;
+    let tomlContent = "";
+    try {
+      tomlContent = await fs.readFile(configTomlPath, "utf8");
+      hasToml = true;
+    } catch {}
+
+    let hasAuth = false;
+    let authContent = "";
+    try {
+      authContent = await fs.readFile(authJsonPath, "utf8");
+      hasAuth = true;
+    } catch {}
+
+    if (!hasToml && !hasAuth) {
+      throw new Error(`未找到 Codex CLI 配置文件。请确保 ~/.codex/ 目录下存在 config.toml 或 auth.json。`);
+    }
+
+    const result = {};
+
+    if (hasToml) {
+      const lines = tomlContent.split(/\r?\n/);
+      let currentSection = "";
+      let modelProvider = "";
+      let model = "";
+      let baseUrl = "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) continue;
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+          currentSection = trimmed.slice(1, -1).trim();
+          continue;
+        }
+        const eqIdx = trimmed.indexOf("=");
+        if (eqIdx === -1) continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        let val = trimmed.slice(eqIdx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+
+        if (currentSection === "") {
+          if (key === "model_provider") {
+            modelProvider = val;
+          } else if (key === "model") {
+            model = val;
+          }
+        } else if (currentSection.startsWith("model_providers.")) {
+          const providerName = currentSection.slice("model_providers.".length).trim();
+          if (providerName.toLowerCase() === "openai" || (modelProvider && providerName.toLowerCase() === modelProvider.toLowerCase())) {
+            if (key === "base_url") {
+              baseUrl = val;
+            }
+          }
+        }
+      }
+
+      if (modelProvider) {
+        const providerLower = modelProvider.toLowerCase();
+        if (providerLower === "openai") {
+          result.provider = "openai";
+        } else if (providerLower === "deepseek") {
+          result.provider = "deepseek";
+        } else {
+          result.provider = "openai-compatible";
+        }
+      }
+      if (model) result.model = model;
+      if (baseUrl) result.baseUrl = baseUrl;
+    }
+
+    if (hasAuth) {
+      try {
+        const authData = JSON.parse(authContent);
+        const provider = result.provider || "openai";
+        if (provider === "openai" || provider === "openai-compatible") {
+          result.apiKey = authData.OPENAI_API_KEY || authData.openai_api_key || Object.values(authData)[0] || "";
+        } else if (provider === "deepseek") {
+          result.apiKey = authData.DEEPSEEK_API_KEY || authData.deepseek_api_key || Object.values(authData)[0] || "";
+        }
+      } catch (err) {
+        // ignore JSON parse error
+      }
+    }
+
+    return { ok: true, config: result };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }

@@ -173,6 +173,9 @@ if (typeof window.agentWindow === "undefined") {
     saveConfig: async (config) => {
       return fetchApi("/api/config", "POST", config);
     },
+    importCodexConfig: async () => {
+      return { ok: false, error: "Not supported in browser mode." };
+    },
     getSystemState: async () => {
       return {
         desktop: {
