@@ -92,12 +92,12 @@ export const PROVIDER_CAPABILITIES = {
       contextTokens: DEFAULT_OPENAI_COMPATIBLE_CONTEXT_TOKENS,
       maxOutputTokens: 32_768,
       defaultMaxTokens: 8_192,
-      supportsThinking: false,
+      supportsThinking: true,
       supportsToolCalls: true,
       supportsTemperature: true,
       supportsVision: true,
       defaultThinkingMode: "disabled",
-      reasoningEfforts: ["medium"],
+      reasoningEfforts: ["low", "medium", "high"],
       defaultReasoningEffort: "medium"
     }
   },
@@ -129,12 +129,12 @@ export const PROVIDER_CAPABILITIES = {
       contextTokens: DEFAULT_OPENAI_COMPATIBLE_CONTEXT_TOKENS,
       maxOutputTokens: 32_768,
       defaultMaxTokens: 4_096,
-      supportsThinking: false,
+      supportsThinking: true,
       supportsToolCalls: true,
       supportsTemperature: true,
       supportsVision: true,
       defaultThinkingMode: "disabled",
-      reasoningEfforts: ["medium"],
+      reasoningEfforts: ["low", "medium", "high"],
       defaultReasoningEffort: "medium"
     }
   }
@@ -155,7 +155,7 @@ export function getModelCapability(config = {}) {
   let rawCapability = provider.models[model] || provider.fallbackModel || provider.models[provider.defaultModel];
 
   // Auto-detect OpenAI o-series reasoning models by name pattern
-  if (provider.provider === "openai" && !provider.models[model] && /^o[1-9]/.test(model)) {
+  if ((provider.provider === "openai" || provider.provider === "openai-compatible") && !provider.models[model] && /^o[1-9]/.test(model)) {
     rawCapability = {
       ...rawCapability,
       supportsThinking: true,

@@ -5,7 +5,7 @@ const MAX_NOTIFICATION_TEXT = 2000;
 const MAX_MESSAGES = 500;
 const MAX_ATTACHMENTS = 50;
 const CHAT_ROLES = new Set(["user", "assistant", "tool", "system"]);
-const PROVIDERS = new Set(["deepseek", "openai-compatible"]);
+const PROVIDERS = new Set(["deepseek", "openai", "openai-compatible"]);
 const THINKING_MODES = new Set(["enabled", "disabled"]);
 const REASONING_EFFORTS = new Set(["low", "medium", "high", "max"]);
 const LANGUAGES = new Set(["zh", "en"]);
@@ -152,7 +152,7 @@ export function validateBackgroundTaskPayload(value) {
 function validateProviderConfig(value, options = {}) {
   const config = requireObject(value ?? {}, "provider config");
   const provider = optionalString(config.provider, "provider", { max: 64 }) || "deepseek";
-  if (!PROVIDERS.has(provider)) invalid("provider", "one of: deepseek, openai-compatible");
+  if (!PROVIDERS.has(provider)) invalid("provider", "one of: deepseek, openai, openai-compatible");
 
   const thinkingMode = optionalString(config.thinkingMode, "thinkingMode", { max: 32 }) || "enabled";
   if (!THINKING_MODES.has(thinkingMode)) invalid("thinkingMode", "enabled or disabled");

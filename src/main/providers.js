@@ -465,7 +465,15 @@ function buildRequestBody(provider, bodyOverrides) {
     }
   }
 
-  if (provider.provider === "openai" && provider.capability?.supportsThinking) {
+  const isOpenAiReasoning = (provider.provider === "openai" || provider.provider === "openai-compatible") &&
+    provider.capability?.supportsThinking && (
+      (provider.model && /^o[1-9]/.test(provider.model)) ||
+      provider.model === "o3" ||
+      provider.model === "o4-mini" ||
+      provider.thinkingMode === "enabled"
+    );
+
+  if (isOpenAiReasoning) {
     body.reasoning_effort = provider.reasoningEffort;
     body.max_completion_tokens = body.max_tokens;
     delete body.max_tokens;

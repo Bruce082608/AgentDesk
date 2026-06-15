@@ -119,4 +119,24 @@ describe("provider request body", () => {
     expect(body.max_tokens).toBeUndefined();
     expect(body.temperature).toBeUndefined();
   });
+
+  it("uses max_completion_tokens and reasoning_effort for custom OpenAI models when thinking mode is enabled", () => {
+    const provider = __test__.normalizeProviderConfig({
+      provider: "openai",
+      apiKey: "key",
+      model: "gpt-5.5",
+      thinkingMode: "enabled",
+      reasoningEffort: "high",
+      maxTokens: 8192
+    });
+    const body = __test__.buildRequestBody(provider, {
+      messages: [],
+      tool_choice: "auto"
+    });
+    expect(body.model).toBe("gpt-5.5");
+    expect(body.reasoning_effort).toBe("high");
+    expect(body.max_completion_tokens).toBe(8192);
+    expect(body.max_tokens).toBeUndefined();
+    expect(body.temperature).toBeUndefined();
+  });
 });
