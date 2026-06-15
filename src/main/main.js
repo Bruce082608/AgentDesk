@@ -455,7 +455,8 @@ ipcMain.handle("agent:send", async (event, payload) => {
     return { ok: false, error: "Duplicate requestId." };
   }
   const controller = new AbortController();
-  activeRequests.set(requestId, controller);
+  const requestState = { controller, language, cancelledEmitted: false };
+  activeRequests.set(requestId, requestState);
   refreshDesktopIntegrationState();
   const emit = (message) => {
     event.sender.send("agent:event", { requestId, ...message });
@@ -471,6 +472,8 @@ ipcMain.handle("agent:send", async (event, payload) => {
     return { ok: true };
   } catch (error) {
     if (controller.signal.aborted) {
+      const activeState = activeRequests.get(requestId);
+      if (activeState) activeState.cancelledEmitted = true;
       emit({ type: "cancelled", message: t(language, "agent.cancelled") });
       return { ok: false, cancelled: true };
     }
@@ -505,7 +508,8 @@ ipcMain.handle("agent:resume", async (event, payload) => {
   }
 
   const controller = new AbortController();
-  activeRequests.set(requestId, controller);
+  const requestState = { controller, language: normalizeLanguage(validatedPayload.language), cancelledEmitted: false };
+  activeRequests.set(requestId, requestState);
   refreshDesktopIntegrationState();
   const emit = (message) => {
     event.sender.send("agent:event", { requestId, ...message });
@@ -521,6 +525,8 @@ ipcMain.handle("agent:resume", async (event, payload) => {
     return { ok: true, result };
   } catch (error) {
     if (controller.signal.aborted) {
+      const activeState = activeRequests.get(requestId);
+      if (activeState) activeState.cancelledEmitted = true;
       emit({ type: "cancelled", message: t(normalizeLanguage(validatedPayload.language), "agent.cancelled") });
       return { ok: false, cancelled: true };
     }
@@ -535,9 +541,20 @@ ipcMain.handle("agent:resume", async (event, payload) => {
 });
 
 ipcMain.handle("agent:cancel", async (_event, requestId) => {
-  const controller = activeRequests.get(validateRequestId(requestId));
-  if (!controller) return { ok: false };
-  controller.abort();
+  const id = validateRequestId(requestId);
+  const requestState = activeRequests.get(id);
+  if (!requestState) return { ok: false };
+  requestState.controller.abort();
+  if (!requestState.cancelledEmitted) {
+    requestState.cancelledEmitted = true;
+    mainWindow?.webContents?.send("agent:event", {
+      requestId: id,
+      type: "cancelled",
+      message: t(requestState.language || "zh", "agent.cancelled")
+    });
+  }
+  activeRequests.delete(id);
+  refreshDesktopIntegrationState();
   return { ok: true };
 });
 

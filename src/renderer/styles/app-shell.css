@@ -9,7 +9,10 @@
 }
 
 body[data-theme="dark"] .app-shell {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 20%), var(--app-bg);
+  background:
+    radial-gradient(circle at 50% -20%, rgba(255, 255, 255, 0.055), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0) 22%),
+    var(--app-bg);
 }
 
 /* ===== Explicit Grid Column Positioning for Collapsible Layout ===== */
@@ -69,5 +72,4 @@ body.resizing-rows * {
   cursor: row-resize !important;
   user-select: none;
 }
-
 

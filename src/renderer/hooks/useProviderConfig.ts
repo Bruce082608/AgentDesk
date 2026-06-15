@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { translations } from "../i18n";
-import type { EventLogItem, ProviderBalanceResult, ProviderConfig } from "../types";
+import type { EventLogItem, ProviderBalanceResult, ProviderConfig, ProviderTestFeedback } from "../types";
 import { defaultConfig } from "../types";
 import { getModelCapability, normalizeConfigForCapabilities } from "../../shared/providerCapabilities";
 
@@ -16,6 +16,7 @@ type UseProviderConfigParams = {
 export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProviderConfigParams) {
   const [config, setConfigState] = useState<ProviderConfig>(() => normalizeProviderConfig(defaultConfig));
   const [testingApi, setTestingApi] = useState(false);
+  const [apiTestResult, setApiTestResult] = useState<ProviderTestFeedback | null>(null);
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [balanceResult, setBalanceResult] = useState<ProviderBalanceResult | null>(null);
   const [configPath, setConfigPath] = useState("");
@@ -68,10 +69,10 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
   const updateProvider = useCallback((provider: ProviderConfig["provider"]) => {
     const nextDefaults =
       provider === "deepseek"
-        ? { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro", summaryModel: "deepseek-v4-flash", thinkingMode: "enabled" as const, reasoningEffort: "max" as const, contextTokens: 1000000, maxTokens: 32768 }
+        ? { baseUrl: "https://api.deepseek.com", model: "deepseek-v4-pro", summaryModel: "deepseek-v4-flash", wireApi: "chat-completions" as const, thinkingMode: "enabled" as const, reasoningEffort: "max" as const, contextTokens: 1000000, maxTokens: 32768 }
         : provider === "openai"
-          ? { baseUrl: "https://bmapi.020212.xyz", model: "gpt-5.5", summaryModel: "", thinkingMode: "enabled" as const, reasoningEffort: "max" as const, contextTokens: 1000000, maxTokens: 32768 }
-          : { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", summaryModel: "", thinkingMode: "disabled" as const, reasoningEffort: "medium" as const, contextTokens: 128000, maxTokens: 4096 };
+          ? { baseUrl: "https://bmapi.020212.xyz", model: "gpt-5.5", summaryModel: "", wireApi: "responses" as const, thinkingMode: "enabled" as const, reasoningEffort: "max" as const, contextTokens: 1000000, maxTokens: 32768 }
+          : { baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini", summaryModel: "", wireApi: "chat-completions" as const, thinkingMode: "disabled" as const, reasoningEffort: "medium" as const, contextTokens: 128000, maxTokens: 4096 };
     setConfigState((current) => normalizeProviderConfig({ ...current, provider, ...nextDefaults }));
   }, []);
 
@@ -84,13 +85,35 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
     if (!navigator.onLine) {
       setIsOnline(false);
       appendEvent("error", t.offlineTitle, t.offlineBody);
+      setApiTestResult({
+        status: "error",
+        checkedAt: Date.now(),
+        provider: config.provider,
+        model: config.model,
+        error: t.offlineBody
+      });
       return;
     }
     setTestingApi(true);
+    setApiTestResult({
+      status: "running",
+      checkedAt: Date.now(),
+      provider: config.provider,
+      model: config.model
+    });
     appendEvent("status", "API 检测", "正在发送最小 health check 请求...");
     try {
       const result = await window.agentWindow.testProvider(config);
       if (result.ok) {
+        setApiTestResult({
+          status: "success",
+          checkedAt: Date.now(),
+          provider: config.provider,
+          model: result.result.model,
+          latencyMs: result.result.latencyMs,
+          reply: result.result.content,
+          usage: result.result.usage
+        });
         appendEvent(
           "status",
           "API 可用",
@@ -106,8 +129,25 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
           )
         );
       } else {
+        setApiTestResult({
+          status: "error",
+          checkedAt: Date.now(),
+          provider: config.provider,
+          model: config.model,
+          error: result.error
+        });
         appendEvent("error", "API 不可用", result.error);
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setApiTestResult({
+        status: "error",
+        checkedAt: Date.now(),
+        provider: config.provider,
+        model: config.model,
+        error: message
+      });
+      appendEvent("error", "API 检测失败", message);
     } finally {
       setTestingApi(false);
     }
@@ -174,6 +214,7 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
           `- 提供商: ${result.config.provider ?? "未修改"}\n` +
           `- 模型: ${result.config.model ?? "未修改"}\n` +
           `- 接口地址: ${result.config.baseUrl ?? "未修改"}\n` +
+          `- Wire API: ${result.config.wireApi ?? "未修改"}\n` +
           `- API Key: 已填入`
         );
       } else {
@@ -185,6 +226,7 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
   }, [appendEvent, busy]);
 
   return {
+    apiTestResult,
     balanceResult,
     checkingBalance,
     config,
@@ -201,10 +243,14 @@ export function useProviderConfig({ appendEvent, busy, setIsOnline, t }: UseProv
 }
 
 function normalizeProviderConfig(config: ProviderConfig): ProviderConfig {
-  const normalized = normalizeConfigForCapabilities(config);
+  const uiConfig = {
+    ...config,
+    provider: config.provider === "openai-compatible" ? "openai" : config.provider
+  } as ProviderConfig;
+  const normalized = normalizeConfigForCapabilities(uiConfig);
   const { provider, capability } = getModelCapability(normalized);
   return {
-    ...config,
+    ...uiConfig,
     ...normalized,
     capability: {
       label: capability.label,

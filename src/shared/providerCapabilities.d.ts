@@ -38,6 +38,7 @@ export function normalizeConfigForCapabilities<T extends Record<string, unknown>
   baseUrl: string;
   model: string;
   summaryModel: string;
+  wireApi: "responses" | "chat-completions";
   contextTokens: number;
   maxTokens: number;
   maxAgentSteps: number;
@@ -47,4 +48,3 @@ export function normalizeConfigForCapabilities<T extends Record<string, unknown>
   supportsVision: boolean;
 };
 export function trimTrailingSlash(value: unknown): string;
-

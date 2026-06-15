@@ -1,6 +1,6 @@
-import { LoaderCircle } from "lucide-react";
+import { CheckCircle2, LoaderCircle, TriangleAlert } from "lucide-react";
 import type { Language, translations } from "../../i18n";
-import type { ProviderConfig } from "../../types";
+import type { ProviderConfig, ProviderTestFeedback } from "../../types";
 import { formatInteger } from "../../utils";
 import { PROVIDER_CAPABILITIES } from "../../../shared/providerCapabilities";
 
@@ -17,6 +17,7 @@ type ApiTabProps = {
   importCodexConfig: () => void;
   busy: boolean;
   testingApi: boolean;
+  apiTestResult: ProviderTestFeedback | null;
   providerHint: string;
   configPath: string;
   t: Translation;
@@ -33,6 +34,7 @@ export function ApiTab({
   importCodexConfig,
   busy,
   testingApi,
+  apiTestResult,
   providerHint,
   configPath,
   t
@@ -55,7 +57,6 @@ export function ApiTab({
             >
               <option value="deepseek">DeepSeek</option>
               <option value="openai">OpenAI</option>
-              <option value="openai-compatible">OpenAI-compatible</option>
             </select>
           </div>
         </div>
@@ -68,6 +69,20 @@ export function ApiTab({
             value={config.baseUrl}
             onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
           />
+        </div>
+
+        <div className="settings-field">
+          <label htmlFor="setting-wire-api">{language === "zh" ? "Wire API" : "Wire API"}</label>
+          <div className="select-wrapper">
+            <select
+              id="setting-wire-api"
+              value={config.wireApi}
+              onChange={(e) => setConfig({ ...config, wireApi: e.target.value as ProviderConfig["wireApi"] })}
+            >
+              <option value="responses">Responses</option>
+              <option value="chat-completions">Chat Completions</option>
+            </select>
+          </div>
         </div>
 
         <div className="settings-field">
@@ -209,27 +224,12 @@ export function ApiTab({
           </div>
         </div>
 
-        <div className="settings-field">
-          <label htmlFor="setting-temperature">{t.temperature}</label>
-          <input
-            id="setting-temperature"
-            type="number"
-            min="0"
-            max="2"
-            step="0.1"
-            value={config.temperature}
-            disabled={config.capability ? !config.capability.supportsTemperature : false}
-            onChange={(e) => setConfig({ ...config, temperature: Number(e.target.value) })}
-          />
-        </div>
-
         <div className="settings-actions-footer">
           <button
             type="button"
             className="settings-action-btn secondary"
             onClick={importCodexConfig}
             disabled={busy}
-            style={{ marginRight: "auto" }}
           >
             {(t as any).importCodexConfig || "Import Codex Config"}
           </button>
@@ -250,6 +250,46 @@ export function ApiTab({
           </button>
           {providerHint && <p className="provider-hint">{providerHint}</p>}
           {configPath && <p className="config-path-hint">{t.config}: {configPath}</p>}
+          {apiTestResult && (
+            <div className={`api-test-result-card ${apiTestResult.status}`} role="status" aria-live="polite">
+              <div className="api-test-result-heading">
+                {apiTestResult.status === "success" && <CheckCircle2 size={15} strokeWidth={2.3} />}
+                {apiTestResult.status === "error" && <TriangleAlert size={15} strokeWidth={2.3} />}
+                {apiTestResult.status === "running" && <LoaderCircle className="spin-icon spin" size={15} strokeWidth={2.3} />}
+                <strong>
+                  {apiTestResult.status === "success"
+                    ? language === "zh" ? "API 检测通过" : "API test passed"
+                    : apiTestResult.status === "error"
+                      ? language === "zh" ? "API 检测失败" : "API test failed"
+                      : language === "zh" ? "正在检测 API" : "Testing API"}
+                </strong>
+                <span>
+                  {new Date(apiTestResult.checkedAt).toLocaleTimeString(language === "zh" ? "zh-CN" : "en-US", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit"
+                  })}
+                </span>
+              </div>
+              <div className="api-test-result-body">
+                {apiTestResult.status === "success" ? (
+                  <>
+                    <span>{language === "zh" ? "模型" : "Model"}: {apiTestResult.model || config.model}</span>
+                    {typeof apiTestResult.latencyMs === "number" && (
+                      <span>{language === "zh" ? "延迟" : "Latency"}: {formatInteger(apiTestResult.latencyMs, language)} ms</span>
+                    )}
+                    {apiTestResult.reply && (
+                      <span>{language === "zh" ? "回复" : "Reply"}: {apiTestResult.reply}</span>
+                    )}
+                  </>
+                ) : apiTestResult.status === "error" ? (
+                  <span>{apiTestResult.error || (language === "zh" ? "未返回具体错误信息" : "No detailed error returned.")}</span>
+                ) : (
+                  <span>{language === "zh" ? "正在发送最小 health check 请求..." : "Sending a minimal health check request..."}</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>

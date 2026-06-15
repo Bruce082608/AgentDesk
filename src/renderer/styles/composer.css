@@ -39,9 +39,9 @@ body[data-theme="dark"] .composer {
 }
 
 body[data-theme="dark"] .composer-surface {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: #181c25;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, #151518, #101012);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.58), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
 }
 
 .composer-surface:focus-within {
@@ -51,7 +51,7 @@ body[data-theme="dark"] .composer-surface {
 
 body[data-theme="dark"] .composer-surface:focus-within {
   border-color: var(--primary);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(91, 131, 255, 0.25);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.58), 0 0 0 2px rgba(255, 255, 255, 0.13);
 }
 
 .composer textarea {
@@ -93,7 +93,7 @@ body[data-theme="dark"] .composer-surface:focus-within {
 
 body[data-theme="dark"] .composer-controls {
   border-top-color: rgba(255, 255, 255, 0.08);
-  background: #181c25;
+  background: #101012;
   border-bottom-left-radius: 15px;
   border-bottom-right-radius: 15px;
 }
@@ -202,7 +202,7 @@ body[data-theme="dark"] .permission-dropdown-container select:hover {
 }
 
 body[data-theme="dark"] .permission-dropdown-container select option {
-  background: #1e2530;
+  background: #101012;
   color: #ffffff;
 }
 
@@ -417,8 +417,8 @@ body[data-theme="dark"] .composer-attachments {
 }
 
 body[data-theme="dark"] .composer-plan {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: #181c25;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, #151518, #101012);
 }
 
 .composer-plan-header {

@@ -3,6 +3,8 @@ import { getModelCapability, normalizeConfigForCapabilities } from "../shared/pr
 export function normalizeProviderConfig(config = {}) {
   const normalized = normalizeConfigForCapabilities(config);
   const { provider, capability } = getModelCapability(normalized);
+  const wireApi = normalizeWireApi(config.wireApi || config.wire_api) ||
+    (provider.provider === "openai" ? "responses" : "chat-completions");
   return {
     ...normalized,
     label: provider.label,
@@ -11,7 +13,7 @@ export function normalizeProviderConfig(config = {}) {
     apiKey: config.apiKey || process.env.AGENT_API_KEY || process.env[provider.apiKeyEnv] || "",
     apiKeyEnv: provider.apiKeyEnv,
     balancePath: provider.balancePath,
-    wireApi: provider.provider === "openai" ? "responses" : "chat-completions",
+    wireApi,
     capability
   };
 }
@@ -260,28 +262,40 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
 
     const reader = response.body?.getReader();
     if (!reader) throw new Error("模型接口没有返回可读取的流。");
+    const cancelReaderOnAbort = () => {
+      reader.cancel().catch(() => {});
+    };
+    requestSignal.addEventListener("abort", cancelReaderOnAbort, { once: true });
 
     const decoder = new TextDecoder();
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      resetTimeout();
-      partial.buffer += decoder.decode(value, { stream: true });
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        resetTimeout();
+        const chunk = decoder.decode(value, { stream: true });
+        partial.rawText += chunk;
+        partial.buffer += chunk;
 
-      const lines = partial.buffer.split(/\r?\n/);
-      partial.buffer = lines.pop() ?? "";
+        const lines = partial.buffer.split(/\r?\n/);
+        partial.buffer = lines.pop() ?? "";
 
-      for (const line of lines) {
-        if (useResponses) {
-          consumeResponsesStreamLine(line, partial, onDelta);
-        } else {
-          consumeStreamLine(line, partial, onDelta);
+        for (const line of lines) {
+          if (useResponses) {
+            consumeResponsesStreamLine(line, partial, onDelta);
+          } else {
+            consumeStreamLine(line, partial, onDelta);
+          }
         }
       }
+    } finally {
+      requestSignal.removeEventListener("abort", cancelReaderOnAbort);
     }
 
-    partial.buffer += decoder.decode();
+    const finalChunk = decoder.decode();
+    partial.rawText += finalChunk;
+    partial.buffer += finalChunk;
     const finalLines = partial.buffer.split(/\r?\n/);
     partial.buffer = "";
     for (const line of finalLines) {
@@ -290,6 +304,17 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
       } else {
         consumeStreamLine(line, partial, onDelta);
       }
+    }
+
+    if (!hasParsedStreamOutput(partial)) {
+      applyRawStreamFallback(partial, useResponses, onDelta);
+    }
+    if (!hasParsedStreamOutput(partial)) {
+      throw new Error(buildUnparsedStreamError(partial.rawText));
+    }
+
+    if (requestSignal.aborted) {
+      throw abortError();
     }
 
     return buildStreamResponse(partial);
@@ -310,6 +335,12 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
   }
 }
 
+function abortError() {
+  const error = new Error("AbortError");
+  error.name = "AbortError";
+  return error;
+}
+
 function createEmptyStreamResult() {
   return {
     buffer: "",
@@ -320,14 +351,13 @@ function createEmptyStreamResult() {
     toolCalls: [],
     responseId: "",
     responseOutput: [],
-    responseOutputByIndex: {}
+    responseOutputByIndex: {},
+    rawText: ""
   };
 }
 
 function consumeStreamLine(line, partial, onDelta) {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("data:")) return;
-  const payload = trimmed.slice(5).trim();
+  const payload = getStreamPayload(line);
   if (!payload || payload === "[DONE]") return;
 
   let data;
@@ -337,23 +367,44 @@ function consumeStreamLine(line, partial, onDelta) {
     return;
   }
 
+  if (data?.error) {
+    throw new Error(data.error.message || data.message || "Chat Completions stream error");
+  }
+
+  applyChatCompletionStreamData(data, partial, onDelta);
+}
+
+function getStreamPayload(line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("data:")) return trimmed.slice(5).trim();
+  if (trimmed.startsWith("{")) return trimmed;
+  return "";
+}
+
+function applyChatCompletionStreamData(data, partial, onDelta) {
   if (data.usage) partial.usage = data.usage;
   const choice = data.choices?.[0];
   if (!choice) return;
   if (choice.finish_reason) partial.finishReason = choice.finish_reason;
 
   const delta = choice.delta ?? {};
+  const message = choice.message ?? {};
   if (delta.content) {
     partial.content += delta.content;
     onDelta?.({ type: "content", text: delta.content });
+  } else if (message.content && !partial.content) {
+    partial.content = String(message.content);
+    onDelta?.({ type: "content", text: partial.content });
   }
-  const reasoningText = delta.reasoning_content || delta.reasoning || "";
+  const reasoningText = delta.reasoning_content || delta.reasoning || message.reasoning_content || message.reasoning || "";
   if (reasoningText) {
     partial.reasoningContent += reasoningText;
     onDelta?.({ type: "reasoning", text: reasoningText });
   }
-  if (delta.tool_calls) {
-    for (const toolDelta of delta.tool_calls) {
+  const toolCalls = delta.tool_calls || message.tool_calls;
+  if (toolCalls) {
+    for (const toolDelta of toolCalls) {
       if (toolDelta.function?.arguments) {
         onDelta?.({
           type: "tool_call_delta",
@@ -362,8 +413,93 @@ function consumeStreamLine(line, partial, onDelta) {
         });
       }
     }
-    mergeToolCallDeltas(partial.toolCalls, delta.tool_calls);
+    mergeToolCallDeltas(partial.toolCalls, toolCalls);
   }
+}
+
+function hasParsedStreamOutput(partial) {
+  return Boolean(
+    partial.content ||
+    partial.reasoningContent ||
+    partial.finishReason ||
+    partial.usage ||
+    partial.toolCalls.length > 0 ||
+    partial.responseOutput.length > 0
+  );
+}
+
+function applyRawStreamFallback(partial, useResponses, onDelta) {
+  const raw = String(partial.rawText || "").trim();
+  if (!raw) return;
+
+  const parsedWhole = parseJsonMaybe(raw);
+  if (parsedWhole) {
+    applyStreamDataObject(parsedWhole, partial, useResponses, onDelta);
+    return;
+  }
+
+  for (const payload of extractSsePayloads(raw)) {
+    if (!payload || payload === "[DONE]") continue;
+    const data = parseJsonMaybe(payload);
+    if (!data) continue;
+    applyStreamDataObject(data, partial, useResponses, onDelta);
+  }
+}
+
+function buildUnparsedStreamError(rawText) {
+  const preview = String(rawText || "").trim().replace(/\s+/g, " ").slice(0, 500);
+  if (!preview) return "模型接口返回了空的流式响应。请检查中转站是否支持当前 Wire API 与 stream=true。";
+  return `模型接口返回了未识别的流式内容：${preview}`;
+}
+
+function applyStreamDataObject(data, partial, useResponses, onDelta) {
+  const responseEventError = getResponsesEventError(data);
+  if (responseEventError) {
+    throw new Error(responseEventError);
+  }
+  if (data?.error) {
+    throw new Error(data.error.message || data.message || "Model stream error");
+  }
+  if (Array.isArray(data?.choices)) {
+    applyChatCompletionStreamData(data, partial, onDelta);
+    return;
+  }
+  if (useResponses || Array.isArray(data?.output) || typeof data?.output_text === "string" || data?.id?.startsWith?.("resp_")) {
+    applyCompletedResponsesData(partial, data);
+  }
+}
+
+function parseJsonMaybe(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function getResponsesEventError(data) {
+  const response = data?.response && typeof data.response === "object" ? data.response : null;
+  const error = response?.error || (data?.type === "response.failed" ? data.error : null);
+  if (!error) return "";
+  const code = error.code ? `${error.code}: ` : "";
+  const message = error.message || response?.status || data?.type || "Responses API failed";
+  return `${code}${message}`;
+}
+
+function extractSsePayloads(raw) {
+  const events = String(raw || "").split(/\r?\n\r?\n/);
+  const payloads = [];
+
+  for (const event of events) {
+    const dataLines = [];
+    for (const line of event.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("data:")) dataLines.push(trimmed.slice(5).trim());
+    }
+    if (dataLines.length > 0) payloads.push(dataLines.join("\n"));
+  }
+
+  return payloads;
 }
 
 function buildStreamResponse(partial, options = {}) {
@@ -469,7 +605,16 @@ function sleep(ms) {
 }
 
 function usesResponsesApi(provider) {
-  return provider.provider === "openai" || provider.wireApi === "responses";
+  return provider.wireApi === "responses";
+}
+
+function normalizeWireApi(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (normalized === "responses" || normalized === "response") return "responses";
+  if (normalized === "chat-completions" || normalized === "chat-completion" || normalized === "chat") {
+    return "chat-completions";
+  }
+  return "";
 }
 
 function getResponsesUrl(provider) {
@@ -633,6 +778,10 @@ function mapReasoningEffortForResponses(reasoningEffort) {
 }
 
 function normalizeResponsesDataToChatCompletion(provider, data) {
+  if (Array.isArray(data?.choices)) {
+    return data;
+  }
+
   const message = responseDataToChatMessage(data);
   return {
     id: data.id,
@@ -752,15 +901,32 @@ function normalizeResponsesUsage(usage) {
 }
 
 function consumeResponsesStreamLine(line, partial, onDelta) {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("data:")) return;
-  const payload = trimmed.slice(5).trim();
+  const payload = getStreamPayload(line);
   if (!payload || payload === "[DONE]") return;
 
   let data;
   try {
     data = JSON.parse(payload);
   } catch {
+    return;
+  }
+
+  if (data?.error && !data.type) {
+    throw new Error(data.error.message || data.message || "Responses stream error");
+  }
+
+  const responseEventError = getResponsesEventError(data);
+  if (responseEventError) {
+    throw new Error(responseEventError);
+  }
+
+  if (Array.isArray(data?.choices)) {
+    applyChatCompletionStreamData(data, partial, onDelta);
+    return;
+  }
+
+  if (!data.type && (Array.isArray(data?.output) || typeof data?.output_text === "string")) {
+    applyCompletedResponsesData(partial, data);
     return;
   }
 
@@ -970,10 +1136,16 @@ function mergeToolCallDeltas(toolCalls, deltas) {
 export const __test__ = {
   buildRequestBody,
   buildResponsesRequestBody,
+  applyRawStreamFallback,
   chatMessagesToResponsesInput,
   convertToolsForResponses,
+  consumeStreamLine,
+  consumeResponsesStreamLine,
+  createEmptyStreamResult,
   ensureOpenAiVersionBaseUrl,
+  normalizeWireApi,
   normalizeResponsesDataToChatCompletion,
+  buildStreamResponse,
   normalizeProviderConfig,
   trimTrailingSlash
 };

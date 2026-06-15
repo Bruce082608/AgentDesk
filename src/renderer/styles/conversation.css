@@ -12,7 +12,9 @@
 }
 
 body[data-theme="dark"] .conversation {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0) 22%), var(--app-bg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0) 24%),
+    var(--app-bg);
 }
 
 .conversation > .context-strip {
@@ -211,7 +213,9 @@ body[data-theme="dark"] .conversation {
 }
 
 body[data-theme="dark"] .message-list {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.42), rgba(15, 23, 42, 0) 18%), transparent;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0) 18%),
+    transparent;
 }
 
 .message-list.dragging-files {
@@ -236,7 +240,7 @@ body[data-theme="dark"] .message-list {
 }
 
 body[data-theme="dark"] .message-drop-overlay {
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(0, 0, 0, 0.58);
 }
 
 .message-drop-container {
@@ -376,8 +380,8 @@ body[data-theme="dark"] .message-drop-overlay {
 }
 
 body[data-theme="dark"] .message.user .message-body {
-  background: rgba(17, 24, 39, 0.98);
-  border-color: rgba(91, 131, 255, 0.26);
+  background: linear-gradient(180deg, rgba(28, 28, 31, 0.98), rgba(18, 18, 20, 0.98));
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .message.assistant .message-body {
@@ -704,7 +708,7 @@ body[data-theme="dark"] .message.user .message-body {
 }
 
 body[data-theme="dark"] .markdown-code-language {
-  color: #93c5fd;
+  color: #d6e4ff;
 }
 
 .code-copy,

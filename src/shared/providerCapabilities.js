@@ -209,6 +209,8 @@ export function normalizeConfigForCapabilities(config = {}) {
     baseUrl: trimTrailingSlash(config.baseUrl || provider.baseUrl),
     model,
     summaryModel: normalizeSummaryModel(config.summaryModel, provider),
+    wireApi: normalizeWireApi(config.wireApi || config.wire_api) ||
+      (provider.provider === "openai" ? "responses" : "chat-completions"),
     contextTokens,
     maxTokens,
     maxAgentSteps: clampInteger(config.maxAgentSteps, 64, 8, 256),
@@ -230,6 +232,15 @@ export function trimTrailingSlash(value) {
 function normalizeSummaryModel(summaryModel, provider) {
   const value = typeof summaryModel === "string" ? summaryModel.trim() : "";
   return value || provider.defaultSummaryModel;
+}
+
+function normalizeWireApi(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (normalized === "responses" || normalized === "response") return "responses";
+  if (normalized === "chat-completions" || normalized === "chat-completion" || normalized === "chat") {
+    return "chat-completions";
+  }
+  return "";
 }
 
 function clampInteger(value, fallback, min, max) {

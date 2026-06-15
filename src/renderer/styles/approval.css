@@ -439,6 +439,10 @@ body[data-theme="dark"] .question-text {
   animation: fade-in 0.2s ease-out;
 }
 
+body[data-theme="dark"] .git-update-modal-overlay {
+  background: rgba(0, 0, 0, 0.62);
+}
+
 .git-update-modal-container {
   display: flex;
   flex-direction: column;

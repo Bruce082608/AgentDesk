@@ -652,6 +652,7 @@ function App() {
         setConfig={providerState.setConfig}
         configPath={providerState.configPath}
         providerHint={providerState.providerHint}
+        apiTestResult={providerState.apiTestResult}
         testingApi={providerState.testingApi}
         testApi={providerState.testApi}
         importCodexConfig={providerState.importCodexConfig}

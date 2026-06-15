@@ -6,6 +6,7 @@ const MAX_MESSAGES = 500;
 const MAX_ATTACHMENTS = 50;
 const CHAT_ROLES = new Set(["user", "assistant", "tool", "system"]);
 const PROVIDERS = new Set(["deepseek", "openai", "openai-compatible"]);
+const WIRE_APIS = new Set(["responses", "chat-completions"]);
 const THINKING_MODES = new Set(["enabled", "disabled"]);
 const REASONING_EFFORTS = new Set(["low", "medium", "high", "max"]);
 const LANGUAGES = new Set(["zh", "en"]);
@@ -154,6 +155,10 @@ function validateProviderConfig(value, options = {}) {
   const provider = optionalString(config.provider, "provider", { max: 64 }) || "deepseek";
   if (!PROVIDERS.has(provider)) invalid("provider", "one of: deepseek, openai, openai-compatible");
 
+  const wireApi = optionalString(config.wireApi, "wireApi", { max: 64 }) ||
+    (provider === "openai" ? "responses" : "chat-completions");
+  if (!WIRE_APIS.has(wireApi)) invalid("wireApi", "responses or chat-completions");
+
   const thinkingMode = optionalString(config.thinkingMode, "thinkingMode", { max: 32 }) || "enabled";
   if (!THINKING_MODES.has(thinkingMode)) invalid("thinkingMode", "enabled or disabled");
 
@@ -169,6 +174,7 @@ function validateProviderConfig(value, options = {}) {
     baseUrl: optionalString(config.baseUrl, "baseUrl", { max: 2048 }) || "",
     model: optionalString(config.model, "model", { max: 256 }) || "",
     summaryModel: optionalString(config.summaryModel, "summaryModel", { max: 256 }) || "",
+    wireApi,
     apiKey,
     temperature: optionalNumber(config.temperature, "temperature", 0, 2),
     maxTokens: optionalInteger(config.maxTokens, "maxTokens", 1, 2_000_000),

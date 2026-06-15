@@ -91,6 +91,7 @@ body[data-theme="dark"] .settings-modal-overlay {
 .nav-tab-item {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   width: 100%;
   height: 38px;
@@ -104,6 +105,15 @@ body[data-theme="dark"] .settings-modal-overlay {
   text-align: left;
   cursor: pointer;
   transition: all 0.2s ease;
+}
+
+.nav-tab-item svg {
+  flex: 0 0 16px;
+}
+
+.nav-tab-item span {
+  flex: 1;
+  min-width: 0;
 }
 
 .nav-tab-item:hover {
@@ -246,14 +256,16 @@ body[data-theme="dark"] .settings-modal-overlay {
   border-top: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
 }
 
 .settings-action-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
+  min-width: 168px;
   height: 38px;
   padding: 0 16px;
   border-radius: 8px;
@@ -261,6 +273,11 @@ body[data-theme="dark"] .settings-modal-overlay {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
+  text-align: left;
+}
+
+.settings-action-btn svg {
+  flex: 0 0 14px;
 }
 
 .settings-action-btn.primary {
@@ -295,6 +312,62 @@ body[data-theme="dark"] .settings-modal-overlay {
   color: var(--text-muted);
   margin: 0;
   word-break: break-all;
+}
+
+.api-test-result-card {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--surface-dim);
+}
+
+.api-test-result-card.success {
+  border-color: var(--success-border);
+  background: rgba(22, 163, 74, 0.06);
+}
+
+.api-test-result-card.error {
+  border-color: rgba(220, 38, 38, 0.22);
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.api-test-result-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-heading);
+}
+
+.api-test-result-heading svg {
+  flex: 0 0 15px;
+}
+
+.api-test-result-card.success .api-test-result-heading svg {
+  color: var(--success);
+}
+
+.api-test-result-card.error .api-test-result-heading svg {
+  color: var(--danger);
+}
+
+.api-test-result-heading span {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.api-test-result-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 .usage-control-row {

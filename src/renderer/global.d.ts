@@ -96,6 +96,7 @@ export type ProviderConfig = {
   baseUrl: string;
   model: string;
   summaryModel: string;
+  wireApi: "responses" | "chat-completions";
   apiKey: string;
   temperature: number;
   maxTokens: number;

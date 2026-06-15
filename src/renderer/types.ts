@@ -99,6 +99,17 @@ export type TokenUsageStats = {
   requests: number;
 };
 
+export type ProviderTestFeedback = {
+  status: "running" | "success" | "error";
+  checkedAt: number;
+  provider: ProviderConfig["provider"];
+  model?: string;
+  latencyMs?: number;
+  reply?: string;
+  usage?: unknown;
+  error?: string;
+};
+
 export type ChatSession = {
   id: string;
   title: string;
@@ -150,6 +161,7 @@ export const defaultConfig: ProviderConfig = {
   baseUrl: "https://api.deepseek.com",
   model: "deepseek-v4-pro",
   summaryModel: "deepseek-v4-flash",
+  wireApi: "chat-completions",
   apiKey: "",
   temperature: 0.2,
   maxTokens: 32768,

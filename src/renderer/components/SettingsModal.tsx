@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { X, Palette, Cpu, Coins, Send, Zap } from "lucide-react";
 import type { Language, translations } from "../i18n";
-import type { ThemeMode, ProviderConfig, ProviderBalanceResult, TokenUsageStats } from "../types";
+import type { ThemeMode, ProviderConfig, ProviderBalanceResult, ProviderTestFeedback, TokenUsageStats } from "../types";
 
 // Extracted Tab subcomponents
 import { GeneralTab } from "./settings/GeneralTab";
@@ -23,6 +23,7 @@ type SettingsModalProps = {
   setConfig: (config: ProviderConfig) => void;
   configPath: string;
   providerHint: string;
+  apiTestResult: ProviderTestFeedback | null;
   testingApi: boolean;
   testApi: () => void;
   importCodexConfig: () => void;
@@ -48,6 +49,7 @@ export function SettingsModal({
   setConfig,
   configPath,
   providerHint,
+  apiTestResult,
   testingApi,
   testApi,
   importCodexConfig,
@@ -195,6 +197,7 @@ export function SettingsModal({
                 importCodexConfig={importCodexConfig}
                 busy={busy}
                 testingApi={testingApi}
+                apiTestResult={apiTestResult}
                 providerHint={providerHint}
                 configPath={configPath}
                 t={t}

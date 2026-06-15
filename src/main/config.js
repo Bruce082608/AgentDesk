@@ -19,6 +19,7 @@ const DEFAULT_CONFIG = {
   maxAgentSteps: 64,
   thinkingMode: "enabled",
   reasoningEffort: "max",
+  wireApi: "chat-completions",
   temperature: 0.2,
   telegramEnabled: true,
   telegramAllowedUserId: "7043147111",
@@ -114,6 +115,7 @@ function toPersistedConfig(config) {
     maxAgentSteps: config.maxAgentSteps,
     thinkingMode: config.thinkingMode,
     reasoningEffort: config.reasoningEffort,
+    wireApi: config.wireApi,
     temperature: config.temperature,
     telegramEnabled: Boolean(config.telegramEnabled),
     telegramAllowedUserId: String(config.telegramAllowedUserId ?? "")
@@ -301,82 +303,167 @@ export async function importCodexConfig() {
       throw new Error(`未找到 Codex CLI 配置文件。请确保 ~/.codex/ 目录下存在 config.toml 或 auth.json。`);
     }
 
-    const result = {};
-
-    if (hasToml) {
-      const lines = tomlContent.split(/\r?\n/);
-      let currentSection = "";
-      let modelProvider = "";
-      let model = "";
-      let baseUrl = "";
-      let reasoningEffort = "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) continue;
-        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-          currentSection = trimmed.slice(1, -1).trim();
-          continue;
-        }
-        const eqIdx = trimmed.indexOf("=");
-        if (eqIdx === -1) continue;
-        const key = trimmed.slice(0, eqIdx).trim();
-        let val = trimmed.slice(eqIdx + 1).trim();
-        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-          val = val.slice(1, -1);
-        }
-
-        if (currentSection === "") {
-          if (key === "model_provider") {
-            modelProvider = val;
-          } else if (key === "model") {
-            model = val;
-          } else if (key === "model_reasoning_effort") {
-            reasoningEffort = val;
-          }
-        } else if (currentSection.startsWith("model_providers.")) {
-          const providerName = currentSection.slice("model_providers.".length).trim();
-          if (providerName.toLowerCase() === "openai" || (modelProvider && providerName.toLowerCase() === modelProvider.toLowerCase())) {
-            if (key === "base_url") {
-              baseUrl = val;
-            }
-          }
-        }
-      }
-
-      if (modelProvider) {
-        const providerLower = modelProvider.toLowerCase();
-        if (providerLower === "openai") {
-          result.provider = "openai";
-        } else if (providerLower === "deepseek") {
-          result.provider = "deepseek";
-        } else {
-          result.provider = "openai-compatible";
-        }
-      }
-      if (model) result.model = model;
-      if (baseUrl) result.baseUrl = baseUrl;
-      if (reasoningEffort) result.reasoningEffort = normalizeImportedReasoningEffort(reasoningEffort);
-    }
-
-    if (hasAuth) {
-      try {
-        const authData = JSON.parse(authContent);
-        const provider = result.provider || "openai";
-        if (provider === "openai" || provider === "openai-compatible") {
-          result.apiKey = authData.OPENAI_API_KEY || authData.openai_api_key || Object.values(authData)[0] || "";
-        } else if (provider === "deepseek") {
-          result.apiKey = authData.DEEPSEEK_API_KEY || authData.deepseek_api_key || Object.values(authData)[0] || "";
-        }
-      } catch (err) {
-        // ignore JSON parse error
-      }
-    }
-
+    const result = parseImportedCodexConfig({
+      tomlContent: hasToml ? tomlContent : "",
+      authContent: hasAuth ? authContent : ""
+    });
     return { ok: true, config: result };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+export function parseImportedCodexConfig({ tomlContent = "", authContent = "" } = {}) {
+  const result = {};
+  const parsedToml = parseCodexToml(tomlContent);
+  const modelProvider = asString(parsedToml.root.model_provider);
+  const providerConfig = selectCodexModelProvider(parsedToml.modelProviders, modelProvider);
+  const providerName = asString(providerConfig.name) || modelProvider;
+  const baseUrl = asString(providerConfig.base_url) || asString(parsedToml.root.base_url);
+  const wireApi = asString(providerConfig.wire_api) || asString(parsedToml.root.wire_api);
+  const model = asString(parsedToml.root.model);
+  const reasoningEffort = asString(parsedToml.root.model_reasoning_effort) || asString(parsedToml.root.reasoning_effort);
+
+  const importedProvider = inferImportedProvider(providerName, baseUrl);
+  if (importedProvider) result.provider = importedProvider;
+  if (model) result.model = model;
+  if (baseUrl) result.baseUrl = baseUrl;
+  if (reasoningEffort) result.reasoningEffort = normalizeImportedReasoningEffort(reasoningEffort);
+  const normalizedWireApi = normalizeImportedWireApi(wireApi);
+  if (normalizedWireApi) result.wireApi = normalizedWireApi;
+
+  const apiKey = readCodexApiKey(authContent, result.provider || importedProvider || "openai");
+  if (apiKey) result.apiKey = apiKey;
+
+  return result;
+}
+
+function parseCodexToml(content) {
+  const root = {};
+  const modelProviders = {};
+  let currentSection = "";
+
+  for (const line of String(content || "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) continue;
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      currentSection = trimmed.slice(1, -1).trim();
+      continue;
+    }
+
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = unquoteTomlString(trimmed.slice(0, eqIdx).trim());
+    const value = parseTomlValue(trimmed.slice(eqIdx + 1).trim());
+    const providerName = getModelProviderSectionName(currentSection);
+
+    if (providerName) {
+      modelProviders[providerName] = {
+        ...modelProviders[providerName],
+        [key]: value
+      };
+    } else if (!currentSection) {
+      root[key] = value;
+    }
+  }
+
+  return { root, modelProviders };
+}
+
+function parseTomlValue(rawValue) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return "";
+  if ((raw.startsWith('"') && raw.includes('"', 1)) || (raw.startsWith("'") && raw.includes("'", 1))) {
+    const quote = raw[0];
+    const endIdx = raw.lastIndexOf(quote);
+    return unquoteTomlString(raw.slice(0, endIdx + 1));
+  }
+  const lower = raw.toLowerCase();
+  if (lower === "true") return true;
+  if (lower === "false") return false;
+  return raw.replace(/\s+#.*$/, "").trim();
+}
+
+function unquoteTomlString(value) {
+  const trimmed = String(value || "").trim();
+  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return trimmed.slice(1, -1);
+    }
+  }
+  if (trimmed.length >= 2 && trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function getModelProviderSectionName(section) {
+  const prefix = "model_providers.";
+  if (!section.startsWith(prefix)) return "";
+  return unquoteTomlString(section.slice(prefix.length));
+}
+
+function selectCodexModelProvider(modelProviders, modelProvider) {
+  const providerNames = Object.keys(modelProviders);
+  if (!providerNames.length) return {};
+  const requested = providerNames.find((name) => name.toLowerCase() === String(modelProvider || "").toLowerCase());
+  if (requested) return modelProviders[requested];
+  const openai = providerNames.find((name) => name.toLowerCase() === "openai");
+  if (openai) return modelProviders[openai];
+  return modelProviders[providerNames[0]];
+}
+
+function inferImportedProvider(providerName, baseUrl) {
+  const normalized = String(providerName || "").trim().toLowerCase();
+  const normalizedBaseUrl = String(baseUrl || "").trim().toLowerCase();
+  if (normalized.includes("deepseek") || normalizedBaseUrl.includes("deepseek")) return "deepseek";
+  if (normalized || normalizedBaseUrl) return "openai";
+  return "";
+}
+
+function readCodexApiKey(authContent, provider) {
+  if (!authContent) return "";
+  try {
+    const authData = JSON.parse(authContent);
+    const candidates = provider === "deepseek"
+      ? ["DEEPSEEK_API_KEY", "deepseek_api_key"]
+      : ["OPENAI_API_KEY", "openai_api_key", "AGENT_API_KEY", "api_key"];
+    return findStringByKeys(authData, candidates) || findAnyApiKey(authData);
+  } catch {
+    return "";
+  }
+}
+
+function findStringByKeys(value, keys) {
+  if (!value || typeof value !== "object") return "";
+  for (const key of keys) {
+    const found = value[key];
+    if (typeof found === "string" && found.trim()) return found.trim();
+  }
+  for (const nested of Object.values(value)) {
+    const found = findStringByKeys(nested, keys);
+    if (found) return found;
+  }
+  return "";
+}
+
+function findAnyApiKey(value) {
+  if (!value || typeof value !== "object") return "";
+  for (const [key, nested] of Object.entries(value)) {
+    const normalizedKey = key.toLowerCase().replace(/[-_]/g, "");
+    if ((normalizedKey === "apikey" || normalizedKey.endsWith("apikey")) && typeof nested === "string" && nested.trim()) {
+      return nested.trim();
+    }
+    const found = findAnyApiKey(nested);
+    if (found) return found;
+  }
+  return "";
+}
+
+function asString(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function normalizeImportedReasoningEffort(value) {
@@ -384,4 +471,13 @@ function normalizeImportedReasoningEffort(value) {
   if (normalized === "xhigh" || normalized === "xhihg" || normalized === "max") return "max";
   if (normalized === "high" || normalized === "medium" || normalized === "low") return normalized;
   return "medium";
+}
+
+function normalizeImportedWireApi(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (normalized === "responses" || normalized === "response") return "responses";
+  if (normalized === "chat-completions" || normalized === "chat-completion" || normalized === "chat") {
+    return "chat-completions";
+  }
+  return "";
 }

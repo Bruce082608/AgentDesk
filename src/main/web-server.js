@@ -257,7 +257,7 @@ async function handleRestApi(pathname, req, res) {
     }
 
     const controller = new AbortController();
-    activeWebRequests.set(requestId, controller);
+    activeWebRequests.set(requestId, { controller, cancelledEmitted: false });
 
     const emit = (message) => {
       broadcastSseEvent("agent:event", { requestId, ...message });
@@ -270,7 +270,10 @@ async function handleRestApi(pathname, req, res) {
         emit({ type: "done" });
       } catch (error) {
         if (controller.signal.aborted) {
-          emit({ type: "cancelled", message: "任务已中止" });
+          const requestState = activeWebRequests.get(requestId);
+          if (!requestState?.cancelledEmitted) {
+            emit({ type: "cancelled", message: "任务已中止" });
+          }
         } else {
           emit({ type: "error", message: error.message });
         }
@@ -285,12 +288,20 @@ async function handleRestApi(pathname, req, res) {
 
   if (pathname === "/api/agent/cancel" && req.method === "POST") {
     const body = await readBody();
-    const controller = activeWebRequests.get(body.requestId);
-    if (!controller) {
+    const requestState = activeWebRequests.get(body.requestId);
+    if (!requestState) {
       sendJson({ ok: false });
       return;
     }
-    controller.abort();
+    requestState.controller.abort();
+    if (!requestState.cancelledEmitted) {
+      requestState.cancelledEmitted = true;
+      broadcastSseEvent("agent:event", {
+        requestId: body.requestId,
+        type: "cancelled",
+        message: "任务已中止"
+      });
+    }
     activeWebRequests.delete(body.requestId);
     sendJson({ ok: true });
     return;
@@ -344,7 +355,7 @@ async function handleRestApi(pathname, req, res) {
     }
 
     const controller = new AbortController();
-    activeWebRequests.set(requestId, controller);
+    activeWebRequests.set(requestId, { controller, cancelledEmitted: false });
 
     const emit = (message) => {
       broadcastSseEvent("agent:event", { requestId, ...message });
@@ -356,7 +367,10 @@ async function handleRestApi(pathname, req, res) {
         emit({ type: "done" });
       } catch (error) {
         if (controller.signal.aborted) {
-          emit({ type: "cancelled", message: "任务已中止" });
+          const requestState = activeWebRequests.get(requestId);
+          if (!requestState?.cancelledEmitted) {
+            emit({ type: "cancelled", message: "任务已中止" });
+          }
         } else {
           emit({ type: "error", message: error.message });
         }
