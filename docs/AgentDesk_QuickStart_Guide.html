@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>AgentDesk 极简上手指南</title>
+  <style>
+    :root {
+      --primary: #1d4ed8;
+      --primary-light: #eff6ff;
+      --text-main: #1f2937;
+      --text-muted: #4b5563;
+      --border: #e5e7eb;
+      --success: #10b981;
+      --success-light: #ecfdf5;
+      --shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      color: var(--text-main);
+      line-height: 1.6;
+      background-color: #ffffff;
+      padding: 0;
+    }
+
+    /* PDF Print Styles for A4 Page formatting */
+    @page {
+      size: A4;
+      margin: 20mm 15mm 20mm 15mm;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    /* Header & Cover */
+    .cover {
+      text-align: center;
+      padding: 60px 20px 40px;
+      border-bottom: 2px solid var(--primary-light);
+      margin-bottom: 40px;
+      page-break-after: auto;
+    }
+
+    .logo-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--primary), #3b82f6);
+      color: #ffffff;
+      font-size: 32px;
+      font-weight: 800;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 10px rgba(29, 78, 216, 0.2);
+    }
+
+    h1.title {
+      font-size: 32px;
+      color: var(--primary);
+      margin-bottom: 12px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-bottom: 20px;
+    }
+
+    /* Section Styles */
+    section {
+      margin-bottom: 35px;
+      page-break-inside: avoid;
+    }
+
+    h2.section-title {
+      font-size: 20px;
+      color: var(--primary);
+      border-left: 4px solid var(--primary);
+      padding-left: 10px;
+      margin-bottom: 20px;
+      font-weight: 700;
+    }
+
+    p.intro-text {
+      font-size: 15px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+
+    /* Step Cards */
+    .steps-container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .step-card {
+      display: flex;
+      gap: 16px;
+      background: var(--primary-light);
+      border-radius: 12px;
+      padding: 18px;
+      border-left: 4px solid var(--primary);
+      box-shadow: var(--shadow);
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background-color: var(--primary);
+      color: #ffffff;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .step-content {
+      flex-grow: 1;
+    }
+
+    .step-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+
+    .step-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .step-desc a {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .step-desc strong {
+      color: var(--text-main);
+    }
+
+    /* Grid Feature Cards */
+    .features-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 15px;
+    }
+
+    .feature-card {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+      transition: all 0.2s ease;
+    }
+
+    .feature-icon-wrapper {
+      margin-bottom: 12px;
+      color: var(--primary);
+    }
+
+    .feature-icon-wrapper svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .feature-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 8px;
+    }
+
+    .feature-desc {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Tips & Footer */
+    .tips-box {
+      background: var(--success-light);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-top: 25px;
+      page-break-inside: avoid;
+    }
+
+    .tips-icon {
+      color: var(--success);
+      font-size: 20px;
+    }
+
+    .tips-content {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .footer {
+      text-align: center;
+      padding-top: 30px;
+      border-top: 1px solid var(--border);
+      margin-top: 50px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Cover Header -->
+    <header class="cover">
+      <div class="logo-badge">AD</div>
+      <h1 class="title">AgentDesk 极简上手指南</h1>
+      <p class="subtitle">—— 专为电脑小白设计的 AI 桌面智能助手教程</p>
+      <p class="intro-text">
+        欢迎使用 <strong>AgentDesk</strong>！这是一款运行在您本地电脑上的 AI 助手。它不仅能回答问题，还能在您的授权下直接为您整理文件、编写代码。本指南将帮助您在 3 分钟内完成配置并开始体验。
+      </p>
+    </header>
+
+    <!-- Section 1: Setup & API Config -->
+    <section>
+      <h2 class="section-title">第一步：配置 DeepSeek API（激活余额）</h2>
+      <p class="intro-text">
+        AgentDesk 采用本地直连 DeepSeek 官方接口的设计，因此需要配置您的专属“API Key”（相当于一把充值钥匙），这能确保您只为自己实际的消耗付费，杜绝第三方中间商赚差价。
+      </p>
+      
+      <div class="steps-container">
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h3 class="step-title">注册并获取 API Key</h3>
+            <p class="step-desc">
+              用电脑浏览器打开 DeepSeek 开放平台官网：<a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a>。注册账号后，点击左侧菜单的 <strong>“API Keys”</strong>，点击 <strong>“创建 API Key”</strong>，将其拷贝并妥善保存。
+            </p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h3 class="step-title">在平台中进行充值</h3>
+            <p class="step-desc">
+              在 DeepSeek 平台左侧选择 <strong>“充值” (Usage)</strong>，支持支付宝或微信。首充极低（例如 10 元人民币），可支撑数十万字对话，使用成本极低。
+            </p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h3 class="step-title">在 AgentDesk 中保存 Key</h3>
+            <p class="step-desc">
+              启动 AgentDesk，点击主界面右上角的<strong>齿轮图标（设置）</strong>。在弹出的面板中选择“API与模型”，将刚刚复制的 API Key 粘贴到对应的输入框中，点击底部的<strong>保存</strong>按钮。
+            </p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h3 class="step-title">确认余额显示</h3>
+            <p class="step-desc">
+              保存成功后，主界面顶部栏会自动出现一个精美的<strong>“余额”胶囊</strong>，实时显示您的账户剩余额度。如果余额更新出来，说明连接已成功，您可以立即开始和 AI 聊天了！
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 2: Core Usage -->
+    <section>
+      <h2 class="section-title">第二步：核心功能与使用方法</h2>
+      <p class="intro-text">配置好 Key 后，您可以体验以下三种便捷交互：</p>
+      
+      <div class="steps-container">
+        <div class="step-card" style="background-color: #fafafa; border-left-color: #6366f1;">
+          <div class="step-num" style="background-color: #6366f1;">A</div>
+          <div class="step-content">
+            <h3 class="step-title">日常对话与问题解答</h3>
+            <p class="step-desc">
+              在底部输入框输入您遇到的任何难题（如写一封公文邮件、修改 Excel 公式、制定旅游计划等），点击发送或按回车。AgentDesk 会为您快速梳理答案。
+            </p>
+          </div>
+        </div>
+
+        <div class="step-card" style="background-color: #fafafa; border-left-color: #6366f1;">
+          <div class="step-num" style="background-color: #6366f1;">B</div>
+          <div class="step-content">
+            <h3 class="step-title">一键语音听写转文字</h3>
+            <p class="step-desc">
+              懒得打字？点击输入框右下角的 <strong>“录音麦克风”</strong> 按钮，大声说出您的问题，系统会自动启动听写功能，并将您的语音高精准度地转化为文字输入。
+            </p>
+          </div>
+        </div>
+
+        <div class="step-card" style="background-color: #fafafa; border-left-color: #6366f1;">
+          <div class="step-num" style="background-color: #6366f1;">C</div>
+          <div class="step-content">
+            <h3 class="step-title">安全授权代码与命令执行</h3>
+            <p class="step-desc">
+              当您让 AI 执行如“帮我把桌面所有的图片移动到新建文件夹”等系统命令时，AI 会弹出一个<strong>“操作确认卡片”</strong>。只有在您确认并点击“同意执行”（Proceed）后，它才会真正动手，绝对安全可控。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 3: Platform Advantages -->
+    <section>
+      <h2 class="section-title">第三步：AgentDesk 平台核心优势</h2>
+      <p class="intro-text">
+        比起市面上其他云端 AI 网页，AgentDesk 具有得天独厚的四项本地优势：
+      </p>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <!-- Shield Lock Icon -->
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+            </svg>
+          </div>
+          <h3 class="feature-title">本地隐私安全 (数据防泄露)</h3>
+          <p class="feature-desc">
+            您的所有 API Key、历史对话文件、以及代码指令全部加密保存在您本地电脑。不经过任何中间云端服务器，保障绝对隐私。
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <!-- Wallet Icon -->
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
+            </svg>
+          </div>
+          <h3 class="feature-title">实时余额监控 (花多少看得见)</h3>
+          <p class="feature-desc">
+            独创顶部栏实时余额胶囊。每次对话扣减明明白白。支持点击一键安全跳转至官方充值页，防止过度透支或扣费不清。
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <!-- Terminal/Code Icon -->
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+          </div>
+          <h3 class="feature-title">真正的动手能力 (代码沙箱)</h3>
+          <p class="feature-desc">
+            不同于只能清谈的网页版 AI。它可以调用本地命令行、编写脚本、整理文件。在您的指尖批准下，帮您完成真实的电脑操作。
+          </p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <!-- Sparkles/Easy Icon -->
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+            </svg>
+          </div>
+          <h3 class="feature-title">极致精简 (无感后台运行)</h3>
+          <p class="feature-desc">
+            抛弃了复杂的命令行配置。提供一键安装包和免安装便携版。双击即用，界面现代流畅，完美兼容浅色与暗色模式。
+          </p>
+        </div>
+      </div>
+
+      <!-- Quick Tips Box -->
+      <div class="tips-box">
+        <div class="tips-icon">💡</div>
+        <div class="tips-content">
+          <strong>安全小贴士：</strong>如果 AI 申请执行的命令包含带有删除属性的敏感操作（如 <code>rm</code> 或 <code>del</code>），请仔细核对路径，确认无误后再点击“Proceed”放行，保障系统绝对安全。
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>AgentDesk - 高效、隐私、懂你的本地桌面 AI 代理</p>
+      <p style="margin-top: 4px; font-size: 11px; color: var(--text-muted);">© 2026 Bruce. All Rights Reserved.</p>
+    </footer>
+  </div>
+
+</body>
+</html>

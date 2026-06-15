@@ -101,16 +101,7 @@ export function ApiTab({
           </div>
         )}
 
-        <div className="settings-field">
-          <label htmlFor="setting-summary-model">{t.summaryModel}</label>
-          <input
-            id="setting-summary-model"
-            type="text"
-            value={config.summaryModel}
-            placeholder={t.summaryModelPlaceholder}
-            onChange={(e) => setConfig({ ...config, summaryModel: e.target.value })}
-          />
-        </div>
+
 
         <div className="settings-field">
           <label htmlFor="setting-apikey">{t.apiKey}</label>
