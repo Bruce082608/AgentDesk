@@ -61,99 +61,131 @@ describe("provider request body", () => {
     expect(body.thinking).toBeUndefined();
   });
 
-  it("builds standard request body for OpenAI free-text models", () => {
+  it("builds a Responses API body for OpenAI provider", () => {
     const provider = __test__.normalizeProviderConfig({
       provider: "openai",
       apiKey: "key",
-      model: "custom-gpt-model",
-      temperature: 0.3,
-      maxTokens: 8192
-    });
-    const body = __test__.buildRequestBody(provider, {
-      messages: [],
-      tool_choice: "auto"
-    });
-    expect(body.model).toBe("custom-gpt-model");
-    expect(body.temperature).toBe(0.3);
-    expect(body.max_tokens).toBe(8192);
-    expect(body.tool_choice).toBe("auto");
-    expect(body.thinking).toBeUndefined();
-    expect(body.max_completion_tokens).toBeUndefined();
-  });
-
-  it("uses max_completion_tokens and reasoning_effort for OpenAI o4-mini", () => {
-    const provider = __test__.normalizeProviderConfig({
-      provider: "openai",
-      apiKey: "key",
-      model: "o4-mini",
-      reasoningEffort: "high",
-      maxTokens: 16384
-    });
-    const body = __test__.buildRequestBody(provider, {
-      messages: [],
-      tool_choice: "auto"
-    });
-    expect(body.model).toBe("o4-mini");
-    expect(body.reasoning_effort).toBe("high");
-    expect(body.max_completion_tokens).toBe(16384);
-    expect(body.max_tokens).toBeUndefined();
-    expect(body.temperature).toBeUndefined();
-    expect(body.thinking).toBeUndefined();
-  });
-
-  it("auto-detects o-series reasoning for unknown OpenAI models", () => {
-    const provider = __test__.normalizeProviderConfig({
-      provider: "openai",
-      apiKey: "key",
-      model: "o3-pro",
-      reasoningEffort: "low",
-      maxTokens: 4096
-    });
-    const body = __test__.buildRequestBody(provider, {
-      messages: [],
-      tool_choice: "auto"
-    });
-    expect(body.model).toBe("o3-pro");
-    expect(body.reasoning_effort).toBe("low");
-    expect(body.max_completion_tokens).toBe(4096);
-    expect(body.max_tokens).toBeUndefined();
-    expect(body.temperature).toBeUndefined();
-  });
-
-  it("defaults to standard parameters for gpt-5 models unless thinking mode is enabled", () => {
-    const provider = __test__.normalizeProviderConfig({
-      provider: "openai",
-      apiKey: "key",
-      model: "gpt-5.5-pro",
-      maxTokens: 4096
-    });
-    const body = __test__.buildRequestBody(provider, {
-      messages: [],
-      tool_choice: "auto"
-    });
-    expect(body.model).toBe("gpt-5.5-pro");
-    expect(body.temperature).toBeDefined();
-    expect(body.max_tokens).toBe(4096);
-    expect(body.max_completion_tokens).toBeUndefined();
-  });
-
-  it("uses max_completion_tokens and reasoning_effort for custom OpenAI models when thinking mode is enabled", () => {
-    const provider = __test__.normalizeProviderConfig({
-      provider: "openai",
-      apiKey: "key",
-      model: "custom-gpt-model",
+      baseUrl: "https://bmapi.020212.xyz",
+      model: "gpt-5.5",
       thinkingMode: "enabled",
-      reasoningEffort: "high",
-      maxTokens: 8192
+      reasoningEffort: "max",
+      maxTokens: 32768
     });
-    const body = __test__.buildRequestBody(provider, {
-      messages: [],
+    const body = __test__.buildResponsesRequestBody(provider, {
+      messages: [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "Hello" }
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            description: "Read a file",
+            parameters: { type: "object", properties: { path: { type: "string" } } }
+          }
+        }
+      ],
+      stream: true,
       tool_choice: "auto"
     });
-    expect(body.model).toBe("custom-gpt-model");
-    expect(body.reasoning_effort).toBe("high");
-    expect(body.max_completion_tokens).toBe(8192);
+    expect(body.model).toBe("gpt-5.5");
+    expect(body.input).toEqual([
+      { role: "system", content: "You are helpful." },
+      { role: "user", content: "Hello" }
+    ]);
+    expect(body.tools).toEqual([
+      {
+        type: "function",
+        name: "read_file",
+        description: "Read a file",
+        parameters: { type: "object", properties: { path: { type: "string" } } }
+      }
+    ]);
+    expect(body.stream).toBe(true);
+    expect(body.store).toBe(false);
+    expect(body.max_output_tokens).toBe(32768);
+    expect(body.reasoning).toEqual({ effort: "xhigh" });
+    expect(body.include).toEqual(["reasoning.encrypted_content"]);
+    expect(body.tool_choice).toBe("auto");
     expect(body.max_tokens).toBeUndefined();
     expect(body.temperature).toBeUndefined();
+  });
+
+  it("adds /v1 for OpenAI Responses base URLs that omit it", () => {
+    expect(__test__.ensureOpenAiVersionBaseUrl("https://bmapi.020212.xyz")).toBe("https://bmapi.020212.xyz/v1");
+    expect(__test__.ensureOpenAiVersionBaseUrl("https://api.openai.com/v1")).toBe("https://api.openai.com/v1");
+    expect(__test__.ensureOpenAiVersionBaseUrl("https://bmapi.020212.xyz/v1/responses")).toBe("https://bmapi.020212.xyz/v1");
+    expect(__test__.ensureOpenAiVersionBaseUrl("https://bmapi.020212.xyz/v1/chat/completions")).toBe("https://bmapi.020212.xyz/v1");
+  });
+
+  it("converts chat tool history into Responses input items", () => {
+    const input = __test__.chatMessagesToResponsesInput([
+      {
+        role: "assistant",
+        content: "I will inspect it.",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "read_file", arguments: "{\"path\":\"README.md\"}" }
+          }
+        ]
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_1",
+        name: "read_file",
+        content: "README content"
+      }
+    ]);
+    expect(input).toEqual([
+      { role: "assistant", content: "I will inspect it." },
+      {
+        type: "function_call",
+        call_id: "call_1",
+        name: "read_file",
+        arguments: "{\"path\":\"README.md\"}",
+        status: "completed"
+      },
+      {
+        type: "function_call_output",
+        call_id: "call_1",
+        output: "README content"
+      }
+    ]);
+  });
+
+  it("normalizes Responses output into a chat-completions-like shape", () => {
+    const provider = __test__.normalizeProviderConfig({
+      provider: "openai",
+      apiKey: "key"
+    });
+    const data = __test__.normalizeResponsesDataToChatCompletion(provider, {
+      id: "resp_1",
+      model: "gpt-5.5",
+      status: "completed",
+      output_text: "Done",
+      output: [
+        {
+          type: "function_call",
+          id: "fc_1",
+          call_id: "call_1",
+          name: "read_file",
+          arguments: "{\"path\":\"README.md\"}"
+        }
+      ],
+      usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 }
+    });
+    expect(data.choices[0].message.content).toBe("Done");
+    expect(data.choices[0].message.tool_calls).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "read_file", arguments: "{\"path\":\"README.md\"}" }
+      }
+    ]);
+    expect(data.usage.prompt_tokens).toBe(10);
+    expect(data.usage.completion_tokens).toBe(5);
   });
 });

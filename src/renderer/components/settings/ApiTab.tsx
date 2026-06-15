@@ -90,7 +90,7 @@ export function ApiTab({
               type="text"
               value={config.model}
               onChange={(e) => setConfig({ ...config, model: e.target.value })}
-              placeholder={config.provider === "openai" ? "e.g. gpt-4.1-mini, o4-mini, gpt-5.5" : "e.g. gpt-4.1-mini"}
+              placeholder={config.provider === "openai" ? "e.g. gpt-5.5" : "e.g. gpt-4.1-mini"}
             />
           )}
         </div>

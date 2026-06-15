@@ -11,6 +11,7 @@ export function normalizeProviderConfig(config = {}) {
     apiKey: config.apiKey || process.env.AGENT_API_KEY || process.env[provider.apiKeyEnv] || "",
     apiKeyEnv: provider.apiKeyEnv,
     balancePath: provider.balancePath,
+    wireApi: provider.provider === "openai" ? "responses" : "chat-completions",
     capability
   };
 }
@@ -120,7 +121,7 @@ export async function testProviderConnection(config = {}) {
         { role: "system", content: "Reply with only OK." },
         { role: "user", content: "health check" }
       ],
-      max_tokens: 16,
+      max_tokens: usesResponsesApi(provider) ? 512 : 16,
       tool_choice: "none",
       stream: false
     },
@@ -183,10 +184,14 @@ export async function getProviderBalance(config = {}) {
 
 async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000, signal) {
   const { signal: requestSignal, cleanup, isExternallyAborted } = createRequestSignal(timeoutMs, signal);
-  const body = buildRequestBody(provider, bodyOverrides);
+  const useResponses = usesResponsesApi(provider);
+  const body = useResponses
+    ? buildResponsesRequestBody(provider, bodyOverrides)
+    : buildRequestBody(provider, bodyOverrides);
+  const url = useResponses ? getResponsesUrl(provider) : `${provider.baseUrl}/chat/completions`;
 
   try {
-    const response = await fetchWithRetry(`${provider.baseUrl}/chat/completions`, {
+    const response = await fetchWithRetry(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -209,7 +214,7 @@ async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000, si
       throw new Error(`模型接口请求失败 ${response.status}: ${message}`);
     }
 
-    return data;
+    return useResponses ? normalizeResponsesDataToChatCompletion(provider, data) : data;
   } catch (error) {
     if (error?.name === "AbortError") {
       if (isExternallyAborted()) throw new Error("请求已取消。");
@@ -223,11 +228,15 @@ async function postChatCompletion(provider, bodyOverrides, timeoutMs = 90000, si
 
 async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeoutMs = 120000, signal) {
   const { signal: requestSignal, cleanup, isExternallyAborted, resetTimeout } = createRequestSignal(timeoutMs, signal);
-  const body = buildRequestBody(provider, bodyOverrides);
+  const useResponses = usesResponsesApi(provider);
+  const body = useResponses
+    ? buildResponsesRequestBody(provider, bodyOverrides)
+    : buildRequestBody(provider, bodyOverrides);
+  const url = useResponses ? getResponsesUrl(provider) : `${provider.baseUrl}/chat/completions`;
   const partial = createEmptyStreamResult();
 
   try {
-    const response = await fetchWithRetry(`${provider.baseUrl}/chat/completions`, {
+    const response = await fetchWithRetry(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -264,6 +273,21 @@ async function postChatCompletionStream(provider, bodyOverrides, onDelta, timeou
       partial.buffer = lines.pop() ?? "";
 
       for (const line of lines) {
+        if (useResponses) {
+          consumeResponsesStreamLine(line, partial, onDelta);
+        } else {
+          consumeStreamLine(line, partial, onDelta);
+        }
+      }
+    }
+
+    partial.buffer += decoder.decode();
+    const finalLines = partial.buffer.split(/\r?\n/);
+    partial.buffer = "";
+    for (const line of finalLines) {
+      if (useResponses) {
+        consumeResponsesStreamLine(line, partial, onDelta);
+      } else {
         consumeStreamLine(line, partial, onDelta);
       }
     }
@@ -293,7 +317,10 @@ function createEmptyStreamResult() {
     reasoningContent: "",
     finishReason: null,
     usage: null,
-    toolCalls: []
+    toolCalls: [],
+    responseId: "",
+    responseOutput: [],
+    responseOutputByIndex: {}
   };
 }
 
@@ -341,12 +368,15 @@ function consumeStreamLine(line, partial, onDelta) {
 
 function buildStreamResponse(partial, options = {}) {
   const interrupted = Boolean(options.interrupted);
+  const toolCalls = compactToolCalls(partial.toolCalls);
   return {
     message: {
       role: "assistant",
       content: partial.content,
       reasoning_content: partial.reasoningContent || undefined,
-      tool_calls: !interrupted && partial.toolCalls.length > 0 ? partial.toolCalls : undefined
+      tool_calls: !interrupted && toolCalls.length > 0 ? toolCalls : undefined,
+      response_id: partial.responseId || undefined,
+      response_output: !interrupted && partial.responseOutput?.length > 0 ? partial.responseOutput : undefined
     },
     finishReason: interrupted ? "stream_interrupted" : partial.finishReason,
     usage: partial.usage,
@@ -438,6 +468,439 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function usesResponsesApi(provider) {
+  return provider.provider === "openai" || provider.wireApi === "responses";
+}
+
+function getResponsesUrl(provider) {
+  return `${ensureOpenAiVersionBaseUrl(provider.baseUrl)}/responses`;
+}
+
+function ensureOpenAiVersionBaseUrl(baseUrl) {
+  const base = trimTrailingSlash(baseUrl)
+    .replace(/\/responses$/i, "")
+    .replace(/\/chat\/completions$/i, "");
+  if (/\/v\d+(?:\.\d+)?$/i.test(base)) return base;
+  return `${base}/v1`;
+}
+
+function buildResponsesRequestBody(provider, bodyOverrides = {}) {
+  const maxOutputTokens = bodyOverrides.max_completion_tokens ?? bodyOverrides.max_tokens ?? provider.maxTokens;
+  const body = {
+    model: provider.model,
+    input: chatMessagesToResponsesInput(bodyOverrides.messages || []),
+    max_output_tokens: maxOutputTokens,
+    store: false
+  };
+
+  if (bodyOverrides.stream) {
+    body.stream = true;
+  }
+
+  if (bodyOverrides.tools && provider.capability?.supportsToolCalls) {
+    body.tools = convertToolsForResponses(bodyOverrides.tools);
+    if (bodyOverrides.tool_choice) {
+      body.tool_choice = bodyOverrides.tool_choice;
+    }
+  }
+
+  if (provider.capability?.supportsThinking && provider.thinkingMode === "enabled") {
+    body.reasoning = {
+      effort: mapReasoningEffortForResponses(provider.reasoningEffort)
+    };
+    body.include = ["reasoning.encrypted_content"];
+  } else if (provider.capability?.supportsTemperature) {
+    body.temperature = provider.temperature;
+  }
+
+  return body;
+}
+
+function chatMessagesToResponsesInput(messages) {
+  const input = [];
+
+  for (const message of messages) {
+    if (!message || typeof message !== "object") continue;
+    const role = message.role;
+
+    if (role === "tool") {
+      const callId = String(message.tool_call_id || "").trim();
+      if (!callId) continue;
+      input.push({
+        type: "function_call_output",
+        call_id: callId,
+        output: String(message.content ?? "")
+      });
+      continue;
+    }
+
+    if (role === "assistant") {
+      if (Array.isArray(message.response_output) && message.response_output.length > 0) {
+        input.push(...message.response_output);
+        continue;
+      }
+
+      const content = normalizeResponsesMessageContent(role, message.content);
+      if (hasResponsesContent(content)) {
+        input.push({ role: "assistant", content });
+      }
+
+      for (const toolCall of normalizeToolCallsForResponsesInput(message.tool_calls)) {
+        input.push(toolCall);
+      }
+      continue;
+    }
+
+    if (role === "system" || role === "user") {
+      const content = normalizeResponsesMessageContent(role, message.content);
+      if (hasResponsesContent(content)) {
+        input.push({ role, content });
+      }
+    }
+  }
+
+  return input;
+}
+
+function normalizeResponsesMessageContent(role, content) {
+  if (!Array.isArray(content)) return String(content ?? "");
+
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return null;
+      if (part.type === "text") {
+        return {
+          type: role === "assistant" ? "output_text" : "input_text",
+          text: String(part.text ?? "")
+        };
+      }
+      if (part.type === "image_url") {
+        const imageUrl = typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
+        if (!imageUrl) return null;
+        return {
+          type: "input_image",
+          image_url: imageUrl
+        };
+      }
+      return part;
+    })
+    .filter(Boolean);
+}
+
+function hasResponsesContent(content) {
+  return Array.isArray(content) ? content.length > 0 : String(content || "").trim().length > 0;
+}
+
+function normalizeToolCallsForResponsesInput(toolCalls) {
+  if (!Array.isArray(toolCalls)) return [];
+  return toolCalls
+    .map((toolCall) => {
+      const callId = String(toolCall?.id || "").trim();
+      const fn = toolCall?.function || {};
+      const name = String(fn.name || "").trim();
+      if (!callId || !name) return null;
+      return {
+        type: "function_call",
+        call_id: callId,
+        name,
+        arguments: String(fn.arguments ?? ""),
+        status: "completed"
+      };
+    })
+    .filter(Boolean);
+}
+
+function convertToolsForResponses(tools) {
+  if (!Array.isArray(tools)) return [];
+  return tools
+    .map((tool) => {
+      if (tool?.type === "function" && tool.function) {
+        return {
+          type: "function",
+          name: tool.function.name,
+          description: tool.function.description,
+          parameters: tool.function.parameters
+        };
+      }
+      return tool;
+    })
+    .filter(Boolean);
+}
+
+function mapReasoningEffortForResponses(reasoningEffort) {
+  if (reasoningEffort === "max") return "xhigh";
+  return reasoningEffort || "medium";
+}
+
+function normalizeResponsesDataToChatCompletion(provider, data) {
+  const message = responseDataToChatMessage(data);
+  return {
+    id: data.id,
+    model: data.model ?? provider.model,
+    choices: [
+      {
+        message,
+        finish_reason: responseFinishReason(data)
+      }
+    ],
+    usage: normalizeResponsesUsage(data.usage),
+    response: data
+  };
+}
+
+function compactToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls)) return [];
+  return toolCalls.filter((toolCall) => toolCall?.id && toolCall?.function?.name);
+}
+
+function responseDataToChatMessage(data) {
+  const output = Array.isArray(data?.output) ? data.output : [];
+  const toolCalls = extractResponsesToolCalls(data);
+  return {
+    role: "assistant",
+    content: extractResponsesOutputText(data),
+    reasoning_content: extractResponsesReasoningText(output) || undefined,
+    tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+    response_id: data?.id || undefined,
+    response_output: output.length > 0 ? output : undefined
+  };
+}
+
+function extractResponsesOutputText(data) {
+  if (typeof data?.output_text === "string") return data.output_text;
+  const output = Array.isArray(data?.output) ? data.output : [];
+  let text = "";
+
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    if (item.type === "message") {
+      text += extractResponsesContentText(item.content);
+    } else if (item.type === "output_text" || item.type === "text") {
+      text += String(item.text ?? "");
+    }
+  }
+
+  return text;
+}
+
+function extractResponsesContentText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  let text = "";
+
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    if (part.type === "output_text" || part.type === "text" || part.type === "input_text") {
+      text += String(part.text ?? "");
+    } else if (part.type === "refusal") {
+      text += String(part.refusal ?? "");
+    }
+  }
+
+  return text;
+}
+
+function extractResponsesToolCalls(data) {
+  const output = Array.isArray(data?.output) ? data.output : [];
+  return output
+    .map((item) => {
+      if (item?.type !== "function_call") return null;
+      const callId = String(item.call_id || item.id || "").trim();
+      const name = String(item.name || "").trim();
+      if (!callId || !name) return null;
+      return {
+        id: callId,
+        type: "function",
+        function: {
+          name,
+          arguments: String(item.arguments ?? "")
+        }
+      };
+    })
+    .filter(Boolean);
+}
+
+function extractResponsesReasoningText(output) {
+  let text = "";
+  for (const item of output) {
+    if (item?.type !== "reasoning" || !Array.isArray(item.summary)) continue;
+    for (const summary of item.summary) {
+      const summaryText = summary?.text ?? summary?.summary_text;
+      if (summaryText) text += `${summaryText}\n`;
+    }
+  }
+  return text.trim();
+}
+
+function responseFinishReason(data) {
+  if (data?.status === "incomplete") {
+    return data?.incomplete_details?.reason || "incomplete";
+  }
+  return data?.status || null;
+}
+
+function normalizeResponsesUsage(usage) {
+  if (!usage || typeof usage !== "object") return usage ?? null;
+  const promptTokens = usage.prompt_tokens ?? usage.input_tokens;
+  const completionTokens = usage.completion_tokens ?? usage.output_tokens;
+  return {
+    ...usage,
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: usage.total_tokens ?? ((Number(promptTokens) || 0) + (Number(completionTokens) || 0))
+  };
+}
+
+function consumeResponsesStreamLine(line, partial, onDelta) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("data:")) return;
+  const payload = trimmed.slice(5).trim();
+  if (!payload || payload === "[DONE]") return;
+
+  let data;
+  try {
+    data = JSON.parse(payload);
+  } catch {
+    return;
+  }
+
+  if (data.type === "error") {
+    const message = data?.error?.message || data?.message || "Responses stream error";
+    throw new Error(message);
+  }
+
+  if (data.response_id && !partial.responseId) partial.responseId = data.response_id;
+
+  if (data.type === "response.output_text.delta" && data.delta) {
+    partial.content += data.delta;
+    onDelta?.({ type: "content", text: data.delta });
+    return;
+  }
+
+  if (data.type === "response.output_text.done" && data.text && !partial.content) {
+    partial.content = data.text;
+    onDelta?.({ type: "content", text: data.text });
+    return;
+  }
+
+  if (data.type === "response.reasoning_summary_text.delta" && data.delta) {
+    partial.reasoningContent += data.delta;
+    onDelta?.({ type: "reasoning", text: data.delta });
+    return;
+  }
+
+  if (data.type === "response.output_item.added" && data.item) {
+    const index = Number.isFinite(data.output_index) ? data.output_index : partial.responseOutput.length;
+    partial.responseOutputByIndex[index] = data.item;
+    syncResponsesOutput(partial);
+    if (data.item.type === "function_call") {
+      upsertResponsesToolCall(partial, index, {
+        id: data.item.call_id || data.item.id || "",
+        name: data.item.name || "",
+        arguments: data.item.arguments || ""
+      });
+    }
+    return;
+  }
+
+  if (data.type === "response.function_call_arguments.delta") {
+    const index = Number.isFinite(data.output_index) ? data.output_index : partial.toolCalls.length;
+    const item = partial.responseOutputByIndex[index];
+    if (item?.type === "function_call") {
+      item.arguments = `${item.arguments || ""}${data.delta || ""}`;
+      syncResponsesOutput(partial);
+    }
+    upsertResponsesToolCall(partial, index, {
+      arguments: data.delta || ""
+    });
+    if (data.delta) {
+      onDelta?.({
+        type: "tool_call_delta",
+        name: partial.toolCalls[index]?.function?.name || "",
+        text: data.delta
+      });
+    }
+    return;
+  }
+
+  if (data.type === "response.function_call_arguments.done") {
+    const index = Number.isFinite(data.output_index) ? data.output_index : partial.toolCalls.length;
+    const item = partial.responseOutputByIndex[index];
+    if (item?.type === "function_call" && typeof data.arguments === "string") {
+      item.arguments = data.arguments;
+      syncResponsesOutput(partial);
+      setResponsesToolCallArguments(partial, index, data.arguments);
+    }
+    return;
+  }
+
+  if (data.type === "response.output_item.done" && data.item) {
+    const index = Number.isFinite(data.output_index) ? data.output_index : partial.responseOutput.length;
+    partial.responseOutputByIndex[index] = data.item;
+    syncResponsesOutput(partial);
+    if (data.item.type === "function_call") {
+      upsertResponsesToolCall(partial, index, {
+        id: data.item.call_id || data.item.id || "",
+        name: data.item.name || "",
+        arguments: ""
+      });
+      setResponsesToolCallArguments(partial, index, String(data.item.arguments ?? ""));
+    } else if (data.item.type === "message" && !partial.content) {
+      const text = extractResponsesContentText(data.item.content);
+      if (text) {
+        partial.content = text;
+        onDelta?.({ type: "content", text });
+      }
+    }
+    return;
+  }
+
+  if (data.type === "response.completed" && data.response) {
+    applyCompletedResponsesData(partial, data.response);
+  }
+}
+
+function upsertResponsesToolCall(partial, index, delta) {
+  if (!partial.toolCalls[index]) {
+    partial.toolCalls[index] = {
+      id: delta.id || "",
+      type: "function",
+      function: { name: delta.name || "", arguments: "" }
+    };
+  }
+
+  const target = partial.toolCalls[index];
+  if (delta.id) target.id = delta.id;
+  if (delta.name) target.function.name = delta.name;
+  if (delta.arguments) target.function.arguments += delta.arguments;
+}
+
+function setResponsesToolCallArguments(partial, index, argumentsText) {
+  if (!partial.toolCalls[index]) return;
+  partial.toolCalls[index].function.arguments = argumentsText;
+}
+
+function syncResponsesOutput(partial) {
+  partial.responseOutput = Object.keys(partial.responseOutputByIndex)
+    .map((key) => [Number(key), partial.responseOutputByIndex[key]])
+    .sort(([left], [right]) => left - right)
+    .map(([, item]) => item);
+}
+
+function applyCompletedResponsesData(partial, response) {
+  partial.responseId = response.id || partial.responseId;
+  partial.finishReason = responseFinishReason(response);
+  partial.usage = normalizeResponsesUsage(response.usage);
+  partial.content = extractResponsesOutputText(response);
+  partial.reasoningContent = extractResponsesReasoningText(Array.isArray(response.output) ? response.output : []);
+  partial.toolCalls = extractResponsesToolCalls(response);
+  partial.responseOutput = Array.isArray(response.output) ? response.output : partial.responseOutput;
+  partial.responseOutputByIndex = {};
+  partial.responseOutput.forEach((item, index) => {
+    partial.responseOutputByIndex[index] = item;
+  });
+}
+
 function buildRequestBody(provider, bodyOverrides) {
   const body = {
     model: provider.model,
@@ -506,6 +969,11 @@ function mergeToolCallDeltas(toolCalls, deltas) {
 
 export const __test__ = {
   buildRequestBody,
+  buildResponsesRequestBody,
+  chatMessagesToResponsesInput,
+  convertToolsForResponses,
+  ensureOpenAiVersionBaseUrl,
+  normalizeResponsesDataToChatCompletion,
   normalizeProviderConfig,
   trimTrailingSlash
 };

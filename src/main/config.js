@@ -309,6 +309,7 @@ export async function importCodexConfig() {
       let modelProvider = "";
       let model = "";
       let baseUrl = "";
+      let reasoningEffort = "";
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -330,6 +331,8 @@ export async function importCodexConfig() {
             modelProvider = val;
           } else if (key === "model") {
             model = val;
+          } else if (key === "model_reasoning_effort") {
+            reasoningEffort = val;
           }
         } else if (currentSection.startsWith("model_providers.")) {
           const providerName = currentSection.slice("model_providers.".length).trim();
@@ -353,6 +356,7 @@ export async function importCodexConfig() {
       }
       if (model) result.model = model;
       if (baseUrl) result.baseUrl = baseUrl;
+      if (reasoningEffort) result.reasoningEffort = normalizeImportedReasoningEffort(reasoningEffort);
     }
 
     if (hasAuth) {
@@ -373,4 +377,11 @@ export async function importCodexConfig() {
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+function normalizeImportedReasoningEffort(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "xhigh" || normalized === "xhihg" || normalized === "max") return "max";
+  if (normalized === "high" || normalized === "medium" || normalized === "low") return normalized;
+  return "medium";
 }

@@ -54,12 +54,25 @@ export const PROVIDER_CAPABILITIES = {
   openai: {
     provider: "openai",
     label: "OpenAI",
-    baseUrl: "https://api.openai.com/v1",
+    baseUrl: "https://bmapi.020212.xyz",
     apiKeyEnv: "OPENAI_API_KEY",
     balancePath: "",
-    defaultModel: "gpt-4.1-mini",
+    defaultModel: "gpt-5.5",
     defaultSummaryModel: "",
     models: {
+      "gpt-5.5": {
+        label: "GPT-5.5",
+        contextTokens: 1_000_000,
+        maxOutputTokens: 128_000,
+        defaultMaxTokens: 32_768,
+        supportsThinking: true,
+        supportsToolCalls: true,
+        supportsTemperature: false,
+        supportsVision: true,
+        defaultThinkingMode: "enabled",
+        reasoningEfforts: ["low", "medium", "high", "max"],
+        defaultReasoningEffort: "max"
+      },
       "o4-mini": {
         label: "o4-mini",
         contextTokens: 200_000,
@@ -94,11 +107,11 @@ export const PROVIDER_CAPABILITIES = {
       defaultMaxTokens: 8_192,
       supportsThinking: true,
       supportsToolCalls: true,
-      supportsTemperature: true,
+      supportsTemperature: false,
       supportsVision: true,
-      defaultThinkingMode: "disabled",
-      reasoningEfforts: ["low", "medium", "high"],
-      defaultReasoningEffort: "medium"
+      defaultThinkingMode: "enabled",
+      reasoningEfforts: ["low", "medium", "high", "max"],
+      defaultReasoningEffort: "max"
     }
   },
   "openai-compatible": {
