@@ -751,6 +751,7 @@ body[data-theme="dark"] .markdown-code-language {
   border: 2px solid var(--primary);
   border-radius: 999px;
   background: var(--surface);
+  animation: thinking-dot-pulse 1.35s ease-in-out infinite;
 }
 
 /* ===== Scroll-to-bottom floating button ===== */

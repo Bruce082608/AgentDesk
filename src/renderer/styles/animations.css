@@ -77,6 +77,19 @@
   50% { box-shadow: 0 0 0 4px var(--primary-focus-ring); }
 }
 
+@keyframes thinking-dot-pulse {
+  0%,
+  100% {
+    transform: scale(0.82);
+    box-shadow: 0 0 0 0 var(--primary-focus-ring);
+  }
+
+  50% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
 @keyframes pulse-badge {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }

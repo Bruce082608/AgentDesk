@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, Palette, Cpu, Coins, Send, Zap } from "lucide-react";
+import { X, Palette, Cpu, Coins, Send, Zap, Image } from "lucide-react";
 import type { Language, translations } from "../i18n";
 import type { ThemeMode, ProviderConfig, ProviderBalanceResult, ProviderTestFeedback, TokenUsageStats } from "../types";
 
@@ -7,6 +7,7 @@ import type { ThemeMode, ProviderConfig, ProviderBalanceResult, ProviderTestFeed
 import { GeneralTab } from "./settings/GeneralTab";
 import { ApiTab } from "./settings/ApiTab";
 import { TelegramTab } from "./settings/TelegramTab";
+import { DreaminaTab } from "./settings/DreaminaTab";
 import { UsageTab } from "./settings/UsageTab";
 import { SkillsTab } from "./settings/SkillsTab";
 
@@ -36,7 +37,7 @@ type SettingsModalProps = {
   t: Translation;
 };
 
-type TabId = "general" | "api" | "telegram" | "usage" | "skills";
+type TabId = "general" | "api" | "telegram" | "dreamina" | "usage" | "skills";
 
 export function SettingsModal({
   isOpen,
@@ -138,6 +139,7 @@ export function SettingsModal({
     { id: "general" as TabId, label: language === "zh" ? "常规设置" : "General Settings", icon: Palette },
     { id: "api" as TabId, label: language === "zh" ? "API 与模型" : "API & Models", icon: Cpu },
     { id: "telegram" as TabId, label: language === "zh" ? "Telegram 远控" : "Telegram Remote", icon: Send },
+    { id: "dreamina" as TabId, label: language === "zh" ? "即梦创作" : "Jimeng AI", icon: Image },
     { id: "usage" as TabId, label: language === "zh" ? "用量与余额" : "Usage & Balance", icon: Coins },
     { id: "skills" as TabId, label: language === "zh" ? "技能管理" : "Skills Management", icon: Zap }
   ];
@@ -206,6 +208,16 @@ export function SettingsModal({
 
             {activeTab === "telegram" && (
               <TelegramTab
+                language={language}
+                config={config}
+                setConfig={setConfig}
+                showApiKeys={showApiKeys}
+                setShowApiKeys={setShowApiKeys}
+              />
+            )}
+
+            {activeTab === "dreamina" && (
+              <DreaminaTab
                 language={language}
                 config={config}
                 setConfig={setConfig}

@@ -241,6 +241,162 @@
   margin: 0;
 }
 
+/* ===== Work process summary ===== */
+.work-process-card {
+  width: min(calc(100% - 24px), 960px);
+  margin: 0 auto 12px 24px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  position: relative;
+}
+
+.work-process-card::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: 16px;
+  width: 6px;
+  height: 6px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.work-process-card.error::before {
+  border-color: var(--danger);
+}
+
+.work-process-card > summary {
+  display: grid;
+  grid-template-columns: 16px minmax(0, max-content);
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 5px 8px 5px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.work-process-card[open] > summary {
+  grid-template-columns: 16px minmax(0, 1fr) 24px auto;
+  gap: 8px;
+  min-height: 36px;
+}
+
+.work-process-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.work-process-chevron {
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-muted);
+  transition: transform 140ms ease, color 140ms ease;
+}
+
+.work-process-card[open] > summary .work-process-chevron {
+  transform: rotate(90deg);
+  color: var(--text-secondary);
+}
+
+.work-process-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-light);
+  border-radius: 7px;
+  background: var(--surface-dim);
+  color: var(--text-muted);
+}
+
+.work-process-icon.error {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--border-light));
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface-dim));
+  color: var(--danger);
+}
+
+.work-process-copy {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.work-process-title {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.work-process-card[open] .work-process-title {
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.work-process-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-process-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.work-process-duration,
+.work-process-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.work-process-status.completed {
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.work-process-status.error {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--border-row));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-dim));
+  color: var(--danger);
+}
+
+.work-process-details {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 6px 26px;
+  padding: 0 0 0 12px;
+  border-left: 1px solid var(--border-light);
+  animation: panel-slide-in 150ms ease-out;
+}
+
+.work-process-details .tool-call-card {
+  width: 100%;
+  margin: 0;
+}
+
 /* ===== Plan checklist items ===== */
 .plan-list {
   display: grid;

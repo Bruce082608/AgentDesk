@@ -6,8 +6,7 @@ import {
   ChevronRight,
   X,
   LoaderCircle,
-  ArrowDown,
-  Lightbulb
+  ArrowDown
 } from "lucide-react";
 import type { Language, translations } from "../../i18n";
 import type {
@@ -21,9 +20,9 @@ import type {
   TaskStatus,
   StreamRecoveryStatus
 } from "../../types";
-import { MarkdownContent, CodeBlock, formatToolDraftText } from "../../utils";
+import { MarkdownContent, formatToolDraftText } from "../../utils";
 import { ToolCallCard } from "./ToolCallCard";
-import { ToolCallGroupCard } from "./ToolCallGroupCard";
+import { WorkProcessCard } from "./WorkProcessCard";
 import { TaskStatusIcon } from "./TaskStatusIcon";
 import { ApprovalPanel } from "../ApprovalPanel";
 import {
@@ -46,7 +45,7 @@ const getReasoningDurationSec = (msg: ChatMessage) => {
 
 type RenderItem =
   | { type: "message"; message: ChatMessage; index: number }
-  | { type: "tool_group"; name: string; tools: { message: ChatMessage; index: number }[] };
+  | { type: "work_process"; tools: { message: ChatMessage; index: number }[] };
 
 type MessageListProps = {
   messages: ChatMessage[];
@@ -113,7 +112,13 @@ export const MessageList = memo(function MessageList({
 }: MessageListProps) {
   const renderItems = useMemo(() => {
     const items: RenderItem[] = [];
-    let currentGroup: { name: string; tools: { message: ChatMessage; index: number }[] } | null = null;
+    let currentTools: { message: ChatMessage; index: number }[] = [];
+
+    const flushTools = () => {
+      if (!currentTools.length) return;
+      items.push({ type: "work_process", tools: currentTools });
+      currentTools = [];
+    };
 
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i];
@@ -121,39 +126,14 @@ export const MessageList = memo(function MessageList({
       if (message.role === "assistant" && !message.content && !message.reasoning && message.tool_calls?.length) continue;
 
       if (message.role === "tool") {
-        const toolName = message.name || "";
-        if (currentGroup && currentGroup.name === toolName) {
-          currentGroup.tools.push({ message, index: i });
-        } else {
-          if (currentGroup) {
-            if (currentGroup.tools.length === 1) {
-              items.push({ type: "message", message: currentGroup.tools[0].message, index: currentGroup.tools[0].index });
-            } else {
-              items.push({ type: "tool_group", name: currentGroup.name, tools: currentGroup.tools });
-            }
-          }
-          currentGroup = { name: toolName, tools: [{ message, index: i }] };
-        }
+        currentTools.push({ message, index: i });
       } else {
-        if (currentGroup) {
-          if (currentGroup.tools.length === 1) {
-            items.push({ type: "message", message: currentGroup.tools[0].message, index: currentGroup.tools[0].index });
-          } else {
-            items.push({ type: "tool_group", name: currentGroup.name, tools: currentGroup.tools });
-          }
-          currentGroup = null;
-        }
+        flushTools();
         items.push({ type: "message", message, index: i });
       }
     }
 
-    if (currentGroup) {
-      if (currentGroup.tools.length === 1) {
-        items.push({ type: "message", message: currentGroup.tools[0].message, index: currentGroup.tools[0].index });
-      } else {
-        items.push({ type: "tool_group", name: currentGroup.name, tools: currentGroup.tools });
-      }
-    }
+    flushTools();
 
     return items;
   }, [messages]);
@@ -172,18 +152,15 @@ export const MessageList = memo(function MessageList({
         </div>
       )}
       {renderItems.map((item) => {
-        if (item.type === "tool_group") {
+        if (item.type === "work_process") {
           return (
-            <ToolCallGroupCard
-              key={`tool-group-${item.name}-${item.tools[0].index}`}
-              name={item.name}
+            <WorkProcessCard
+              key={`work-process-${item.tools[0].index}`}
               tools={item.tools}
               language={language}
               t={t}
               toolDetailsMode={toolDetailsMode}
-              copyMessage={copyMessage}
               busy={busy}
-              regenerateMessage={regenerateMessage}
             />
           );
         }
@@ -211,7 +188,7 @@ export const MessageList = memo(function MessageList({
         if (message.role === "assistant" && !message.content && !message.reasoning && message.tool_calls?.length) return null;
         const isThinking = index === streamingMessageIndex && busy;
         const reasoningKey = `${message.role}-${index}`;
-        const reasoningView = reasoningViews[reasoningKey] || (isThinking ? "full" : "collapsed");
+        const reasoningView = reasoningViews[reasoningKey] || "collapsed";
         return (
           <article className={`message ${message.role}${index === streamingMessageIndex ? " streaming" : ""}`} key={`${message.role}-${index}`} title={formatMessageTimestamp(message.createdAt, language)}>
             <div className="message-meta">
@@ -282,16 +259,17 @@ export const MessageList = memo(function MessageList({
         />
       ))}
       {toolDraft && busy && (
-        <article className="message assistant tool-draft-message">
-          <div className="message-meta">
-            <div className="role">{t.writingCode}{toolDraft.name ? ` · ${toolDraft.name}` : ""}</div>
-          </div>
-          <div className="message-body">
-            <div className="markdown-content">
-              <CodeBlock code={formatToolDraftText(toolDraft.text)} language="json" copyLabel={t.copy} copiedLabel={t.copied} />
-            </div>
-          </div>
-        </article>
+        <ToolCallCard
+          key={`tool-draft-${toolDraft.name || "draft"}`}
+          args={formatToolDraftText(toolDraft.text)}
+          copyLabel={t.copy}
+          copiedLabel={t.copied}
+          language={language}
+          name={toolDraft.name || t.writingCode}
+          status="running"
+          title={t.writingCode}
+          toolDetailsMode={toolDetailsMode}
+        />
       )}
       <ApprovalPanel
         activeCommands={activeCommands}
