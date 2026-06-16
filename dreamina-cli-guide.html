@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>即梦 (Dreamina) CLI 完整使用指南</title>
+<style>
+  @page {
+    size: A4;
+    margin: 20mm;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #1a1a1a;
+    max-width: 100%;
+  }
+  h1 {
+    font-size: 24px;
+    border-bottom: 3px solid #2563eb;
+    padding-bottom: 8px;
+    margin-top: 0;
+    color: #1e40af;
+  }
+  h2 {
+    font-size: 18px;
+    border-bottom: 2px solid #93c5fd;
+    padding-bottom: 6px;
+    margin-top: 28px;
+    color: #1e40af;
+  }
+  h3 {
+    font-size: 15px;
+    margin-top: 20px;
+    color: #2563eb;
+  }
+  h4 {
+    font-size: 13px;
+    margin-top: 16px;
+    color: #374151;
+  }
+  blockquote {
+    border-left: 4px solid #93c5fd;
+    margin: 12px 0;
+    padding: 8px 16px;
+    background: #eff6ff;
+    color: #374151;
+    border-radius: 0 4px 4px 0;
+  }
+  code {
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+    font-size: 12px;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #1e40af;
+  }
+  pre {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 14px 18px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 12px 0;
+  }
+  pre code {
+    background: transparent;
+    color: #e2e8f0;
+    padding: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 12px;
+  }
+  th, td {
+    border: 1px solid #d1d5db;
+    padding: 8px 12px;
+    text-align: left;
+  }
+  th {
+    background: #f3f4f6;
+    font-weight: 600;
+    color: #374151;
+  }
+  tr:nth-child(even) {
+    background: #fafbfc;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #e5e7eb;
+    margin: 20px 0;
+  }
+  ul, ol {
+    padding-left: 24px;
+  }
+  li {
+    margin: 4px 0;
+  }
+  a {
+    color: #2563eb;
+    text-decoration: none;
+  }
+  p {
+    margin: 8px 0;
+  }
+</style>
+</head>
+<body>
+<h1>即梦 (Dreamina) CLI 完整使用指南</h1>
+<blockquote>
+<p><strong>版本</strong>: <code>46b5b0e-dirty</code> (build: 2026-06-03T19:39:25Z)
+<strong>CLI 路径</strong>: <code>~/.local/bin/dreamina</code></p>
+</blockquote>
+<hr>
+<h2>目录</h2>
+<ol>
+<li><a href="#快速入门">快速入门</a></li>
+<li><a href="#账户命令">账户命令</a></li>
+<li><a href="#图片生成">图片生成</a></li>
+<li><a href="#视频生成">视频生成</a></li>
+<li><a href="#图片放大">图片放大</a></li>
+<li><a href="#任务管理">任务管理</a></li>
+<li><a href="#会话管理">会话管理</a></li>
+<li><a href="#参数速查表">参数速查表</a></li>
+<li><a href="#常见问题">常见问题</a></li>
+</ol>
+<hr>
+<h2 id="快速入门">快速入门</h2>
+<h3>安装与登录</h3>
+<pre><code># 1. 登录即梦账户（OAuth Device Flow）
+dreamina login
+
+# 无头模式登录（适用于 CI/CD 或远程环境）
+dreamina login --headless
+dreamina login checklogin --device_code=&lt;device_code&gt; --poll=30
+
+# 清除登录状态
+dreamina logout
+
+# 强制重新登录
+dreamina relogin
+
+# 查看版本
+dreamina version</code></pre>
+<p>登录命令会输出 <code>verification_uri</code>、<code>user_code</code> 和 <code>device_code</code>。在浏览器中打开 <code>verification_uri</code>，输入 <code>user_code</code> 即可完成授权。</p>
+<h3>查看积分</h3>
+<pre><code>dreamina user_credit</code></pre>
+<hr>
+<h2 id="账户命令">账户命令</h2>
+<h3><code>dreamina login</code> — 登录</h3>
+<p>通过 OAuth Device Flow 完成本地登录。</p>
+<table>
+<thead><tr><th>参数</th><th>说明</th></tr></thead>
+<tbody><tr><td><code>--headless</code></td><td>打印 OAuth 授权信息后退出，不等待完成</td></tr></tbody>
+</table>
+<pre><code>dreamina login
+dreamina login --headless
+dreamina login checklogin --device_code=&lt;device_code&gt; --poll=30</code></pre>
+<h3><code>dreamina logout</code> — 登出</h3>
+<p>清除本地 OAuth 登录状态。</p>
+<pre><code>dreamina logout</code></pre>
+<h3><code>dreamina relogin</code> — 重新登录</h3>
+<p>清除当前登录态并强制重新进行 OAuth 登录。</p>
+<pre><code>dreamina relogin</code></pre>
+<h3><code>dreamina user_credit</code> — 查询积分</h3>
+<p>显示当前账户的剩余积分。</p>
+<pre><code>dreamina user_credit</code></pre>
+<h3><code>dreamina version</code> — 查看版本</h3>
+<p>打印构建版本和 commit 信息。</p>
+<pre><code>dreamina version</code></pre>
+<hr>
+<h2 id="图片生成">图片生成</h2>
+<h3><code>dreamina text2image</code> — 文生图</h3>
+<p>根据文本描述生成图片。任务为异步执行，可使用 <code>--poll</code> 等待结果。</p>
+<h4>支持的模型与分辨率</h4>
+<table>
+<thead><tr><th>模型版本</th><th>支持分辨率</th></tr></thead>
+<tbody>
+<tr><td>3.0, 3.1</td><td>1k, 2k</td></tr>
+<tr><td>4.0, 4.1, 4.5, 4.6, 4.7, 5.0</td><td>2k, 4k</td></tr>
+</tbody>
+</table>
+<h4>支持的比例</h4>
+<p><code>21:9</code>, <code>16:9</code>, <code>3:2</code>, <code>4:3</code>, <code>1:1</code>, <code>3:4</code>, <code>2:3</code>, <code>9:16</code></p>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--prompt</code></td><td>string</td><td>生图提示词（必填）</td></tr>
+<tr><td><code>--ratio</code></td><td>string</td><td>图片比例，默认 <code>1:1</code></td></tr>
+<tr><td><code>--resolution_type</code></td><td>string</td><td>分辨率：<code>1k</code>, <code>2k</code>, <code>4k</code>（依模型而定）</td></tr>
+<tr><td><code>--model_version</code></td><td>string</td><td>模型版本</td></tr>
+<tr><td><code>--session</code></td><td>int</td><td>会话 ID（默认 0）</td></tr>
+<tr><td><code>--poll</code></td><td>int</td><td>提交后轮询等待秒数（0 表示不轮询）</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 基础用法
+dreamina text2image --prompt="一只可爱的橘猫肖像" --ratio=1:1 --resolution_type=2k
+
+# 使用指定模型
+dreamina text2image --prompt="赛博朋克风格的城市天际线" --model_version=5.0 --ratio=16:9 --resolution_type=4k
+
+# 轮询等待结果
+dreamina text2image --prompt="水彩风景画" --ratio=3:2 --resolution_type=2k --poll=60</code></pre>
+<hr>
+<h3><code>dreamina image2image</code> — 图生图</h3>
+<p>上传 1-10 张本地图片，基于参考图生成新图片。</p>
+<h4>支持的模型</h4>
+<p><code>4.0</code>, <code>4.1</code>, <code>4.5</code>, <code>4.6</code>, <code>4.7</code>, <code>5.0</code></p>
+<blockquote><p><strong>注意</strong>: image2image 不支持 1k 分辨率，仅支持 2k 和 4k。</p></blockquote>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--images</code></td><td>strings</td><td>本地输入图片路径（1-10 张）</td></tr>
+<tr><td><code>--prompt</code></td><td>string</td><td>编辑提示词</td></tr>
+<tr><td><code>--ratio</code></td><td>string</td><td>图片比例</td></tr>
+<tr><td><code>--resolution_type</code></td><td>string</td><td>分辨率：<code>2k</code>, <code>4k</code></td></tr>
+<tr><td><code>--model_version</code></td><td>string</td><td>模型版本</td></tr>
+<tr><td><code>--session</code></td><td>int</td><td>会话 ID</td></tr>
+<tr><td><code>--poll</code></td><td>int</td><td>轮询等待秒数</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 基础图生图
+dreamina image2image --images ./input.png --prompt="转换为水彩画风格"
+
+# 多图参考
+dreamina image2image --images ./ref1.png,./ref2.png --prompt="融合两种风格" --ratio=1:1
+
+# 指定模型和分辨率
+dreamina image2image --images ./photo.jpg --prompt="变成动漫风格" --model_version=5.0 --resolution_type=4k</code></pre>
+<hr>
+<h2 id="视频生成">视频生成</h2>
+<h3><code>dreamina text2video</code> — 文生视频</h3>
+<p>根据文本描述生成视频。使用 Seedance 2.0 系列模型。</p>
+<h4>支持的模型</h4>
+<table>
+<thead><tr><th>模型</th><th>分辨率</th><th>时长</th></tr></thead>
+<tbody>
+<tr><td><code>seedance2.0</code></td><td>720p</td><td>4-15s</td></tr>
+<tr><td><code>seedance2.0fast</code></td><td>720p</td><td>4-15s</td></tr>
+<tr><td><code>seedance2.0_vip</code></td><td>720p, 1080p</td><td>4-15s</td></tr>
+<tr><td><code>seedance2.0fast_vip</code></td><td>720p, 1080p</td><td>4-15s</td></tr>
+</tbody>
+</table>
+<p>默认模型：<code>seedance2.0fast</code></p>
+<h4>支持的比例</h4>
+<p><code>1:1</code>, <code>3:4</code>, <code>16:9</code>, <code>4:3</code>, <code>9:16</code>, <code>21:9</code></p>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--prompt</code></td><td>string</td><td>视频提示词（必填）</td></tr>
+<tr><td><code>--duration</code></td><td>int</td><td>视频时长（4-15 秒，默认 5）</td></tr>
+<tr><td><code>--ratio</code></td><td>string</td><td>视频比例</td></tr>
+<tr><td><code>--video_resolution</code></td><td>string</td><td>分辨率：<code>720p</code>, <code>1080p</code></td></tr>
+<tr><td><code>--model_version</code></td><td>string</td><td>模型版本</td></tr>
+<tr><td><code>--session</code></td><td>int</td><td>会话 ID</td></tr>
+<tr><td><code>--poll</code></td><td>int</td><td>轮询等待秒数</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 基础文生视频
+dreamina text2video --prompt="一只猫在草地上奔跑" --duration=5
+
+# 高清视频
+dreamina text2video --prompt="日落时分的海滩航拍" --model_version=seedance2.0_vip --video_resolution=1080p --duration=8 --ratio=16:9</code></pre>
+<hr>
+<h3><code>dreamina image2video</code> — 图生视频</h3>
+<p>上传一张图片作为首帧，生成动态视频。</p>
+<h4>支持的模型</h4>
+<table>
+<thead><tr><th>模型</th><th>分辨率</th><th>时长范围</th></tr></thead>
+<tbody>
+<tr><td><code>3.0</code>, <code>3.0fast</code>, <code>3.0pro</code></td><td>720p</td><td>3-10s</td></tr>
+<tr><td><code>3.5pro</code></td><td>720p</td><td>4-12s</td></tr>
+<tr><td><code>seedance2.0</code>, <code>seedance2.0fast</code></td><td>720p</td><td>4-15s</td></tr>
+<tr><td><code>seedance2.0_vip</code>, <code>seedance2.0fast_vip</code></td><td>720p, 1080p</td><td>4-15s</td></tr>
+</tbody>
+</table>
+<blockquote><p>比例由输入图片自动推断，无需手动设置。</p></blockquote>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--image</code></td><td>string</td><td>本地首帧图片路径（必填）</td></tr>
+<tr><td><code>--prompt</code></td><td>string</td><td>生成提示词</td></tr>
+<tr><td><code>--duration</code></td><td>int</td><td>视频时长</td></tr>
+<tr><td><code>--video_resolution</code></td><td>string</td><td>分辨率</td></tr>
+<tr><td><code>--model_version</code></td><td>string</td><td>模型版本</td></tr>
+<tr><td><code>--session</code></td><td>int</td><td>会话 ID</td></tr>
+<tr><td><code>--poll</code></td><td>int</td><td>轮询等待秒数</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 基础图生视频
+dreamina image2video --image=./first.png --prompt="镜头推进"
+
+# 使用 Seedance 2.0 VIP
+dreamina image2video --image=./portrait.jpg --prompt="人物微笑并眨眼" --model_version=seedance2.0_vip --video_resolution=1080p --duration=6</code></pre>
+<hr>
+<h3><code>dreamina frames2video</code> — 首尾帧生视频</h3>
+<p>上传首帧和尾帧两张图片，生成过渡视频。</p>
+<h4>支持的模型</h4>
+<table>
+<thead><tr><th>模型</th><th>分辨率</th><th>时长范围</th></tr></thead>
+<tbody>
+<tr><td><code>3.0</code></td><td>720p</td><td>3-10s</td></tr>
+<tr><td><code>3.5pro</code></td><td>720p</td><td>4-12s</td></tr>
+<tr><td><code>seedance2.0</code>, <code>seedance2.0fast</code></td><td>720p</td><td>4-15s</td></tr>
+<tr><td><code>seedance2.0_vip</code>, <code>seedance2.0fast_vip</code></td><td>720p, 1080p</td><td>4-15s</td></tr>
+</tbody>
+</table>
+<p>默认模型：<code>seedance2.0fast</code></p>
+<blockquote><p>比例由首帧图片尺寸自动推断。</p></blockquote>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--first</code></td><td>string</td><td>首帧图片路径（必填）</td></tr>
+<tr><td><code>--last</code></td><td>string</td><td>尾帧图片路径（必填）</td></tr>
+<tr><td><code>--prompt</code></td><td>string</td><td>生成提示词</td></tr>
+<tr><td><code>--duration</code></td><td>int</td><td>视频时长</td></tr>
+<tr><td><code>--video_resolution</code></td><td>string</td><td>分辨率</td></tr>
+<tr><td><code>--model_version</code></td><td>string</td><td>模型版本</td></tr>
+<tr><td><code>--session</code></td><td>int</td><td>会话 ID</td></tr>
+<tr><td><code>--poll</code></td><td>int</td><td>轮询等待秒数</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 基础首尾帧
+dreamina frames2video --first=./start.png --last=./end.png --prompt="季节变换"
+
+# 高清首尾帧
+dreamina frames2video --first=./spring.png --last=./winter.png --prompt="春夏秋冬流转" --model_version=seedance2.0_vip --duration=10</code></pre>
+<hr>
+<h3><code>dreamina multiframe2video</code> — 多图故事视频</h3>
+<p>上传 2-20 张图片，生成连贯的视觉故事视频。</p>
+<h4>核心概念</h4>
+<ul>
+<li>对于 N 张图片，过渡段数为 N-1</li>
+<li>每个过渡段的时长限制为 [0.5, 8] 秒</li>
+<li>总时长必须 ≥ 2 秒</li>
+<li>2 张图片可用简写模式；3+ 张需逐段设置</li>
+</ul>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--images</code></td><td>strings</td><td>本地参考图片路径（2-20 张）</td></tr>
+<tr><td><code>--prompt</code></td><td>string</td><td>简写提示词（仅 2 张图片时可用）</td></tr>
+<tr><td><code>--duration</code></td><td>float</td><td>简写过渡时长（仅 2 张图片时可用，默认 3s）</td></tr>
+<tr><td><code>--transition-prompt</code></td><td>stringArray</td><td>逐段过渡提示词（N-1 个）</td></tr>
+<tr><td><code>--transition-duration</code></td><td>stringArray</td><td>逐段过渡时长（N-1 个，默认每段 3s）</td></tr>
+<tr><td><code>--session</code></td><td>int</td><td>会话 ID</td></tr>
+<tr><td><code>--poll</code></td><td>int</td><td>轮询等待秒数</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 2 张图片简写模式
+dreamina multiframe2video --images ./a.png,./b.png --prompt="角色转身"
+
+# 3 张图片逐段模式
+dreamina multiframe2video --images ./a.png,./b.png,./c.png \
+  --transition-prompt="从 A 过渡到 B" \
+  --transition-prompt="从 B 过渡到 C"</code></pre>
+<hr>
+<h3><code>dreamina multimodal2video</code> — 全能参考视频（旗舰模式）⭐</h3>
+<p>即梦最强视频生成模式，对应 Web 端「全能参考」功能。支持图片、视频、音频混合输入。</p>
+<h4>支持的模型</h4>
+<p><code>seedance2.0</code>, <code>seedance2.0fast</code>, <code>seedance2.0_vip</code>, <code>seedance2.0fast_vip</code></p>
+<h4>输入限制</h4>
+<table>
+<thead><tr><th>类型</th><th>最大数量</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>图片 (<code>--image</code>)</td><td>≤9</td><td>至少需要 1 张图片或 1 个视频</td></tr>
+<tr><td>视频 (<code>--video</code>)</td><td>≤3</td><td>-</td></tr>
+<tr><td>音频 (<code>--audio</code>)</td><td>≤3</td><td>音频时长需 2-15 秒</td></tr>
+</tbody>
+</table>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--image</code></td><td>stringArray</td><td>本地图片路径（可重复）</td></tr>
+<tr><td><code>--video</code></td><td>stringArray</td><td>本地视频路径（可重复）</td></tr>
+<tr><td><code>--audio</code></td><td>stringArray</td><td>本地音频路径（可重复）</td></tr>
+<tr><td><code>--prompt</code></td><td>string</td><td>可选编辑提示词</td></tr>
+<tr><td><code>--duration</code></td><td>int</td><td>视频时长（4-15s，默认 5）</td></tr>
+<tr><td><code>--ratio</code></td><td>string</td><td>视频比例</td></tr>
+<tr><td><code>--video_resolution</code></td><td>string</td><td>分辨率：<code>720p</code>, <code>1080p</code></td></tr>
+<tr><td><code>--model_version</code></td><td>string</td><td>模型版本</td></tr>
+<tr><td><code>--session</code></td><td>int</td><td>会话 ID</td></tr>
+<tr><td><code>--poll</code></td><td>int</td><td>轮询等待秒数</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 图片转电影镜头
+dreamina multimodal2video --image ./input.png --prompt="转换为电影感镜头"
+
+# 图片 + 音频
+dreamina multimodal2video --image ./input.png --audio ./music.mp3 --model_version=seedance2.0fast --duration=5
+
+# 图片 + 视频 + 音频（全混合输入）
+dreamina multimodal2video \
+  --image ./ref1.png \
+  --video ./ref.mp4 \
+  --audio ./music.mp3 \
+  --model_version=seedance2.0fast \
+  --duration=8 \
+  --ratio=16:9</code></pre>
+<hr>
+<h2 id="图片放大">图片放大</h2>
+<h3><code>dreamina image_upscale</code> — 图片超分放大</h3>
+<p>上传一张本地图片，进行超分辨率放大。</p>
+<h4>支持分辨率</h4>
+<table>
+<thead><tr><th>分辨率</th><th>要求</th></tr></thead>
+<tbody>
+<tr><td><code>2k</code></td><td>所有用户可用</td></tr>
+<tr><td><code>4k</code></td><td>需 VIP</td></tr>
+<tr><td><code>8k</code></td><td>需 VIP</td></tr>
+</tbody>
+</table>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--image</code></td><td>string</td><td>本地图片路径（必填）</td></tr>
+<tr><td><code>--resolution_type</code></td><td>string</td><td>目标分辨率：<code>2k</code>, <code>4k</code>, <code>8k</code></td></tr>
+<tr><td><code>--session</code></td><td>int</td><td>会话 ID</td></tr>
+<tr><td><code>--poll</code></td><td>int</td><td>轮询等待秒数</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 基础放大到 4K
+dreamina image_upscale --image=./input.png --resolution_type=4k
+
+# 8K 超分（需 VIP）
+dreamina image_upscale --image=./photo.jpg --resolution_type=8k</code></pre>
+<hr>
+<h2 id="任务管理">任务管理</h2>
+<h3><code>dreamina query_result</code> — 查询任务结果</h3>
+<p>根据 <code>submit_id</code> 查询异步任务状态和结果。</p>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--submit_id</code></td><td>string</td><td>任务 ID（必填）</td></tr>
+<tr><td><code>--download_dir</code></td><td>string</td><td>下载结果媒体到指定目录</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 查询任务
+dreamina query_result --submit_id=3f6eb41f425d23a3
+
+# 查询并下载
+dreamina query_result --submit_id=3f6eb41f425d23a3 --download_dir=./output</code></pre>
+<hr>
+<h3><code>dreamina list_task</code> — 任务列表</h3>
+<p>列出当前登录用户保存的任务历史。</p>
+<h4>参数</h4>
+<table>
+<thead><tr><th>参数</th><th>类型</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>--gen_status</code></td><td>string</td><td>按状态筛选</td></tr>
+<tr><td><code>--gen_task_type</code></td><td>string</td><td>按任务类型筛选</td></tr>
+<tr><td><code>--submit_id</code></td><td>string</td><td>按任务 ID 筛选</td></tr>
+<tr><td><code>--limit</code></td><td>int</td><td>最大返回数（默认 20）</td></tr>
+<tr><td><code>--offset</code></td><td>int</td><td>分页偏移量</td></tr>
+</tbody>
+</table>
+<h4>示例</h4>
+<pre><code># 列出所有任务
+dreamina list_task
+
+# 筛选成功任务
+dreamina list_task --gen_status=success
+
+# 分页
+dreamina list_task --limit=10 --offset=20</code></pre>
+<hr>
+<h2 id="会话管理">会话管理</h2>
+<h3><code>dreamina session</code> — 会话管理</h3>
+<p>会话 (Session) 是用于组织创作历史的容器。所有生成器命令都支持 <code>--session=&lt;id&gt;</code> 参数。</p>
+<h4>子命令</h4>
+<table>
+<thead><tr><th>命令</th><th>别名</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td><code>create</code></td><td>-</td><td>创建新会话（自动命名或自定义名称）</td></tr>
+<tr><td><code>list</code></td><td><code>ls</code></td><td>列出最近的会话</td></tr>
+<tr><td><code>search</code></td><td><code>find</code></td><td>按名称搜索会话 ID</td></tr>
+<tr><td><code>rename</code></td><td><code>update</code></td><td>重命名会话</td></tr>
+<tr><td><code>delete</code></td><td><code>rm</code></td><td>删除会话</td></tr>
+</tbody>
+</table>
+<blockquote><p>会话 0 是默认会话，不可重命名或删除。删除会话会将其历史安全移回默认会话。</p></blockquote>
+<h4>示例</h4>
+<pre><code># 创建会话
+dreamina session create
+dreamina session create "我的视频项目"
+
+# 列出会话
+dreamina session list
+dreamina session ls -n 100
+
+# 搜索会话
+dreamina session search "视频"
+
+# 重命名会话
+dreamina session rename 10086 "新项目名称"
+
+# 删除会话
+dreamina session rm 10086
+
+# 在指定会话中生成内容
+dreamina text2image --prompt="日落" --session=10086</code></pre>
+<hr>
+<h2 id="参数速查表">参数速查表</h2>
+<h3>图片模型版本速查</h3>
+<table>
+<thead><tr><th>模型</th><th>text2image</th><th>image2image</th><th>可用分辨率</th></tr></thead>
+<tbody>
+<tr><td>3.0</td><td>✅</td><td>❌</td><td>1k, 2k</td></tr>
+<tr><td>3.1</td><td>✅</td><td>❌</td><td>1k, 2k</td></tr>
+<tr><td>4.0</td><td>✅</td><td>✅</td><td>2k, 4k</td></tr>
+<tr><td>4.1</td><td>✅</td><td>✅</td><td>2k, 4k</td></tr>
+<tr><td>4.5</td><td>✅</td><td>✅</td><td>2k, 4k</td></tr>
+<tr><td>4.6</td><td>✅</td><td>✅</td><td>2k, 4k</td></tr>
+<tr><td>4.7</td><td>✅</td><td>✅</td><td>2k, 4k</td></tr>
+<tr><td>5.0</td><td>✅</td><td>✅</td><td>2k, 4k</td></tr>
+</tbody>
+</table>
+<h3>视频模型版本速查</h3>
+<table>
+<thead><tr><th>模型</th><th>text2video</th><th>image2video</th><th>frames2video</th><th>multimodal2video</th></tr></thead>
+<tbody>
+<tr><td>3.0 / 3.0fast / 3.0pro</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+<tr><td>3.5pro</td><td>❌</td><td>✅</td><td>✅</td><td>❌</td></tr>
+<tr><td>seedance2.0 / seedance2.0fast</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+<tr><td>seedance2.0_vip / seedance2.0fast_vip</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+</tbody>
+</table>
+<h3>通用比例</h3>
+<p>所有支持比例的生成器均使用以下值：</p>
+<p><code>21:9</code>, <code>16:9</code>, <code>3:2</code>, <code>4:3</code>, <code>1:1</code>, <code>3:4</code>, <code>2:3</code>, <code>9:16</code></p>
+<h3>分辨率速查</h3>
+<table>
+<thead><tr><th>分辨率</th><th>图片生成</th><th>图片放大</th><th>视频生成</th></tr></thead>
+<tbody>
+<tr><td>1k</td><td>✅ (3.0/3.1)</td><td>❌</td><td>❌</td></tr>
+<tr><td>2k</td><td>✅</td><td>✅ (所有用户)</td><td>❌</td></tr>
+<tr><td>4k</td><td>✅ (4.0+)</td><td>✅ (VIP)</td><td>❌</td></tr>
+<tr><td>8k</td><td>❌</td><td>✅ (VIP)</td><td>❌</td></tr>
+<tr><td>720p</td><td>❌</td><td>❌</td><td>✅</td></tr>
+<tr><td>1080p</td><td>❌</td><td>❌</td><td>✅ (VIP)</td></tr>
+</tbody>
+</table>
+<hr>
+<h2 id="常见问题">常见问题</h2>
+<h3>Q: 登录时提示 "请先登录后再进行授权操作"</h3>
+<p>A: 需要在即梦 Web 端 (<code>jimeng.jianying.com</code>) 先登录账户，然后再进行 CLI OAuth 授权。</p>
+<h3>Q: 任务返回 <code>AigcComplianceConfirmationRequired</code> 错误</h3>
+<p>A: 部分高内容安全风险模型（如 Seedance 2.0 系列）首次使用前需要先在即梦 Web 端完成授权确认。请登录网页端完成授权后重试。</p>
+<h3>Q: 如何查看任务结果？</h3>
+<p>A: 生成命令会返回 <code>submit_id</code>，使用 <code>dreamina query_result --submit_id=&lt;id&gt;</code> 查看结果。也可以用 <code>dreamina list_task</code> 查看历史任务。</p>
+<h3>Q: 支持哪些图片格式？</h3>
+<p>A: 常见格式如 PNG、JPG/JPEG、WEBP 等均可。</p>
+<h3>Q: 一次最多上传多少张图片？</h3>
+<p>A: image2image 最多 10 张，multiframe2video 最多 20 张，multimodal2video 图片最多 9 张。</p>
+<h3>Q: 如何节省积分？</h3>
+<p>A: 使用默认模型和默认分辨率即可满足大部分需求。高分辨率（4k、1080p）和 VIP 模型消耗更多积分。</p>
+<hr>
+<blockquote><p>本文档基于 <code>dreamina</code> CLI version <code>46b5b0e-dirty</code> (build: 2026-06-03) 生成。更多帮助请运行 <code>dreamina --help</code> 及各子命令的 <code>-h</code> 查看。</p></blockquote>
+</body>
+</html>
