@@ -17,6 +17,16 @@ body[data-theme="dark"] .activity {
     var(--surface);
 }
 
+body[data-theme="dark"] .sidebar {
+  background:
+    radial-gradient(circle at 18% -12%, rgba(255, 255, 255, 0.075), transparent 32%),
+    linear-gradient(180deg, #101012 0%, #0b0b0d 58%, #080809 100%);
+  border-right-color: #252529;
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.035),
+    10px 0 34px rgba(0, 0, 0, 0.22);
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
