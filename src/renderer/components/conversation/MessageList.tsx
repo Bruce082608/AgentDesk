@@ -44,8 +44,12 @@ const getReasoningDurationSec = (msg: ChatMessage) => {
 };
 
 type RenderItem =
-  | { type: "message"; message: ChatMessage; index: number }
-  | { type: "work_process"; tools: { message: ChatMessage; index: number }[] };
+  | { type: "message"; message: ChatMessage; index: number; hideReasoning?: boolean }
+  | {
+      type: "work_process";
+      tools: { message: ChatMessage; index: number }[];
+      reasoningItems?: { text: string; durationMs?: number; index: number }[];
+    };
 
 type MessageListProps = {
   messages: ChatMessage[];
@@ -113,11 +117,17 @@ export const MessageList = memo(function MessageList({
   const renderItems = useMemo(() => {
     const items: RenderItem[] = [];
     let currentTools: { message: ChatMessage; index: number }[] = [];
+    let currentReasoningItems: { text: string; durationMs?: number; index: number }[] = [];
 
     const flushTools = () => {
-      if (!currentTools.length) return;
-      items.push({ type: "work_process", tools: currentTools });
+      if (!currentTools.length && !currentReasoningItems.length) return;
+      items.push({
+        type: "work_process",
+        tools: currentTools,
+        reasoningItems: currentReasoningItems
+      });
       currentTools = [];
+      currentReasoningItems = [];
     };
 
     for (let i = 0; i < messages.length; i++) {
@@ -128,15 +138,23 @@ export const MessageList = memo(function MessageList({
       if (message.role === "tool") {
         currentTools.push({ message, index: i });
       } else {
+        const moveReasoningToProcess = !busy && message.role === "assistant" && Boolean(message.reasoning);
+        if (moveReasoningToProcess && message.reasoning) {
+          currentReasoningItems.push({
+            text: message.reasoning,
+            durationMs: message.reasoningDurationMs,
+            index: i
+          });
+        }
         flushTools();
-        items.push({ type: "message", message, index: i });
+        items.push({ type: "message", message, index: i, hideReasoning: moveReasoningToProcess });
       }
     }
 
     flushTools();
 
     return items;
-  }, [messages]);
+  }, [messages, busy]);
 
   return (
     <>
@@ -153,19 +171,21 @@ export const MessageList = memo(function MessageList({
       )}
       {renderItems.map((item) => {
         if (item.type === "work_process") {
+          const firstProcessIndex = item.tools[0]?.index ?? item.reasoningItems?.[0]?.index ?? 0;
           return (
             <WorkProcessCard
-              key={`work-process-${item.tools[0].index}`}
+              key={`work-process-${firstProcessIndex}`}
               tools={item.tools}
               language={language}
               t={t}
               toolDetailsMode={toolDetailsMode}
               busy={busy}
+              reasoningItems={item.reasoningItems}
             />
           );
         }
 
-        const { message, index } = item;
+        const { message, index, hideReasoning } = item;
         if (message.role === "tool") {
           return (
             <ToolCallCard
@@ -205,7 +225,7 @@ export const MessageList = memo(function MessageList({
               </div>
             </div>
             <div className="message-body">
-              {message.reasoning && (
+              {message.reasoning && !hideReasoning && (
                 <div className="reasoning-block">
                   <button
                     type="button"

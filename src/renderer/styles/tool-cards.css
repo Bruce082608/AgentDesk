@@ -397,6 +397,33 @@
   margin: 0;
 }
 
+.work-process-reasoning {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.work-process-section-title {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.work-process-reasoning pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* ===== Plan checklist items ===== */
 .plan-list {
   display: grid;

@@ -14,6 +14,7 @@ type Translation = typeof translations[keyof typeof translations];
 
 export type WorkProcessCardProps = {
   tools: { message: ChatMessage; index: number }[];
+  reasoningItems?: { text: string; durationMs?: number; index: number }[];
   language: Language;
   t: Translation;
   toolDetailsMode: "default" | "expanded" | "collapsed";
@@ -22,6 +23,7 @@ export type WorkProcessCardProps = {
 
 export const WorkProcessCard = memo(function WorkProcessCard({
   tools,
+  reasoningItems = [],
   language,
   t,
   toolDetailsMode,
@@ -35,7 +37,10 @@ export const WorkProcessCard = memo(function WorkProcessCard({
     if (typeof message.durationMs === "number") return sum + Math.max(0, message.durationMs);
     if (message.startedAt && message.endedAt) return sum + Math.max(0, message.endedAt - message.startedAt);
     return sum;
-  }, 0);
+  }, reasoningItems.reduce((sum, item) => {
+    if (typeof item.durationMs === "number") return sum + Math.max(0, item.durationMs);
+    return sum;
+  }, 0));
   const durationLabel = formatDuration(totalDuration, language) || (language === "zh" ? "0s" : "0s");
   const isOpen = toolDetailsMode === "expanded"
     ? true
@@ -47,8 +52,8 @@ export const WorkProcessCard = memo(function WorkProcessCard({
     ? `${hasError ? "已处理，部分失败" : "已处理"} ${durationLabel}`
     : `${hasError ? "Processed with issues" : "Processed"} in ${durationLabel}`;
   const detailText = language === "zh"
-    ? `${tools.length} 个步骤`
-    : `${tools.length} step${tools.length === 1 ? "" : "s"}`;
+    ? `${reasoningItems.length + tools.length} 个步骤`
+    : `${reasoningItems.length + tools.length} step${reasoningItems.length + tools.length === 1 ? "" : "s"}`;
 
   useEffect(() => {
     if (wasBusyRef.current && !busy) {
@@ -87,6 +92,14 @@ export const WorkProcessCard = memo(function WorkProcessCard({
         )}
       </summary>
       <div className="work-process-details">
+        {reasoningItems.map((item) => (
+          <section className="work-process-reasoning" key={`reasoning-${item.index}`}>
+            <div className="work-process-section-title">
+              {language === "zh" ? "思考过程" : "Reasoning"}
+            </div>
+            <pre>{item.text}</pre>
+          </section>
+        ))}
         {tools.map(({ message, index }) => (
           <ToolCallCard
             key={`${message.tool_call_id || message.name || "tool"}-${index}`}
