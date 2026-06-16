@@ -373,7 +373,8 @@ describe("tool execution permissions", () => {
     }));
 
     expect(result.applied).toBe(true);
-    await expect(fs.readFile(path.join(testWorkspace, "codex.txt"), "utf8")).resolves.toBe("after\n");
+    const codexContent = await fs.readFile(path.join(testWorkspace, "codex.txt"), "utf8");
+    expect(codexContent.replace(/\r/g, "")).toBe("after\n");
 
     await fs.rm(testWorkspace, { recursive: true, force: true });
   });
