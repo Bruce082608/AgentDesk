@@ -17,8 +17,24 @@ import { getProviderBalance, testProviderConnection } from "./providers.js";
 import { setCommandAutoApproval, setPatchAutoApproval, setFullAccessAutoApproval } from "./tools.js";
 import { getAutoApprovalState } from "./patch-approval.js";
 import { checkGitUpdate, applyGitUpdate } from "./git-updates.js";
+import {
+  validateAgentResumePayload,
+  validateAgentSendPayload,
+  validateApprovalsListPayload,
+  validateAutoApprovalPayload,
+  validateConfigPayload,
+  validateFileReadPayload,
+  validateFileSearchPayload,
+  validateGitApplyUpdatePayload,
+  validateJsonArrayPayload,
+  validateRequestId,
+  validateTokenCountPayload,
+  validateWorkspace,
+  validateWorkspaceTreePayload
+} from "./ipc-validation.js";
 
 const PORT = process.env.NODE_ENV === "test" ? 5179 : 5175;
+const MAX_BODY_BYTES = 2_000_000;
 let server = null;
 let authToken = randomUUID(); // Secure token generated on startup
 const sseConnections = new Set();
@@ -90,7 +106,7 @@ export function startWebServer() {
     // 3. REST API Routes
     if (pathname.startsWith("/api/")) {
       try {
-        await handleRestApi(pathname, req, res);
+        await handleRestApi(parsedUrl, req, res);
       } catch (error) {
         console.error(`[Web Server] API Error on ${pathname}:`, error);
         res.writeHead(500, { "Content-Type": "application/json" });
@@ -150,10 +166,17 @@ export function broadcastSseEvent(event, data) {
   }
 }
 
-async function handleRestApi(pathname, req, res) {
+async function handleRestApi(parsedUrl, req, res) {
+  const pathname = parsedUrl.pathname;
   const readBody = () => new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", chunk => { body += chunk; });
+    req.on("data", chunk => {
+      body += chunk;
+      if (body.length > MAX_BODY_BYTES) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+      }
+    });
     req.on("end", () => {
       try {
         resolve(body ? JSON.parse(body) : {});
@@ -168,6 +191,15 @@ async function handleRestApi(pathname, req, res) {
     res.writeHead(statusCode, { "Content-Type": "application/json" });
     res.end(JSON.stringify(data));
   };
+  const readValidatedBody = async (validator) => {
+    try {
+      return validator(await readBody());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      sendJson({ ok: false, error: message }, 400);
+      return null;
+    }
+  };
 
   if (pathname === "/api/sessions" && req.method === "GET") {
     const sessions = await loadPersistedSessions();
@@ -176,8 +208,9 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/sessions" && req.method === "POST") {
-    const body = await readBody();
-    const result = await savePersistedSessions(Array.isArray(body) ? body : []);
+    const body = await readValidatedBody((payload) => validateJsonArrayPayload(payload, "sessions"));
+    if (!body) return;
+    const result = await savePersistedSessions(body);
     broadcastSseEvent("sessions:updated", {});
     sendJson(result);
     return;
@@ -190,8 +223,9 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/skills" && req.method === "POST") {
-    const body = await readBody();
-    const result = await savePersistedSkills(Array.isArray(body) ? body : []);
+    const body = await readValidatedBody((payload) => validateJsonArrayPayload(payload, "skills"));
+    if (!body) return;
+    const result = await savePersistedSkills(body);
     const { syncSkillsScheduler } = await import("./skills-scheduler.js");
     void syncSkillsScheduler();
     sendJson(result);
@@ -199,32 +233,36 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/workspace/tree" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateWorkspaceTreePayload);
+    if (!body) return;
     const tree = await getWorkspaceTree(body.workspace, body.directory);
     sendJson(tree);
     return;
   }
 
   if (pathname === "/api/file/read" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateFileReadPayload);
+    if (!body) return;
     const result = await readWorkspaceFile(body.workspace, body.path);
     sendJson(result);
     return;
   }
 
   if (pathname === "/api/file/search" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateFileSearchPayload);
+    if (!body) return;
     const result = await searchWorkspaceFiles(body.workspace, body.query, body.maxResults);
     sendJson(result);
     return;
   }
 
   if (pathname === "/api/tokens/count" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateTokenCountPayload);
+    if (!body) return;
     const tokens = countAgentRequestTokens({
-      messages: body.messages || [],
-      input: body.input || "",
-      attachments: body.attachments || []
+      messages: body.messages,
+      input: body.input,
+      attachments: body.attachments
     });
     sendJson({ tokens });
     return;
@@ -237,19 +275,17 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/config" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateConfigPayload);
+    if (!body) return;
     const result = await saveAppConfig(body);
     sendJson(result);
     return;
   }
 
   if (pathname === "/api/agent/send" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateAgentSendPayload);
+    if (!body) return;
     const requestId = body.requestId;
-    if (!requestId) {
-      sendJson({ ok: false, error: "Missing requestId" }, 400);
-      return;
-    }
 
     if (activeWebRequests.has(requestId)) {
       sendJson({ ok: false, error: "Duplicate requestId" }, 400);
@@ -287,7 +323,8 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/agent/cancel" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody((payload) => ({ requestId: validateRequestId(payload?.requestId) }));
+    if (!body) return;
     const requestState = activeWebRequests.get(body.requestId);
     if (!requestState) {
       sendJson({ ok: false });
@@ -308,14 +345,16 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/git/summary" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody((payload) => ({ workspace: validateWorkspace(payload?.workspace) }));
+    if (!body) return;
     const summary = await getGitSummary(body.workspace);
     sendJson(summary);
     return;
   }
 
   if (pathname === "/api/git/diff" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody((payload) => ({ workspace: validateWorkspace(payload?.workspace) }));
+    if (!body) return;
     const diff = await getGitDiff(body.workspace);
     sendJson(diff);
     return;
@@ -328,26 +367,25 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/activity" && req.method === "POST") {
-    const body = await readBody();
-    const result = await savePersistedActivityEvents(Array.isArray(body) ? body : []);
+    const body = await readValidatedBody((payload) => validateJsonArrayPayload(payload, "activity events"));
+    if (!body) return;
+    const result = await savePersistedActivityEvents(body);
     sendJson(result);
     return;
   }
 
   if (pathname === "/api/approvals/list" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateApprovalsListPayload);
+    if (!body) return;
     const approvals = await listPendingApprovals(body);
     sendJson(approvals);
     return;
   }
 
   if (pathname === "/api/agent/resume" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateAgentResumePayload);
+    if (!body) return;
     const requestId = body.requestId;
-    if (!requestId) {
-      sendJson({ ok: false, error: "Missing requestId" }, 400);
-      return;
-    }
 
     if (activeWebRequests.has(requestId)) {
       sendJson({ ok: false, error: "Duplicate requestId" }, 400);
@@ -384,42 +422,48 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/provider/test" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateConfigPayload);
+    if (!body) return;
     const result = await testProviderConnection(body);
     sendJson(result);
     return;
   }
 
   if (pathname === "/api/provider/balance" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateConfigPayload);
+    if (!body) return;
     const result = await getProviderBalance(body);
     sendJson(result);
     return;
   }
 
   if (pathname === "/api/permissions/state" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateAutoApprovalPayload);
+    if (!body) return;
     const result = await getAutoApprovalState(body);
     sendJson(result);
     return;
   }
 
   if (pathname === "/api/permissions/command" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateAutoApprovalPayload);
+    if (!body) return;
     const result = await setCommandAutoApproval(body);
     sendJson(result);
     return;
   }
 
   if (pathname === "/api/permissions/patch" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateAutoApprovalPayload);
+    if (!body) return;
     const result = await setPatchAutoApproval(body);
     sendJson(result);
     return;
   }
 
   if (pathname === "/api/permissions/full-access" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateAutoApprovalPayload);
+    if (!body) return;
     const result = await setFullAccessAutoApproval(body);
     sendJson(result);
     return;
@@ -432,7 +476,8 @@ async function handleRestApi(pathname, req, res) {
   }
 
   if (pathname === "/api/git/apply-update" && req.method === "POST") {
-    const body = await readBody();
+    const body = await readValidatedBody(validateGitApplyUpdatePayload);
+    if (!body) return;
     const result = await applyGitUpdate(null, body);
     sendJson(result);
     return;
@@ -468,17 +513,24 @@ async function handleRestApi(pathname, req, res) {
     }
 
     try {
-      const stat = await fs.stat(filePath);
+      const safePath = resolveAllowedMediaPath(filePath);
+      const stat = await fs.stat(safePath);
+      if (!stat.isFile()) {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not Found");
+        return;
+      }
       const ext = path.extname(filePath).toLowerCase();
       const contentType = MIME_TYPES[ext] || "application/octet-stream";
       res.writeHead(200, {
         "Content-Type": contentType,
         "Content-Length": stat.size
       });
-      createReadStream(filePath).pipe(res);
+      createReadStream(safePath).pipe(res);
     } catch (error) {
-      res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Not Found");
+      const status = error?.code === "MEDIA_FORBIDDEN" ? 403 : 404;
+      res.writeHead(status, { "Content-Type": "text/plain" });
+      res.end(status === 403 ? "Forbidden" : "Not Found");
     }
     return;
   }
@@ -486,6 +538,33 @@ async function handleRestApi(pathname, req, res) {
   // Fallback
   res.writeHead(404, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: false, error: "Not Found" }));
+}
+
+function resolveAllowedMediaPath(filePath) {
+  const absolutePath = path.resolve(String(filePath || ""));
+  const allowedRoots = [
+    process.cwd(),
+    os.tmpdir()
+  ];
+  if (app && typeof app.getPath === "function") {
+    allowedRoots.push(app.getPath("userData"));
+  }
+
+  const allowed = allowedRoots
+    .filter(Boolean)
+    .map((root) => path.resolve(root))
+    .some((root) => {
+      const relative = path.relative(root, absolutePath);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    });
+
+  if (!allowed) {
+    const error = new Error("Media path is outside allowed roots.");
+    error.code = "MEDIA_FORBIDDEN";
+    throw error;
+  }
+
+  return absolutePath;
 }
 
 async function handleStaticFile(pathname, res, isAuthorized) {

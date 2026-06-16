@@ -11,9 +11,16 @@ const THINKING_MODES = new Set(["enabled", "disabled"]);
 const REASONING_EFFORTS = new Set(["low", "medium", "high", "max"]);
 const LANGUAGES = new Set(["zh", "en"]);
 const PERMISSION_MODES = new Set(["default", "full"]);
+const APPROVAL_KINDS = new Set(["command", "patch", "question"]);
+const APPROVAL_DECISIONS = new Set(["approved", "discarded", "dismissed"]);
 
 export function validateWorkspace(value, field = "workspace") {
   return requireString(value, field, { max: MAX_PATH_LENGTH });
+}
+
+export function validateJsonArrayPayload(value, field = "payload") {
+  if (!Array.isArray(value)) invalid(field, "an array");
+  return value;
 }
 
 export function validateWorkspaceTreePayload(value) {
@@ -70,6 +77,27 @@ export function validateAgentSendPayload(value) {
   };
 }
 
+export function validateAgentResumePayload(value) {
+  const payload = requireObject(value, "agent resume payload");
+  const kind = optionalString(payload.kind, "kind", { max: 32 });
+  if (kind && !APPROVAL_KINDS.has(kind)) invalid("kind", "command, patch, or question");
+
+  const decision = optionalString(payload.decision, "decision", { max: 32 });
+  if (decision && !APPROVAL_DECISIONS.has(decision)) invalid("decision", "approved, discarded, or dismissed");
+
+  return {
+    ...payload,
+    requestId: validateRequestId(payload.requestId),
+    continuationId: requireString(payload.continuationId ?? payload.approvalId ?? payload.commandId ?? payload.patchId ?? payload.questionId, "continuationId", { max: MAX_ID_LENGTH }),
+    kind,
+    decision,
+    answer: optionalString(payload.answer, "answer", { max: MAX_TEXT_LENGTH, trim: false }),
+    option: optionalString(payload.option, "option", { max: MAX_TEXT_LENGTH, trim: false }),
+    allowFuture: Boolean(payload.allowFuture),
+    language: validateLanguage(payload.language)
+  };
+}
+
 export function validateRequestId(value) {
   return requireString(value, "requestId", { max: MAX_ID_LENGTH });
 }
@@ -115,6 +143,20 @@ export function validateAutoApprovalPayload(value) {
     workspace: validateWorkspace(payload.workspace),
     sessionId: optionalString(payload.sessionId, "sessionId", { max: MAX_ID_LENGTH }),
     requestId: optionalString(payload.requestId, "requestId", { max: MAX_ID_LENGTH })
+  };
+}
+
+export function validateApprovalsListPayload(value) {
+  const payload = requireObject(value ?? {}, "approvals list payload");
+  return {
+    sessionId: optionalString(payload.sessionId, "sessionId", { max: MAX_ID_LENGTH }) || ""
+  };
+}
+
+export function validateGitApplyUpdatePayload(value) {
+  const payload = requireObject(value ?? {}, "git update payload");
+  return {
+    forceReset: Boolean(payload.forceReset)
   };
 }
 

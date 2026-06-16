@@ -26,6 +26,12 @@ describe("Vision and Image Features", () => {
       const capC = getModelCapability(configC);
       expect(capC.capability.supportsVision).toBe(false);
     });
+
+    it("uses a 1M context window for imported unknown OpenAI/Codex models", () => {
+      const cap = getModelCapability({ provider: "openai", model: "gpt-5.4" });
+      expect(cap.model).toBe("gpt-5.4");
+      expect(cap.capability.contextTokens).toBe(1_000_000);
+    });
   });
 
   describe("Token Counter for Arrays and Images", () => {

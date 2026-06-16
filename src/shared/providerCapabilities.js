@@ -102,7 +102,7 @@ export const PROVIDER_CAPABILITIES = {
     },
     fallbackModel: {
       label: "OpenAI Model",
-      contextTokens: DEFAULT_OPENAI_COMPATIBLE_CONTEXT_TOKENS,
+      contextTokens: 1_000_000,
       maxOutputTokens: 32_768,
       defaultMaxTokens: 8_192,
       supportsThinking: true,

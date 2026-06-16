@@ -91,6 +91,7 @@ describe("agent history compression budgets", () => {
     const systemMessage = { role: "system", content: "System prompt" };
     const attachmentMessage = null;
 
+    const emit = vi.fn();
     const result = await __test__.buildMessages({
       systemMessage,
       attachmentMessage,
@@ -103,7 +104,7 @@ describe("agent history compression budgets", () => {
       },
       language: "zh",
       sessionId: "session-123",
-      emit: vi.fn()
+      emit
     });
 
     expect(result.compressed).toBe(true);
@@ -111,6 +112,13 @@ describe("agent history compression budgets", () => {
     expect(result.messages[1].role).toBe("system");
     expect(result.messages[1].content).toContain("goals");
     expect(result.messages[1].content).toContain("Test overall goals");
+
+    const doneEvent = emit.mock.calls
+      .map(([event]) => event)
+      .find((event) => event.type === "context_compression" && event.phase === "done");
+    expect(doneEvent.effectiveTokens).toBeGreaterThan(0);
+    expect(doneEvent.inputBudgetTokens).toBeGreaterThan(0);
+    expect(doneEvent.effectiveTokens).toBeLessThan(doneEvent.inputBudgetTokens);
   });
 
   it("classifies only read-only tools as parallel safe", () => {

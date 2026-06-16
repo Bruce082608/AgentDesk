@@ -121,6 +121,7 @@ export function useAgentEvents({
   const {
     contextCompressionStatus,
     contextCompression,
+    resetContextCompression,
     updateCompressionStatus
   } = useContextCompression({
     language
@@ -224,7 +225,7 @@ export function useAgentEvents({
     }
 
     if (event.type === "context_compression") {
-      updateCompressionStatus(event.phase, event.message, event.summary || "");
+      updateCompressionStatus(event.phase, event.message, event.summary || "", event.effectiveTokens, event.inputBudgetTokens);
       if (event.phase === "start") setTaskPhase("understanding", event.message);
       if (event.phase === "done") setTaskPhase("understanding", event.message);
       if (event.phase === "failed") setTaskPhase("understanding", event.message);
@@ -336,10 +337,11 @@ export function useAgentEvents({
     clearActiveToolRuns();
     setStreamingResponse(false);
     setStreamRecoveryStatus(null);
+    resetContextCompression();
     setBusy(true);
     setTaskPhase("understanding");
     setPlanItems([{ step: waitingPlan, status: "in_progress" }]);
-  }, [clearActiveToolRuns, clearCompletionTimer, setTaskPhase, streamingMessageActive, reasoningMessageActive, setToolDraft, setStreamingResponse, setStreamRecoveryStatus]);
+  }, [clearActiveToolRuns, clearCompletionTimer, resetContextCompression, setTaskPhase, streamingMessageActive, reasoningMessageActive, setToolDraft, setStreamingResponse, setStreamRecoveryStatus]);
 
   // Hook 7: Action Executor
   const {
@@ -380,10 +382,11 @@ export function useAgentEvents({
     clearActiveToolRuns();
     setStreamingResponse(false);
     setStreamRecoveryStatus(null);
+    resetContextCompression();
     setTaskPhase("idle");
     streamingMessageActive.current = false;
     reasoningMessageActive.current = false;
-  }, [clearActiveToolRuns, clearCompletionTimer, setTaskPhase, setPatches, setCommands, setQuestions, setToolDraft, setStreamingResponse, setStreamRecoveryStatus, streamingMessageActive, reasoningMessageActive]);
+  }, [clearActiveToolRuns, clearCompletionTimer, resetContextCompression, setTaskPhase, setPatches, setCommands, setQuestions, setToolDraft, setStreamingResponse, setStreamRecoveryStatus, streamingMessageActive, reasoningMessageActive]);
 
   return {
     activeToolRuns,

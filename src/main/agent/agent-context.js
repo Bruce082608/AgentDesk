@@ -142,21 +142,37 @@ export async function buildMessages({
     );
     const recentWithinBudget = selectRecentMessages(recentMessages, remainingBudget);
 
+    const compressedMessages = [...fixedMessages, summaryMessage, ...recentWithinBudget, userMessage];
+    const effectiveTokens = countChatMessagesTokens(compressedMessages);
     const compressionDoneMessage = t(language, "agent.compressionDone", { tokens: formatTokens(countChatMessageTokens(summaryMessage)) });
-    emit({ type: "context_compression", phase: "done", message: compressionDoneMessage, summary });
+    emit({
+      type: "context_compression",
+      phase: "done",
+      message: compressionDoneMessage,
+      summary,
+      effectiveTokens,
+      inputBudgetTokens
+    });
     emit({ type: "status", message: compressionDoneMessage });
 
     return {
-      messages: [...fixedMessages, summaryMessage, ...recentWithinBudget, userMessage],
+      messages: compressedMessages,
       compressed: true
     };
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
     const compressionFailedMessage = t(language, "agent.compressionFailed", { message: messageText });
-    emit({ type: "context_compression", phase: "failed", message: compressionFailedMessage });
+    const fallbackMessages = [...fixedMessages, ...selectRecentMessages(normalizedHistory, historyBudget), userMessage];
+    emit({
+      type: "context_compression",
+      phase: "failed",
+      message: compressionFailedMessage,
+      effectiveTokens: countChatMessagesTokens(fallbackMessages),
+      inputBudgetTokens
+    });
     emit({ type: "status", message: compressionFailedMessage });
     return {
-      messages: [...fixedMessages, ...selectRecentMessages(normalizedHistory, historyBudget), userMessage],
+      messages: fallbackMessages,
       compressed: false
     };
   }

@@ -349,7 +349,7 @@ export type AutoApprovalState = {
 
 export type AgentEvent =
   | { requestId: string; type: "status"; message: string }
-  | { requestId: string; type: "context_compression"; phase: "start" | "done" | "failed"; message: string; summary?: string }
+  | { requestId: string; type: "context_compression"; phase: "start" | "done" | "failed"; message: string; summary?: string; effectiveTokens?: number; inputBudgetTokens?: number }
   | { requestId: string; type: "stream_delta"; text: string }
   | { requestId: string; type: "reasoning_delta"; text: string }
   | { requestId: string; type: "tool_call_delta"; name?: string; text: string }

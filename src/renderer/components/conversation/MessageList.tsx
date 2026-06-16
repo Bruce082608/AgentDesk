@@ -65,14 +65,11 @@ type MessageListProps = {
   toolDraft: ToolDraft | null;
   activeCommands: CommandItem[];
   activePatches: PatchItem[];
-  activeQuestions: UserQuestionItem[];
-  answerQuestion: (questionId: string, option: string) => void;
   approveCommand: (commandId: string, allowFuture?: boolean) => void;
   applyPatch: (patchId: string) => void;
   commandAutoApproval: boolean;
   discardCommand: (commandId: string) => void;
   discardPatch: (patchId: string) => void;
-  dismissQuestion: (questionId: string) => void;
   resetCommandAutoApproval: () => void;
   contextCompressionStatus: string;
   taskStatus: TaskStatus;
@@ -100,14 +97,11 @@ export const MessageList = memo(function MessageList({
   toolDraft,
   activeCommands,
   activePatches,
-  activeQuestions,
-  answerQuestion,
   approveCommand,
   applyPatch,
   commandAutoApproval,
   discardCommand,
   discardPatch,
-  dismissQuestion,
   resetCommandAutoApproval,
   contextCompressionStatus,
   taskStatus,
@@ -302,15 +296,12 @@ export const MessageList = memo(function MessageList({
       <ApprovalPanel
         activeCommands={activeCommands}
         activePatches={activePatches}
-        activeQuestions={activeQuestions}
-        answerQuestion={answerQuestion}
         approveCommand={approveCommand}
         applyPatch={applyPatch}
         busy={busy}
         commandAutoApproval={commandAutoApproval}
         discardCommand={discardCommand}
         discardPatch={discardPatch}
-        dismissQuestion={dismissQuestion}
         language={language}
         resetCommandAutoApproval={resetCommandAutoApproval}
         t={t}
@@ -374,7 +365,6 @@ export const MessageList = memo(function MessageList({
     prevProps.toolDraft === nextProps.toolDraft &&
     prevProps.activeCommands === nextProps.activeCommands &&
     prevProps.activePatches === nextProps.activePatches &&
-    prevProps.activeQuestions === nextProps.activeQuestions &&
     prevProps.commandAutoApproval === nextProps.commandAutoApproval &&
     prevProps.contextCompressionStatus === nextProps.contextCompressionStatus &&
     prevProps.taskStatus === nextProps.taskStatus &&

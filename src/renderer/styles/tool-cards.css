@@ -3,6 +3,7 @@
   width: min(calc(100% - 24px), 960px);
   margin: 0 auto 12px 24px;
   border: 1px solid var(--border-light);
+  border-left-width: 3px;
   border-radius: 8px;
   background: var(--surface);
   box-shadow: none;
@@ -16,8 +17,9 @@
 }
 
 .tool-call-card.error {
-  border-color: var(--danger-border);
-  background: var(--danger-bg);
+  border-color: var(--border-light);
+  border-left-color: var(--danger);
+  background: var(--surface);
 }
 
 .tool-call-card::before {
@@ -37,7 +39,8 @@
 }
 
 .tool-call-card.error::before {
-  border-color: var(--warning-border);
+  border-color: var(--danger);
+  background: var(--surface);
 }
 
 .tool-call-card summary {
@@ -50,6 +53,12 @@
   cursor: pointer;
   list-style: none;
   background: var(--surface);
+}
+
+.tool-call-card.error summary {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--danger) 8%, transparent), transparent 28%),
+    var(--surface);
 }
 
 .tool-call-card summary::-webkit-details-marker {
@@ -116,8 +125,8 @@
 }
 
 .tool-call-card.error .tool-call-icon {
-  border-color: var(--danger-border);
-  background: var(--danger-light-bg);
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border-light));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface-dim));
   color: var(--danger);
 }
 
@@ -155,9 +164,13 @@
 }
 
 .tool-call-status.error {
-  border-color: var(--danger-border);
-  background: var(--danger-light-bg);
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--border-row));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface-dim));
   color: var(--danger);
+}
+
+.tool-call-card.error .tool-call-summary {
+  color: var(--text-secondary);
 }
 
 .tool-call-card.running .tool-call-status {
@@ -206,6 +219,10 @@
   border-top: 1px solid var(--border-light);
   background: var(--surface-dim);
   animation: panel-slide-in 150ms ease-out;
+}
+
+.tool-call-card.error .tool-call-details {
+  background: var(--surface-dim);
 }
 
 .tool-call-section:first-child {
@@ -373,7 +390,8 @@
 }
 
 .tool-call-card.group.error {
-  border-left: 3px solid var(--danger-border);
+  border-left-color: var(--danger);
+  background: var(--surface);
 }
 
 .group-items .tool-call-card {

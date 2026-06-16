@@ -239,7 +239,8 @@ export function useApprovalActions({
     const question = questions.find((item) => item.id === questionId);
     if (!question) return;
     const requestId = startApprovalContinuation();
-    const answer = formatQuestionAnswer(question.question, option);
+    const isKnownOption = question.options.includes(option);
+    const answer = isKnownOption ? formatQuestionAnswer(question.question, option) : option;
     setMessages((current) => [...current, { role: "user", content: answer, createdAt: Date.now() }]);
     
     // Clear instantly from UI state so the box disappears immediately

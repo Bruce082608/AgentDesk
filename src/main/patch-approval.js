@@ -18,9 +18,15 @@ const autoApprovalScopes = new Map(Object.entries(loadPersistedApprovalScopesSyn
 
 export async function proposePatch(context, patch, summary = "") {
   const workspace = context.workspace;
-  const patchText = ensureTrailingNewline(stripMarkdownFence(String(patch ?? "")));
+  let patchText = ensureTrailingNewline(stripMarkdownFence(String(patch ?? "")));
   if (!patchText.trim()) throw localizedError(context.language, "tools.emptyPatch");
   const allowUnsafePaths = Boolean(context.fullAccessAutoApproval);
+  patchText = await normalizePatchText({
+    workspace,
+    patchText,
+    language: context.language,
+    allowUnsafePaths
+  });
   validatePatchPaths(workspace, patchText, context.language, { allowUnsafePaths });
   const resolvedWorkspace = path.resolve(workspace);
 
@@ -77,6 +83,153 @@ function ensureTrailingNewline(value) {
   return value.endsWith("\n") ? value : `${value}\n`;
 }
 
+async function normalizePatchText({ workspace, patchText, language, allowUnsafePaths = false }) {
+  const text = ensureTrailingNewline(stripMarkdownFence(String(patchText ?? "")));
+  if (!isCodexApplyPatchFormat(text)) return text;
+  return convertCodexApplyPatchToUnifiedDiff({ workspace, patchText: text, language, allowUnsafePaths });
+}
+
+function isCodexApplyPatchFormat(patchText) {
+  return /^\*\*\* Begin Patch\s*$/m.test(String(patchText || ""));
+}
+
+async function convertCodexApplyPatchToUnifiedDiff({ workspace, patchText, language, allowUnsafePaths }) {
+  const lines = String(patchText || "").split(/\r?\n/);
+  const filePatches = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const addMatch = line.match(/^\*\*\* Add File: (.+)$/);
+    const deleteMatch = line.match(/^\*\*\* Delete File: (.+)$/);
+    const updateMatch = line.match(/^\*\*\* Update File: (.+)$/);
+
+    if (addMatch) {
+      const filePath = normalizeCodexPatchPath(addMatch[1]);
+      const block = collectCodexBlock(lines, index + 1);
+      index = block.nextIndex;
+      index -= 1;
+      filePatches.push(buildWholeFilePatch(filePath, null, block.text));
+      continue;
+    }
+
+    if (deleteMatch) {
+      const filePath = normalizeCodexPatchPath(deleteMatch[1]);
+      const absolute = resolvePatchTargetPath(workspace, filePath, language, { allowUnsafePaths });
+      const previousContent = await fs.readFile(absolute, "utf8");
+      filePatches.push(buildWholeFilePatch(filePath, previousContent, null));
+      continue;
+    }
+
+    if (updateMatch) {
+      const parsed = parseCodexUpdateFile(lines, index, normalizeCodexPatchPath(updateMatch[1]));
+      index = parsed.nextIndex - 1;
+      const absolute = resolvePatchTargetPath(workspace, parsed.filePath, language, { allowUnsafePaths });
+      const previousContent = await fs.readFile(absolute, "utf8");
+      const nextContent = parsed.mode === "replace"
+        ? parsed.text
+        : applyHunksToContent(previousContent, parsed.hunks, language, parsed.filePath);
+
+      if (parsed.moveTo && parsed.moveTo !== parsed.filePath) {
+        filePatches.push(buildWholeFilePatch(parsed.filePath, previousContent, null));
+        filePatches.push(buildWholeFilePatch(parsed.moveTo, null, nextContent));
+      } else {
+        filePatches.push(buildWholeFilePatch(parsed.filePath, previousContent, nextContent));
+      }
+    }
+  }
+
+  if (filePatches.length === 0) throw localizedError(language, "tools.invalidPatch");
+  return ensureTrailingNewline(filePatches.join(""));
+}
+
+function parseCodexUpdateFile(lines, startIndex, filePath) {
+  const hunks = [];
+  let currentHunk = null;
+  let moveTo = "";
+  let index = startIndex + 1;
+  const bodyLines = [];
+
+  function ensureHunk() {
+    if (!currentHunk) {
+      currentHunk = {
+        oldStart: 1,
+        oldCount: 0,
+        newStart: 1,
+        newCount: 0,
+        lines: []
+      };
+    }
+    return currentHunk;
+  }
+
+  function finishHunk() {
+    if (currentHunk && currentHunk.lines.length > 0) {
+      hunks.push(currentHunk);
+    }
+    currentHunk = null;
+  }
+
+  for (; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.startsWith("*** ")) break;
+
+    const moveMatch = line.match(/^\*\*\* Move to: (.+)$/);
+    if (moveMatch) {
+      moveTo = normalizeCodexPatchPath(moveMatch[1]);
+      continue;
+    }
+
+    if (line.startsWith("@@")) {
+      finishHunk();
+      currentHunk = {
+        oldStart: 1,
+        oldCount: 0,
+        newStart: 1,
+        newCount: 0,
+        lines: []
+      };
+      continue;
+    }
+
+    bodyLines.push(line);
+    if (/^[ +\-]/.test(line)) {
+      ensureHunk().lines.push(line);
+    }
+  }
+
+  finishHunk();
+  return {
+    filePath,
+    moveTo,
+    mode: hunks.length > 0 ? "diff" : "replace",
+    text: bodyLines.length > 0 ? ensureTrailingNewline(bodyLines.join("\n")) : "",
+    hunks,
+    nextIndex: index
+  };
+}
+
+function collectCodexBlock(lines, startIndex) {
+  const block = [];
+  let index = startIndex;
+  for (; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.startsWith("*** ")) break;
+    if (line.startsWith("+")) {
+      block.push(line.slice(1));
+    } else {
+      block.push(line);
+    }
+  }
+  return {
+    text: block.length > 0 ? ensureTrailingNewline(block.join("\n")) : "",
+    nextIndex: index
+  };
+}
+
+function normalizeCodexPatchPath(filePath) {
+  return String(filePath || "").trim().replaceAll("\\", "/");
+}
+
 export function getPendingPatch(patchId) {
   return pendingPatches.get(patchId) ?? null;
 }
@@ -121,12 +274,19 @@ async function applyPatchText(pending) {
 }
 
 export async function applyPatchRecord(pending) {
+  const language = normalizeLanguage(pending.language);
+  const patch = await normalizePatchText({
+    workspace: pending.workspace,
+    patchText: pending.patch,
+    language,
+    allowUnsafePaths: Boolean(pending.allowUnsafePaths)
+  });
   return applyPatchText({
     id: pending.id || pending.patchId || randomUUID(),
     workspace: pending.workspace,
-    patch: pending.patch,
+    patch,
     summary: pending.summary || "Proposed patch",
-    language: normalizeLanguage(pending.language),
+    language,
     allowUnsafePaths: Boolean(pending.allowUnsafePaths)
   });
 }
@@ -362,6 +522,7 @@ function parseUnifiedDiffFiles(patchText, language) {
       continue;
     }
 
+    const looseHunkMatch = line.match(/^@@(?:\s.*)?$/);
     const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
     if (hunkMatch) {
       if (!current) throw localizedError(language, "tools.invalidPatch");
@@ -371,6 +532,19 @@ function parseUnifiedDiffFiles(patchText, language) {
         oldCount: hunkMatch[2] === undefined ? 1 : Number(hunkMatch[2]),
         newStart: Number(hunkMatch[3]),
         newCount: hunkMatch[4] === undefined ? 1 : Number(hunkMatch[4]),
+        lines: []
+      };
+      continue;
+    }
+
+    if (looseHunkMatch) {
+      if (!current) throw localizedError(language, "tools.invalidPatch");
+      finishHunk();
+      currentHunk = {
+        oldStart: 1,
+        oldCount: 0,
+        newStart: 1,
+        newCount: 0,
         lines: []
       };
       continue;
@@ -565,6 +739,7 @@ export const __test__ = {
   addPatchPath,
   buildWholeFilePatch,
   extractPatchPaths,
+  normalizePatchText,
   normalizeWorkspacePath,
   resolveInsideWorkspace,
   validatePatchPaths,

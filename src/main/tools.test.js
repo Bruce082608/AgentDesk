@@ -346,6 +346,71 @@ describe("tool execution permissions", () => {
     expect(result.patch).not.toContain("```");
   });
 
+  it("accepts Codex apply-patch format and normalizes it for application", async () => {
+    const testWorkspace = path.join(os.tmpdir(), `agent-window-codex-patch-${Date.now()}`);
+    await fs.mkdir(testWorkspace, { recursive: true });
+    await fs.writeFile(path.join(testWorkspace, "codex.txt"), "before\n", "utf8");
+
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "apply_patch",
+        arguments: JSON.stringify({
+          patch: [
+            "*** Begin Patch",
+            "*** Update File: codex.txt",
+            "@@",
+            "-before",
+            "+after",
+            "*** End Patch"
+          ].join("\n"),
+          summary: "Codex patch format"
+        })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    expect(result.applied).toBe(true);
+    await expect(fs.readFile(path.join(testWorkspace, "codex.txt"), "utf8")).resolves.toBe("after\n");
+
+    await fs.rm(testWorkspace, { recursive: true, force: true });
+  });
+
+  it("falls back when unified diff hunk headers are approximate but context is correct", async () => {
+    const testWorkspace = path.join(os.tmpdir(), `agent-window-approx-hunk-${Date.now()}`);
+    await fs.mkdir(testWorkspace, { recursive: true });
+    await fs.writeFile(path.join(testWorkspace, "approx.txt"), "keep\nbefore\nkeep\n", "utf8");
+
+    const result = JSON.parse(await executeToolCall({
+      function: {
+        name: "apply_patch",
+        arguments: JSON.stringify({
+          patch: [
+            "diff --git a/approx.txt b/approx.txt",
+            "--- a/approx.txt",
+            "+++ b/approx.txt",
+            "@@",
+            "-before",
+            "+after",
+            ""
+          ].join("\n"),
+          summary: "Approximate hunk"
+        })
+      }
+    }, {
+      workspace: testWorkspace,
+      language: "zh",
+      fullAccessAutoApproval: true
+    }));
+
+    expect(result.applied).toBe(true);
+    await expect(fs.readFile(path.join(testWorkspace, "approx.txt"), "utf8")).resolves.toBe("keep\nafter\nkeep\n");
+
+    await fs.rm(testWorkspace, { recursive: true, force: true });
+  });
+
   it("runs non-allowlisted commands when full access is supplied on the request", async () => {
     await fs.mkdir(workspace, { recursive: true });
     const result = JSON.parse(await executeToolCall({

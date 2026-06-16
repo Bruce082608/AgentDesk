@@ -59,7 +59,7 @@ export const ToolCallCard = memo(function ToolCallCard({
     ? true
     : toolDetailsMode === "collapsed"
       ? false
-      : (localOpen || effectiveStatus === "running" || effectiveStatus === "error");
+      : (localOpen || effectiveStatus === "running");
 
   const handleToggle = (e: React.SyntheticEvent<HTMLDetailsElement>) => {
     setLocalOpen(e.currentTarget.open);

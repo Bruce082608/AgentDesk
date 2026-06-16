@@ -1,7 +1,7 @@
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
 import type { Language } from "../../i18n";
 import type { ChatMessage, CommandItem, PatchItem, TaskStatus, UserQuestionItem } from "../../types";
-import { formatQuestionMessage, normalizeQuestionOptions } from "../../utils";
+import { normalizeQuestionOptions } from "../../utils";
 
 type UseApprovalEventHandlerParams = {
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
@@ -68,14 +68,12 @@ export function useApprovalEventHandler({
   }, ui: any, appendEvent: any) => {
     setTaskPhase("waiting", event.question);
     const options = normalizeQuestionOptions(event.options, event.question, language);
-    const assistantQuestion = formatQuestionMessage(event.question, event.context, options);
     setQuestions((current) => [
       { id: event.questionId, question: event.question, context: event.context, options, status: "pending" },
       ...current
     ]);
-    setMessages((current) => [...current, { role: "assistant", content: assistantQuestion, createdAt: Date.now() }]);
     appendEvent("patch", ui.agentQuestion, event.question);
-  }, [setMessages, setTaskPhase, language]);
+  }, [setTaskPhase, language]);
 
   return {
     patches,

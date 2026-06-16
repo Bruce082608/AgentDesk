@@ -21,7 +21,13 @@ export function useContextCompression({
     };
   }, []);
 
-  const updateCompressionStatus = useCallback((phase: "start" | "done" | "failed", message = "", summary = "") => {
+  const updateCompressionStatus = useCallback((
+    phase: "start" | "done" | "failed",
+    message = "",
+    summary = "",
+    effectiveTokenCount?: number,
+    inputBudgetTokens?: number
+  ) => {
     if (compressionStatusTimer.current) {
       window.clearTimeout(compressionStatusTimer.current);
       compressionStatusTimer.current = null;
@@ -30,6 +36,8 @@ export function useContextCompression({
       phase,
       message: message || current.message,
       summary: summary || current.summary,
+      effectiveTokenCount: phase === "done" && Number.isFinite(effectiveTokenCount) ? effectiveTokenCount : undefined,
+      inputBudgetTokens: Number.isFinite(inputBudgetTokens) ? inputBudgetTokens : undefined,
       updatedAt: Date.now()
     }));
     if (phase === "start") {
@@ -44,11 +52,21 @@ export function useContextCompression({
     compressionStatusTimer.current = window.setTimeout(() => setContextCompressionStatus(""), 3000);
   }, [language]);
 
+  const resetContextCompression = useCallback(() => {
+    if (compressionStatusTimer.current) {
+      window.clearTimeout(compressionStatusTimer.current);
+      compressionStatusTimer.current = null;
+    }
+    setContextCompressionStatus("");
+    setContextCompression({ phase: "idle", message: "" });
+  }, []);
+
   return {
     contextCompressionStatus,
     setContextCompressionStatus,
     contextCompression,
     setContextCompression,
+    resetContextCompression,
     updateCompressionStatus
   };
 }

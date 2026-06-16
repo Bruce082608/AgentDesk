@@ -1,8 +1,9 @@
-import { useState, useRef, type RefObject } from "react";
+import { useEffect, useState, useRef, type KeyboardEvent, type RefObject } from "react";
 import { X, Plus, Mic, Square, Send, ChevronDown } from "lucide-react";
 import type { Language, translations } from "../../i18n";
 import type { AttachedFile, ContextCompressionState, PlanItem, ToolRun } from "../../types";
 import { formatAttachmentTitle, formatAttachmentStatus } from "./conversation-utils";
+import type { UserQuestionItem } from "../../types";
 
 type Translation = typeof translations[keyof typeof translations];
 
@@ -32,6 +33,9 @@ type ComposerProps = {
   cancelActiveRequest: () => void;
   planItems?: PlanItem[];
   activeToolRuns?: ToolRun[];
+  activeQuestion?: UserQuestionItem | null;
+  answerQuestion: (questionId: string, option: string) => void;
+  dismissQuestion: (questionId: string) => void;
 };
 
 export function Composer({
@@ -59,8 +63,12 @@ export function Composer({
   uploadAttachmentFiles,
   cancelActiveRequest,
   planItems,
-  activeToolRuns
+  activeToolRuns,
+  activeQuestion,
+  answerQuestion,
+  dismissQuestion
 }: ComposerProps) {
+  const [questionInput, setQuestionInput] = useState("");
   const toggleRecording = async () => {
     composerInputRef.current?.focus();
 
@@ -80,6 +88,65 @@ export function Composer({
   const totalSteps = planItems ? planItems.length : 0;
   const percent = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
   const currentStep = planItems ? planItems.find(item => item.status === "in_progress") : null;
+  const question = activeQuestion || null;
+  const questionOptions = question?.options || [];
+  const questionMode = Boolean(question);
+  const selectedOption = (raw: string) => {
+    const currentQuestion = question;
+    if (!currentQuestion) return;
+    const text = raw.trim();
+    if (!text) return;
+    const match = text.match(/^(\d+)$/);
+    if (match) {
+      const index = Number(match[1]) - 1;
+      if (index >= 0 && index < questionOptions.length) {
+        answerQuestion(currentQuestion.id, questionOptions[index]);
+        return;
+      }
+    }
+    answerQuestion(currentQuestion.id, text);
+  };
+
+  useEffect(() => {
+    if (!question) {
+      setQuestionInput("");
+      return;
+    }
+    setQuestionInput("");
+    composerInputRef.current?.focus();
+  }, [question, composerInputRef]);
+
+  const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (questionMode) {
+        selectedOption(questionInput);
+      } else {
+        send();
+      }
+      return;
+    }
+    if (questionMode && event.altKey && event.key === "Backspace" && !questionInput) {
+      event.preventDefault();
+      if (question) dismissQuestion(question.id);
+      return;
+    }
+    if (questionMode && /^[1-9]$/.test(event.key)) {
+      const index = Number(event.key) - 1;
+      if (index >= 0 && index < questionOptions.length) {
+        event.preventDefault();
+        if (question) answerQuestion(question.id, questionOptions[index]);
+      }
+    }
+  };
+  const submitComposer = () => {
+    if (questionMode) {
+      selectedOption(questionInput);
+    } else {
+      send();
+    }
+  };
 
   return (
     <footer className="composer">
@@ -152,19 +219,51 @@ export function Composer({
             })}
           </div>
         )}
+        {question && (
+          <div className="composer-question-shell">
+            <div className="composer-question-header">
+              <span className="composer-question-label">{language === "zh" ? "Agent 正在提问" : "Agent is asking"}</span>
+              <button
+                type="button"
+                className="secondary tiny icon-text-button"
+                disabled={busy}
+                onClick={() => dismissQuestion(question.id)}
+              >
+                <X size={12} strokeWidth={2.6} aria-hidden="true" />
+                <span>{t.dismiss}</span>
+              </button>
+            </div>
+            <div className="composer-question-text">{question.question}</div>
+            {question.context && <div className="composer-question-context">{question.context}</div>}
+            <div className="composer-question-options">
+              {questionOptions.map((option, index) => (
+                <button
+                  type="button"
+                  className="composer-question-option"
+                  key={option}
+                  disabled={busy}
+                  onClick={() => answerQuestion(question.id, option)}
+                >
+                  <span className="question-option-index">{index + 1}</span>
+                  <span className="question-option-text">{option}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <textarea
           ref={composerInputRef}
-          value={input}
-          placeholder=""
-          onChange={(event) => setInput(event.target.value)}
-          style={input.length > 0 ? { height: `${textareaHeight}px` } : undefined}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              send();
+          value={questionMode ? questionInput : input}
+          placeholder={questionMode ? (language === "zh" ? "输入回复或按数字键选择选项" : "Type a reply or press a number") : ""}
+          onChange={(event) => {
+            if (questionMode) {
+              setQuestionInput(event.target.value);
+            } else {
+              setInput(event.target.value);
             }
           }}
+          style={!questionMode && input.length > 0 ? { height: `${textareaHeight}px` } : undefined}
+          onKeyDown={handleComposerKeyDown}
         />
         <div className="composer-controls">
           <div className="composer-controls-left">
@@ -220,8 +319,8 @@ export function Composer({
               </button>
             )}
 
-            {input.trim().length > 0 && (
-              <button className="send composer-send" type="button" disabled={busy} onClick={send} title={t.send} aria-label={t.send}>
+            {((questionMode ? questionInput : input).trim().length > 0) && (
+              <button className="send composer-send" type="button" disabled={busy} onClick={submitComposer} title={t.send} aria-label={t.send}>
                 <Send size={14} strokeWidth={2.5} aria-hidden="true" />
               </button>
             )}

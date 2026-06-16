@@ -83,6 +83,8 @@ export type ContextCompressionState = {
   phase: "idle" | "start" | "done" | "failed";
   message: string;
   summary?: string;
+  effectiveTokenCount?: number;
+  inputBudgetTokens?: number;
   updatedAt?: number;
 };
 

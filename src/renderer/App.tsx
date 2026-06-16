@@ -252,7 +252,8 @@ function App() {
 
   // Hook 11: Token calculation
   const {
-    contextTokenCount
+    contextTokenCount,
+    inputTokenCount
   } = useTokenCounter({
     messages,
     attachedFiles: workspaceState.attachedFiles,
@@ -372,7 +373,16 @@ function App() {
   );
 
   const inputBudgetTokens = getInputBudgetTokens(providerState.config.contextTokens, providerState.config.maxTokens);
-  const contextPercent = Math.min(100, Math.round((contextTokenCount / Math.max(inputBudgetTokens, 1)) * 100));
+  const compressedContextTokenCount = agentState.contextCompression.phase === "done" &&
+    Number.isFinite(agentState.contextCompression.effectiveTokenCount)
+    ? Math.max(0, Number(agentState.contextCompression.effectiveTokenCount)) + inputTokenCount
+    : null;
+  const displayedContextTokenCount = compressedContextTokenCount ?? contextTokenCount;
+  const displayedInputBudgetTokens = agentState.contextCompression.phase === "done" &&
+    Number.isFinite(agentState.contextCompression.inputBudgetTokens)
+    ? Math.max(1, Number(agentState.contextCompression.inputBudgetTokens))
+    : inputBudgetTokens;
+  const contextPercent = Math.min(100, Math.round((displayedContextTokenCount / Math.max(displayedInputBudgetTokens, 1)) * 100));
   const contextUsageLabel = `${contextPercent}%`;
 
   const startAgentRequest = useCallback(async ({
@@ -476,6 +486,7 @@ function App() {
 
   const answerQuestion = useCallback(async (questionId: string, option: string) => {
     await agentState.answerQuestion(questionId, option);
+    setInput("");
   }, [agentState.answerQuestion]);
 
   const dismissQuestion = useCallback((questionId: string) => {
@@ -578,7 +589,7 @@ function App() {
           commandAutoApprovalExpiresAt={agentState.commandAutoApprovalExpiresAt}
 
           composerInputRef={composerInputRef}
-          configContextTokens={inputBudgetTokens}
+          configContextTokens={displayedInputBudgetTokens}
           contextCompression={agentState.contextCompression}
           contextCompressionStatus={agentState.contextCompressionStatus}
           contextPercent={contextPercent}
@@ -604,7 +615,7 @@ function App() {
           send={send}
           streamRecoveryStatus={agentState.streamRecoveryStatus}
           taskStatus={agentState.taskStatus}
-          sessionContextTokenCount={contextTokenCount}
+          sessionContextTokenCount={displayedContextTokenCount}
           setInput={setInput}
 
           streamingResponse={agentState.streamingResponse}

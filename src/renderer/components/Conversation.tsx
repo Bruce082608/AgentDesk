@@ -145,6 +145,7 @@ export function Conversation({
   const [now, setNow] = useState(() => Date.now());
   const [toolDetailsMode, setToolDetailsMode] = useState<"default" | "expanded" | "collapsed">("default");
   const [textareaHeight, setTextareaHeight] = useState<number>(36);
+  const activeQuestion = activeQuestions[0] || null;
 
 
 
@@ -284,14 +285,11 @@ export function Conversation({
           toolDraft={toolDraft}
           activeCommands={activeCommands}
           activePatches={activePatches}
-          activeQuestions={activeQuestions}
-          answerQuestion={answerQuestion}
           approveCommand={approveCommand}
           applyPatch={applyPatch}
           commandAutoApproval={commandAutoApproval}
           discardCommand={discardCommand}
           discardPatch={discardPatch}
-          dismissQuestion={dismissQuestion}
           resetCommandAutoApproval={resetCommandAutoApproval}
           contextCompressionStatus={contextCompressionStatus}
           taskStatus={taskStatus}
@@ -331,6 +329,9 @@ export function Conversation({
         cancelActiveRequest={cancelActiveRequest}
         planItems={planItems}
         activeToolRuns={activeToolRuns}
+        activeQuestion={activeQuestion}
+        answerQuestion={answerQuestion}
+        dismissQuestion={dismissQuestion}
       />
 
     </main>

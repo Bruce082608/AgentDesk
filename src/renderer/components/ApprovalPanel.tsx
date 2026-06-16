@@ -1,22 +1,19 @@
 import type { Language } from "../i18n";
-import { Check, FileDiff, MessageSquareMore, Play, RotateCcw, ShieldCheck, Terminal, TriangleAlert, X } from "lucide-react";
+import { Check, FileDiff, Play, RotateCcw, ShieldCheck, Terminal, TriangleAlert, X } from "lucide-react";
 import { translations } from "../i18n";
-import type { CommandItem, PatchItem, UserQuestionItem } from "../types";
+import type { CommandItem, PatchItem } from "../types";
 
 type Translation = typeof translations[keyof typeof translations];
 
 type ApprovalPanelProps = {
   activeCommands: CommandItem[];
   activePatches: PatchItem[];
-  activeQuestions: UserQuestionItem[];
   approveCommand: (commandId: string, allowFuture?: boolean) => void;
   applyPatch: (patchId: string) => void;
   busy: boolean;
   commandAutoApproval: boolean;
   discardCommand: (commandId: string) => void;
   discardPatch: (patchId: string) => void;
-  dismissQuestion: (questionId: string) => void;
-  answerQuestion: (questionId: string, option: string) => void;
   language: Language;
   resetCommandAutoApproval: () => void;
   t: Translation;
@@ -25,20 +22,17 @@ type ApprovalPanelProps = {
 export function ApprovalPanel({
   activeCommands,
   activePatches,
-  activeQuestions,
-  answerQuestion,
   approveCommand,
   applyPatch,
   busy,
   commandAutoApproval,
   discardCommand,
   discardPatch,
-  dismissQuestion,
   language,
   resetCommandAutoApproval,
   t
 }: ApprovalPanelProps) {
-  if (activePatches.length === 0 && activeCommands.length === 0 && activeQuestions.length === 0) return null;
+  if (activePatches.length === 0 && activeCommands.length === 0) return null;
 
   return (
     <section className="conversation-approvals" aria-live="polite">
@@ -47,32 +41,6 @@ export function ApprovalPanel({
         <span>{t.needsApproval}</span>
       </div>
       <div className="approval-thread">
-        {activeQuestions.length > 0 && (
-          <section className="patch-stack">
-            <div className="panel-title icon-title">
-              <MessageSquareMore size={13} strokeWidth={2.4} aria-hidden="true" />
-              <span>{language === "zh" ? "Agent 提问" : "Agent Questions"}</span>
-            </div>
-            {activeQuestions.map((question) => (
-              <div className="question-card" key={question.id}>
-                {question.context && <div className="question-context">{question.context}</div>}
-                <div className="question-text">
-                  <MessageSquareMore size={15} strokeWidth={2.4} aria-hidden="true" />
-                  <span>{question.question}</span>
-                </div>
-                <div className="patch-actions">
-                  {question.options.map((option) => (
-                    <button className="primary small question-option" key={option} disabled={busy} onClick={() => answerQuestion(question.id, option)}>{option}</button>
-                  ))}
-                  <button className="secondary small icon-text-button" disabled={busy} onClick={() => dismissQuestion(question.id)}>
-                    <X size={13} strokeWidth={2.5} aria-hidden="true" />
-                    <span>{t.dismiss}</span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </section>
-        )}
         {activePatches.length > 0 && (
           <section className="patch-stack">
             <div className="panel-title icon-title">
